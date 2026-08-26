@@ -1,110 +1,176 @@
-# OUT DIRECTORY ORGANIZATION SPEC
+# Out directory organization spec
 
 ## Purpose
-Define one stable, predictable layout for generated files under `out/` so:
-- humans can quickly find outputs,
-- scripts do not overwrite unrelated runs/users,
-- future tooling can safely clean, archive, and diff outputs.
+
+Define the generated-artifact layout under `out/` so users, pipeline stages, and cleanup tools can
+find a run without overwriting another user's files.
 
 ## Scope
-This spec applies to all project scripts that read or write generated artifacts under `out/`.
+
+This contract applies to default input, output, cache, and operational-log paths used by project
+scripts. An explicit CLI path remains an intentional override and is used as provided.
 
 ## Core rule
-All default script outputs and caches MUST be user-scoped:
+
+Default pipeline artifacts and caches are user-scoped:
+
 - `out/<github_username>/...`
 
-`<github_username>` comes from `settings.yaml` `github.username` unless overridden by CLI flags.
+`<github_username>` comes from `settings.yaml` `github.username`. The fetch stage also accepts
+`--user`, which determines its scoped paths.
 
-## Allowed top-level namespaces under `out/`
-Only these top-level folders are allowed:
-- `out/<github_username>/` for real pipeline runs.
-- `out/logs/` for operational logs grouped by program.
-- `out/smoke/` for smoke-test artifacts.
-- `out/samples/` for tiny example fixtures checked or shared intentionally.
-- `out/archive/` for manually archived historical outputs.
-- `out/tmp/` for disposable local scratch data.
+## Allowed top-level namespaces
 
-Any new top-level folder under `out/` should be treated as a spec violation unless documented here first.
+- `out/<github_username>/`: real pipeline runs.
+- `out/logs/`: operational logs grouped by program.
+- `out/smoke/`: smoke-test artifacts.
+- `out/samples/`: intentionally shared small examples.
+- `out/archive/`: manually archived historical outputs.
+- `out/tmp/`: disposable scratch data.
 
-## Logging layout
-Logs are grouped by program/script and are not user-scoped by default:
-- `out/logs/<program>/...`
+A new top-level `out/` namespace requires a documented update to this specification.
 
-Launchd exception:
-- launchd jobs MAY use system log paths under `~/Library/Logs/<program>/...` on macOS.
-- For this repo, launchd logs are written to:
-- `~/Library/Logs/vosslab_podcast/launchd/launchd_pipeline.log`
-- `~/Library/Logs/vosslab_podcast/launchd/launchd_pipeline.error.log`
+## Default user layout
 
-Examples:
-- `out/logs/fetch_github_data/fetch.log`
-- `out/logs/outline_to_blog_post/blog.log`
+### Daily GitHub evidence
 
-## Required layout for `out/<github_username>/`
-The following paths are the default contract:
+- `out/<user>/daily/YYYY-MM-DD/raw_commits.json`
+- `out/<user>/daily/YYYY-MM-DD/claims.json`
+- `out/<user>/daily/YYYY-MM-DD/run_manifest.json`
+- `out/<user>/daily/YYYY-MM-DD/post_draft.md`
+- `out/<user>/daily/YYYY-MM-DD/agent_generation_manifest.json`
+- `out/<user>/daily/YYYY-MM-DD/author_prompt.txt` (normal Hermes authoring only)
+- `out/<user>/daily/YYYY-MM-DD/agent_authoring_result.json` (normal Hermes authoring only)
+- `out/<user>/daily/YYYY-MM-DD/post-YYYY-MM-DD.md`
+- `out/<user>/daily/YYYY-MM-DD/validation_failures/validation_report.json` (invalid drafts only)
+- `out/<user>/daily_site/index.html`
+- `out/<user>/daily_site/status.html`
+- `out/<user>/daily_site/date/YYYY-MM-DD/index.html`
+- `out/<user>/daily_site/posts/post-YYYY-MM-DD.md`
+- `out/<user>/daily_site/site_manifest.json`
 
-- Fetch stage
+`pipeline/daily_github_evidence.py` is the independent M2 evidence path. It requires an explicit
+`--date YYYY-MM-DD`, applies the configured IANA timezone's local-midnight interval, and stores the
+unmodified input commit records in `raw_commits.json`. `claims.json` contains only confirmed claims
+with SHA, GitHub API URL, HTML permalink, complete message, timestamps, and identity evidence.
+`run_manifest.json` records expected and received collection pages, rate-limit state, identity
+outcomes, errors, completeness, and publication prerequisites. A later publication stage must reject
+any manifest whose `publication.eligible` is false; a complete empty day remains eligible for an
+explicit no-activity post.
+
+`pipeline/daily_github_blog.py` is the independent M3 Hermes authoring and deterministic validation
+path. The normal authoring path requires the `hermes` CLI and a current active Hermes profile that
+exposes the `daily-github-blogger` skill. It uses that profile's configured route without a
+project-local model or provider setting, records the prompt and Hermes subprocess result in the same
+run directory, then writes the draft and generation manifest there. The generation manifest maps every
+prose paragraph to confirmed claim IDs and matching SHAs. Promotion creates `post-YYYY-MM-DD.md` only
+after M2 metadata, claim/SHA declarations, paragraph coverage, and exact Markdown commit permalinks
+validate. Failed drafts remain inspectable alongside a separate validation report and never overwrite a
+promoted post.
+
+`pipeline/daily_github_site.py` reads only these generated daily artifacts and rebuilds the static
+archive deterministically. It sorts dates newest-first, copies only the promoted post filename,
+renders one page per date, and leaves incomplete, validation-failed, and complete-unpublished runs
+visible in the archive and status page. M4 does not independently rerun M3 validation: the operation
+requires a prior successful M3 validation and promotion to `post-YYYY-MM-DD.md`; a draft or generation
+manifest cannot satisfy that promotion requirement.
+It makes no GitHub, Hermes, model, or provider call. `pipeline/daily_github_site_server.py` serves an
+already-built archive only after it validates a configured, locally assigned RFC1918 IPv4 address and
+a non-privileged port. The server refuses wildcard, loopback, public, unassigned, and privileged bind
+choices before listening.
+
+### Fetch and changelog processing
+
 - `out/<user>/github_data_YYYY-MM-DD.jsonl`
 - `out/<user>/daily_cache/github_data_YYYY-MM-DD.jsonl`
 - `out/<user>/cache/list_repos.json`
-- `out/<user>/cache/github_api/` (filesystem query cache shards)
+- `out/<user>/cache/github_api/`
 
-- Outline stage
+`pipeline/fetch_github_data.py` writes the dated main JSONL and daily cache files. The date label
+uses the fetch stage's logical completed-day window. `pipeline/summarize_changelog_data.py` reads
+the latest default fetch JSONL and atomically replaces that same user-scoped JSONL after it
+summarizes oversized `repo_changelog` entries. It does not create a separate published content
+artifact.
+
+### Outline processing
+
 - `out/<user>/outline.json`
-- `out/<user>/outline.txt`
+- `out/<user>/outline.md`
+- `out/<user>/daily_outlines/github_outline-YYYY-MM-DD.json`
+- `out/<user>/daily_outlines/github_outline-YYYY-MM-DD.md`
 - `out/<user>/outline_repos/index.json`
 - `out/<user>/outline_repos/*.json`
 - `out/<user>/outline_repos/*.txt`
+- `out/<user>/compilation_outline-<window>-YYYY-MM-DD.md`
 
-- Content stage
+`pipeline/github_data_to_outline.py` writes the current outline, daily snapshots, and per-repository
+shards. `pipeline/outline_compilation.py` reads daily snapshots and writes the compiled
+`outline.json` plus a date-stamped compilation Markdown file.
+
+### Content processing
+
 - `out/<user>/blog_post_YYYY-MM-DD.md`
-- `out/<user>/bluesky_post.txt`
-- `out/<user>/podcast_script.txt`
-
-- Intermediate LLM drafts
 - `out/<user>/blog_repo_drafts/*.json`
-- `out/<user>/bluesky_repo_drafts/*.json`
-- `out/<user>/podcast_repo_drafts/*.json`
+- `out/<user>/bluesky_post-YYYY-MM-DD.txt`
+- `out/<user>/podcast_script-YYYY-MM-DD.txt`
+- `out/<user>/podcast_narration-YYYY-MM-DD.txt`
 
-- Audio stage
-- `out/<user>/episode.wav`
-- `out/<user>/episode_siri.aiff`
+`pipeline/outline_to_blog_post.py` adds its date stamp with an underscore. The Bluesky and podcast
+stages, `pipeline/blog_to_bluesky_post.py` and `pipeline/blog_to_podcast_script.py`, add their
+date stamps with hyphens. The podcast stage writes both script artifacts unless `--skip-narration`
+is requested.
+
+### Audio processing
+
+- `out/<user>/podcast_audio-YYYY-MM-DD.mp3`
+- `out/<user>/narrator_audio-YYYY-MM-DD.mp3`
+
+`pipeline/script_to_audio.py` creates the Qwen multi-speaker `podcast_audio` MP3 from the
+multi-speaker script. `pipeline/script_to_audio_say.py` creates the macOS `say` `narrator_audio` MP3
+from the single-speaker narration; temporary WAV or AIFF conversion files are removed after a
+successful MP3 conversion.
 
 ## Naming rules
-- Use lowercase ASCII, numbers, underscores, and hyphens only.
-- Date stamps use `YYYY-MM-DD`.
-- Keep stable base names for machine consumption:
-- `outline.json`, `outline.txt`, `bluesky_post.txt`, `podcast_script.txt`
-- Use date-stamped filenames for fetch and blog outputs.
 
-## Behavior rules for scripts
-- If a script is run with default output/input paths, it MUST resolve to `out/<user>/...`.
-- If a custom path is explicitly passed by CLI, the script MUST honor it as-is.
-- Scripts SHOULD log resolved absolute input/output paths at startup.
-- Scripts MUST NOT write default artifacts to bare `out/` root.
-- Operational logs SHOULD be written under `out/logs/<program>/`.
+- Use lowercase ASCII, numbers, underscores, and hyphens in generated filenames.
+- Use `YYYY-MM-DD` date stamps.
+- Preserve stable names where a downstream default expects a current artifact, including
+  `outline.json` and `outline.md`.
+- Use the date-stamped names above for artifacts that represent one content run.
 
-## Cross-script compatibility
-- Downstream scripts SHOULD default to user-scoped upstream outputs.
-- Outline scripts SHOULD auto-discover latest matching user-scoped fetch file when applicable.
+## Behavior rules
 
-## Cleanup policy
-- Safe cleanup targets:
-- `out/tmp/`
-- stale files in `out/smoke/`
-- old dated files in `out/<user>/daily_cache/` and `out/<user>/cache/github_api/`
+- Default paths resolve below `out/<user>/`.
+- Explicit custom CLI paths are honored as-is.
+- Scripts log resolved paths before writing where practical.
+- Scripts do not write default artifacts to bare `out/`.
+- Downstream default inputs resolve to the matching user scope. The fetch, changelog, and outline
+  stages discover the newest matching fetch JSONL when their default input file is absent.
 
-- Do not delete:
-- latest `github_data_YYYY-MM-DD.jsonl`
-- latest `outline.json`
-- latest `blog_post_YYYY-MM-DD.md`
-- any file outside `out/`
+## Logs
+
+Operational logs that are stored in `out/` use:
+
+- `out/logs/<program>/...`
+- `out/logs/daily_github_site/access.log` for the private static-site server's query-free requests.
+
+The macOS launchd installer is an explicit exception. It writes its standard output and error logs
+to:
+
+- `~/Library/Logs/vosslab_podcast/launchd/launchd_pipeline.log`
+- `~/Library/Logs/vosslab_podcast/launchd/launchd_pipeline.error.log`
+
+## Cleanup
+
+Safe cleanup targets include `out/tmp/`, stale `out/smoke/` artifacts, and old cache files below
+`out/<user>/daily_cache/` or `out/<user>/cache/github_api/`.
+
+Do not delete the newest dated fetch, blog, Bluesky, podcast script, narration, or audio artifact,
+or the current `outline.json`, without a deliberate retention decision.
 
 ## Non-goals
-- This spec does not define retention duration.
-- This spec does not force commit of generated outputs.
-- This spec does not change CLI override behavior.
 
-## Migration note
-Legacy files in bare `out/` may still exist from older runs. They are not canonical.
-Current script defaults should write to `out/<user>/...`.
+This specification does not set retention periods, require generated files to be committed, or
+change explicit CLI override behavior.
+
+Legacy files directly under bare `out/` are historical and non-canonical.

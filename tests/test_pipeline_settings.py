@@ -87,6 +87,25 @@ def test_get_enabled_llm_transport_multiple_enabled_raises() -> None:
 
 
 #============================================
+def test_get_github_identity_configuration_uses_explicit_values() -> None:
+	"""
+	Daily evidence identity should read the configured login and optional email allowlist.
+	"""
+	settings = {
+		"github": {
+			"username": "vosslab",
+			"identity_login": "Dr_Voss",
+			"allowed_emails": ["voss@example.test", "other@example.test"],
+		}
+	}
+	assert pipeline_settings.get_github_identity_login(settings) == "Dr_Voss"
+	assert pipeline_settings.get_github_allowed_emails(settings) == [
+		"voss@example.test",
+		"other@example.test",
+	]
+
+
+#============================================
 def test_get_llm_provider_model_apple_is_empty() -> None:
 	"""
 	Apple provider should not require a model.

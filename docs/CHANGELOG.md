@@ -1,3 +1,77 @@
+## 2026-08-20
+
+### Additions and New Features
+- Added `pipeline/daily_github_evidence.py`, an explicit-date M2 evidence command that accepts a
+  local JSON records or collects named repository commits, classifies identity evidence, and writes
+  raw provenance, normalized claims, and a completeness-bearing manifest under
+  `out/<user>/daily/YYYY-MM-DD/`.
+- Added configured `github.identity_login`, optional `github.allowed_emails`, and
+  `github.timezone` settings for deterministic daily evidence attribution and calendar boundaries.
+- Added `pipeline/daily_github_blog.py` and `pipeline/podlib/daily_github_blog.py` as the independent
+  M3 Hermes authoring, deterministic validation, and promotion path for complete M2 daily runs.
+- Added the active-profile `daily-github-blogger` Hermes skill, claim/SHA paragraph provenance
+  manifest contract, deterministic synthetic author mode, and M2-to-M3 E2E round trip.
+- Added M4 static presentation commands, `pipeline/daily_github_site.py` and
+  `pipeline/daily_github_site_server.py`, plus a deterministic `out/<user>/daily_site/` archive,
+  date pages, copied promoted Markdown, and visible run-status states.
+- Added configured private-LAN bind validation, query-free local access logging, operations guidance,
+  pure site-render tests, and a synthetic-input M2-to-M4 private HTTP E2E smoke.
+
+### Behavior or Interface Changes
+- Complete M2 daily runs now retain `post_draft.md`, `agent_generation_manifest.json`, and a promoted
+  `post-YYYY-MM-DD.md` only after date/timezone, claim ID/SHA, factual-paragraph, and exact commit
+  permalink validation. Rejected drafts retain
+  `validation_failures/validation_report.json` without replacing a valid post.
+
+### Fixes and Maintenance
+- Replaced checked-in daily-blog fixture data with minimal synthetic input generated inside each owned
+  E2E temporary directory. The repository has no daily-blog fixture corpus.
+- Removed unreferenced legacy `speaker_styles.txt` and Pierre's isolated original weekly-digest/TTS
+  scripts, `pierre/fetch_and_script.py` and `pierre/tts_generate.py`. The active broad pipeline,
+  optional Qwen audio, and M2/M3/M4 daily-blog paths remain unchanged.
+- Hardened M2 pagination/completeness records, atomic artifact replacement, commit URL validation,
+  M3 promotion receipts and artifact confinement, M4 receipt-bound static publication, and private
+  LAN site-root confinement.
+- Moved repository-wide ASCII, whitespace, indentation, import, pyflakes, Bandit, and shebang
+  compliance checks to direct observational E2E runners. They no longer invoke in-place fixers or
+  delete/write root-level report files. `tests/conftest.py` now rejects hidden `test_*.py` files in
+  ignored E2E/Playwright trees and requires the direct E2E aggregate runner.
+- Corrected [docs/E2E_TESTS.md](E2E_TESTS.md) and [docs/PYTEST_STYLE.md](PYTEST_STYLE.md) to keep
+  repository-wide compliance scans outside the fast pytest lane and document their direct-run,
+  no-side-effect contract.
+- Reconciled active M2/M3/M4 documentation with the implementation: M3 requires the current active
+  Hermes profile and `daily-github-blogger` skill without project model/provider hardcoding, records
+  normal author prompt/result artifacts, and promotes only after deterministic validation. M4 accepts
+  only promoted posts, retains manual LAN-review gates, and documents macOS interface and listener
+  inspection commands.
+- Corrected [README.md](../README.md),
+  [docs/OUT_DIRECTORY_ORGANIZATION_SPEC.md](OUT_DIRECTORY_ORGANIZATION_SPEC.md), and the broad
+  pipeline milestone status to use the current executable stage paths, user-scoped artifact names,
+  audio outputs, Python local runner, changelog-summary stage, and launchd configuration.
+- Recorded that this checkout has no `.github/workflows/` directory and therefore no GitHub Actions
+  workflow or configured GitHub Actions schedule.
+
+### Decisions and Failures
+- Marked the daily GitHub blog revival as planned work in
+  [DAILY_GITHUB_BLOG_REVIVAL_PLAN.md](active_plans/DAILY_GITHUB_BLOG_REVIVAL_PLAN.md).
+  Its Aella/Hermes authoring path and scheduling gates are not part of the executable broad
+  pipeline.
+
+## 2026-08-11
+
+### Decisions and Failures
+- Added `docs/active_plans/DAILY_GITHUB_BLOG_REVIVAL_PLAN.md` to refocus revival on a local-LAN
+  daily GitHub work blog with explicit-date, identity, provenance,
+  branch-reconciliation, and monitoring gates.
+- Recorded that `dr_voss` and `origin/main` diverged independently from `5ff9d83`; the plan requires
+  isolated comparison and a human-approved baseline before any merge or branch-changing work.
+- Recorded that `origin/main` is Pierre's intentional attempt to improve `dr_voss`; branch comparison
+  will test those improvements rather than treating the branch as unrelated or presumptively failed.
+- Replaced the prior deterministic/local-LLM blog-rendering direction with an Aella (Hermes-agent)
+  authoring stage: a scoped Hermes skill produces a draft and evidence manifest, while local code
+  validates claim IDs, SHAs, and links before publication. The revived path deliberately excludes
+  `local-llm-wrapper`, Apple Foundation Models, Ollama, and depth/referee model stages.
+
 ## 2026-02-22
 
 ### Fixes and Maintenance
@@ -92,10 +166,10 @@
   compilation merges.
 - Added 5 tests to `tests/test_outline_to_blog_post.py` for scaled repo targets (proportional,
   normalization, empty outlines, single repo) and outline context in prompts.
-- Added [docs/DESIGN_PHILOSOPHY.md](docs/DESIGN_PHILOSOPHY.md) documenting the pipeline's core
+- Added [docs/DESIGN_PHILOSOPHY.md](DESIGN_PHILOSOPHY.md) documenting the pipeline's core
   design principles: cheap-but-mediocre local models, patience-for-quality tradeoff, caching for
   resilience, the depth system (1-4), referee pattern, and anti-hallucination guardrails.
-- Added link to design philosophy doc in [README.md](README.md).
+- Added link to design philosophy doc in [README.md](../README.md).
 - Added `pipeline/podlib/depth_orchestrator.py` with shared depth pipeline logic: `validate_depth`,
   `compute_draft_count`, `needs_referee`, `needs_polish`, `build_referee_brackets`,
   `parse_referee_winner`, and `run_depth_pipeline`. Supports depth 1-4 with draft caching,
@@ -186,7 +260,7 @@
   without revealing the guardrail band numbers.
 
 ### Fixes and Maintenance
-- Added [docs/REPO_REVIEW-2026-02-22.md](docs/REPO_REVIEW-2026-02-22.md) with a deep-dive review
+- Added [docs/REPO_REVIEW-2026-02-22.md](REPO_REVIEW-2026-02-22.md) with a deep-dive review
   of pipeline output quality, LLM prompt effectiveness, and prioritized recommendations.
 - Added `pipeline/prompt_loader.py` with `load_prompt()` and `render_prompt()` for loading
   externalized prompt templates from `pipeline/prompts/` using `{{token}}` placeholders.

@@ -1191,3 +1191,201 @@ Next actions
 1. Smoke test with `--depth 2` on a real run to verify multi-draft generation and polish.
 2. Tune referee/polish prompts based on output quality.
 3. Consider per-stage depth overrides in settings.yaml if needed later.
+
+---
+Session Update: 2026-08-11 (Daily GitHub blog revival plan)
+
+What changed
+- Added `docs/active_plans/DAILY_GITHUB_BLOG_REVIVAL_PLAN.md`.
+- Refocused the next implementation on a factual local-LAN daily blog for `vosslab` commit activity.
+- Recorded that `dr_voss` and `origin/main` independently diverged from `5ff9d83`; no merge is
+  planned before an isolated branch comparison and human baseline decision.
+
+What was inspected
+- `dr_voss` has 24 commits beyond the common base; `origin/main` has 3 different commits.
+- The current fetch path collects commits from recently updated repositories but has no personal
+  attribution filter; existing sample blog output is generic and has no commit provenance.
+
+Next actions
+1. Compare both branches in isolated worktrees using the same date fixture and record a scorecard.
+2. Have the human repository owner approve the revival base before any branch-changing operation.
+3. Implement the explicit-date, identity-aware evidence contract before Aella writes the first post.
+
+Session Update: 2026-08-11 (Hermes-agent authoring correction)
+
+Decision
+- The revived daily-blog prose stage is Aella (Hermes Agent), not the existing local-LLM pipeline.
+- Existing `local-llm-wrapper` use, Apple/Ollama transport selection, depth/referee passes, and
+  project-local model settings are excluded from the new daily-blog path rather than carried forward.
+
+Design
+- The deterministic part remains the evidence boundary: GitHub data -> normalized claims -> complete
+  run manifest -> source-permalink map.
+- A dedicated `daily-github-blogger` Hermes skill receives that compact packet in a self-contained
+  prompt, writes a Markdown draft plus an `agent_generation_manifest.json`, and uses no local model.
+- A local validator checks the agent's claimed IDs, SHAs, source links, and completeness before a
+  draft may become the published post. Failed drafts are retained with their error report.
+- Manual `hermes chat --in <repo> --skills daily-github-blogger -q <prompt>` is the first path.
+  After it is verified, a Hermes cron job with the same skill, repo workdir, and pre-run data script
+  can create the daily post; the cron session must not depend on prior chat memory.
+
+Project provenance update: 2026-08-11
+- `origin/main` was Pierre's deliberate attempt to improve the `dr_voss` branch. The planned branch
+  scorecard must therefore identify which of Pierre's changes genuinely improve explicit-date,
+  attribution, provenance, testability, or LAN-readiness, instead of dismissing it as an unrelated
+  competing implementation.
+
+---
+Stale-reference notice: 2026-08-20 (Pipeline documentation alignment)
+
+Historical session records above are preserved as written. Some describe retired stage names,
+`automation/run_local_pipeline.sh`, a `.github/workflows/weekly.yml` workflow, bare `out/` paths,
+or `episode.wav` and `episode_siri.aiff`; they are not current instructions.
+
+Current executable path
+- `fetch_github_data.py` -> `summarize_changelog_data.py` -> `github_data_to_outline.py` ->
+  `outline_compilation.py` -> `outline_to_blog_post.py` -> `blog_to_bluesky_post.py` ->
+  `blog_to_podcast_script.py`.
+- `automation/run_local_pipeline.py` runs those stages and the macOS `say` audio stage. Qwen audio
+  remains a separate optional `script_to_audio.py` invocation.
+- Default artifacts are user-scoped under `out/<user>/`, including dated `podcast_audio-*.mp3` and
+  `narrator_audio-*.mp3` files.
+- This checkout has no GitHub Actions workflow. The available launchd installer configures Monday
+  09:00 local execution only when a user installs it.
+
+What was verified
+- Ran `--help` for all current pipeline stages and `automation/run_local_pipeline.py`.
+- Confirmed the active daily-blog revival remains a plan; it keeps scheduling disabled until manual
+  generation, validation, and private-LAN review gates pass.
+
+---
+Session Update: 2026-08-20 (Daily GitHub evidence contract)
+
+What changed
+- Added `pipeline/daily_github_evidence.py` and
+  `pipeline/podlib/daily_github_evidence.py` for the independent M2 path.
+- The command requires `--date YYYY-MM-DD`, uses `github.timezone` local-midnight boundaries, and
+  accepts offline raw records or named live repositories.
+- It writes `raw_commits.json`, `claims.json`, and `run_manifest.json` under
+  `out/<user>/daily/YYYY-MM-DD/`. Claims preserve SHA, API URL, HTML permalink, full message,
+  author/committer timestamps, and identity evidence.
+- Added configured `github.identity_login` and optional `github.allowed_emails`; co-authored input
+  remains ambiguous and cannot enter the confirmed claim packet.
+
+What was tested
+- `source source_me.sh && python3 -m pytest -q tests/test_daily_github_evidence.py
+  tests/test_pipeline_settings.py` (17 passed).
+- `source source_me.sh && python3 -m pytest tests/` (110 passed).
+- Fixture command wrote a complete M2 evidence run for 2026-08-19 under
+  `out/smoke/vosslab/daily/2026-08-19/`.
+
+Next actions
+1. Implement the M3 Aella claim-to-post validator and retain the manifest completeness gate.
+2. Keep scheduled and LAN publication disabled until the later manual review gates pass.
+
+---
+Session Update: 2026-08-20 (M3 Hermes daily blog authoring and validation)
+
+What changed
+- Added the independent M3 path:
+  - `pipeline/daily_github_blog.py`
+  - `pipeline/podlib/daily_github_blog.py`
+- Added active-profile Hermes skill `daily-github-blogger`. The normal author command uses
+  `hermes chat --in <repo> --skills daily-github-blogger --query-file <prompt> --quiet`, with no
+  embedded model or provider selection.
+- M3 accepts only complete, publication-eligible M2 run directories and writes `post_draft.md` plus
+  `agent_generation_manifest.json` beside M2 artifacts. The generation manifest maps exact prose
+  paragraphs to confirmed claim IDs and matching SHAs.
+- Added deterministic validation for M2 date/timezone consistency, known claim ID/SHA pairs,
+  paragraph coverage, and exact Markdown commit permalinks. Only valid drafts promote to
+  `post-YYYY-MM-DD.md`; rejected drafts retain
+  `validation_failures/validation_report.json`.
+- Added offline pytest coverage and `tests/e2e/e2e_daily_github_blog.py` for raw commits -> claims ->
+  dry-run author artifacts -> validated promoted post.
+
+What was tested
+- `source source_me.sh && python3 -m pytest -q tests/test_daily_github_evidence.py tests/test_daily_github_blog.py tests/test_pipeline_settings.py` (pass: 21 passed).
+- `source source_me.sh && python3 -m pytest tests/` (pass: 114 passed).
+- `source source_me.sh && python3 tests/e2e/e2e_daily_github_blog.py` (pass).
+- Fixture-backed CLI dry run: `daily_github_evidence.py --input ...` followed by
+  `daily_github_blog.py --dry-run` and `--validate-only` (pass; no network, Hermes, or model call).
+
+Next actions
+1. Run the normal Hermes author command against a complete historical M2 run and review the resulting
+   factual post before any LAN or scheduling work.
+2. Keep local-LLM, TTS, social, branch-changing, scheduling, and LAN-serving work outside M3.
+
+---
+Session Update: 2026-08-20 (M4 private static archive and LAN operation)
+
+What changed
+- Added `pipeline/daily_github_site.py` and `pipeline/daily_github_site_server.py` with shared
+  static rendering and private-bind validation in `pipeline/podlib/daily_github_site.py`.
+- The archive reads only `out/<user>/daily/YYYY-MM-DD/` artifacts, accepts only promoted
+  `post-YYYY-MM-DD.md` files as published content, builds newest-first archive/status/date pages, and
+  makes incomplete, validation-failed, and complete-unpublished runs visible.
+- Added `daily_site.bind_address` and `daily_site.port` configuration. The server validates one locally
+  assigned RFC1918 IPv4 address and a non-privileged port before opening its listener, and writes
+  query-free access logs below `out/logs/daily_github_site/`.
+- Added operations documentation and a fixture M2-to-M4 build/serve E2E. No service manager, public
+  endpoint, provider/model selection, or schedule was added.
+
+What was tested
+- `source source_me.sh && python3 -m pytest tests/` (pass: 118 passed).
+- `source source_me.sh && python3 tests/e2e/e2e_daily_github_blog.py` (pass).
+- `source source_me.sh && python3 tests/e2e/e2e_daily_github_site.py` (pass; bounded private-LAN HTTP
+  smoke through the configured address).
+- Fixture M2 -> M3 -> static build wrote `out/smoke/vosslab/daily_site/` and verified its home, date,
+  and copied promoted Markdown files.
+
+Next actions
+1. Review a normal Hermes-authored historical post before retaining a long-running local server.
+2. Reconfirm `daily_site.bind_address` against current host interfaces before every manual server start.
+3. Keep scheduling and any public deployment outside this milestone.
+
+---
+Session correction: 2026-08-20 (E2E topology and M2/M3/M4 documentation)
+
+Historical session records above are preserved as written. This correction supersedes their current
+test-topology and operational-documentation implications.
+
+What changed
+- Moved compliance runners are now direct observational E2E checks: they do not run in-place fixers
+  and do not delete or write repository-root report files.
+- `tests/conftest.py` now rejects hidden `test_*.py` files in ignored E2E/Playwright directories and
+  requires `tests/e2e/run_all.sh`; the aggregate runner requires at least one Python E2E runner.
+- Updated E2E, pytest, README, output-layout, operations, and active-plan documentation to distinguish
+  implemented M2/M3/M4 code from remaining human/operational gates.
+- M3 normal authoring requires the `hermes` CLI plus the current active profile's
+  `daily-github-blogger` skill. It does not hardcode a model or provider and records
+  `author_prompt.txt` plus `agent_authoring_result.json` when used.
+- M4 builds and serves only validated, promoted `post-YYYY-MM-DD.md` artifacts. macOS private-LAN
+  guidance uses `networksetup`, `ifconfig`, `ipconfig`, and `lsof` rather than Linux-only commands.
+
+What was tested
+- `source source_me.sh && python3 -m py_compile` for the changed E2E runners and `tests/conftest.py`
+  passed.
+- `source source_me.sh && bash tests/e2e/run_all.sh` passed all 12 direct Python E2E runners,
+  including the offline M2-to-M3 and fixture M2-to-M4 paths.
+
+Next actions
+1. Before normal M3 authoring, verify the active Hermes profile exposes `daily-github-blogger`.
+2. Before manual M4 serving, inspect the selected macOS private interface and run the documented LAN
+   smoke through the configured address.
+
+---
+Session correction: 2026-08-20 (Synthetic test-input policy)
+
+Historical references to daily-blog fixtures above describe earlier implementation evidence. The
+current M2/M3/M4 tests create minimal synthetic records inside their owned temporary directories;
+there is no checked-in daily-blog fixture corpus.
+
+What changed
+- Replaced daily-blog fixture-language in current commands and release notes with synthetic-input
+  terminology.
+- Removed the unreferenced Pierre original digest/TTS scripts and `speaker_styles.txt` after call-site
+  inspection. Active prompt loading, optional Qwen audio, and the revived daily-blog path remain.
+
+What was tested
+- `source source_me.sh && python3 -m pytest tests/` (139 passed).
+- `source source_me.sh && bash tests/e2e/run_all.sh` (all direct runners passed).

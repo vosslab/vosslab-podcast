@@ -1,5 +1,8 @@
 github:
   username: vosslab
+  identity_login: vosslab
+  allowed_emails: []
+  timezone: America/Chicago
   #username: Febbu
   token: ""
 
@@ -22,3 +25,7 @@ tts:
   say:
     voice: "Siri"
     rate_wpm: 185
+
+daily_site:
+  bind_address: "192.168.2.13"
+  port: 8765

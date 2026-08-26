@@ -119,6 +119,36 @@ def get_github_username(settings: dict, default_value: str = "vosslab") -> str:
 
 
 #============================================
+def get_github_identity_login(settings: dict) -> str:
+	"""
+	Resolve the daily-evidence login, falling back to github.username.
+	"""
+	username = get_github_username(settings)
+	identity_login = get_setting_str(settings, ["github", "identity_login"], "")
+	if identity_login:
+		return identity_login
+	return username
+
+
+#============================================
+def get_github_allowed_emails(settings: dict) -> list[str]:
+	"""
+	Resolve the optional explicit daily-evidence email allowlist.
+	"""
+	value = get_nested_value(settings, ["github", "allowed_emails"], [])
+	if value is None:
+		return []
+	if not isinstance(value, list):
+		raise RuntimeError("github.allowed_emails must be a list.")
+	emails = []
+	for item in value:
+		email = str(item).strip()
+		if email:
+			emails.append(email)
+	return emails
+
+
+#============================================
 def resolve_user_scoped_out_path(path_text: str, default_path_text: str, user: str) -> str:
 	"""
 	Scope default out/ paths under out/<user>/ while preserving custom paths.

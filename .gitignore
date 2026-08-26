@@ -1,5 +1,28 @@
+# === LOCAL REPOSITORY RULES === [ADD CUSTOM IGNORES HERE]
+# Propagation preserves this section.
+
 .venv/
 .venv_tts/
 out/
 report_*.txt
 .DS_Store
+
+# === UNIVERSAL === [PROPAGATED - LOCAL EDITS OVERWRITTEN]
+/node_modules/
+/.env
+/report_*.txt
+/output*/
+/generated/
+/graphify-out/
+_temp*.?*
+/temp/
+/OTHER_REPOS/
+/LOCAL_ONLY/
+
+# === PYTHON === [PROPAGATED - LOCAL EDITS OVERWRITTEN]
+build/
+dist/
+sdist/
+*.egg
+*.egg-info/
+site/
