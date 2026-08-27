@@ -245,6 +245,19 @@ def build_blog_markdown_prompt(outline: dict, word_limit: int) -> str:
 
 
 #============================================
+def build_blog_regeneration_prompt(source_prompt: str, word_limit: int) -> str:
+	"""Build one affirmative retry prompt for a complete Markdown article."""
+	template = prompt_loader.load_prompt("blog_regenerate.txt")
+	return prompt_loader.render_prompt(
+		template,
+		{
+			"word_limit": str(word_limit),
+			"source_prompt": source_prompt,
+		},
+	)
+
+
+#============================================
 def build_repo_blog_markdown_prompt(
 	outline: dict,
 	repo_bucket: dict,
@@ -456,14 +469,16 @@ def enforce_blog_word_band(
 	max_words = word_limit * 2
 	if logger:
 		logger(f"Word-band check failed ({issue}); regenerating once.")
-	retry_prompt = (
-		"Regenerate this blog post in clean Markdown.\n"
-		+ f"Last entry was {current_words} words, but target is {word_limit} words. "
-		+ "Please do better on length control.\n"
-		+ f"Required hard range: between {min_words} and {max_words} words.\n"
-		+ f"Target around {word_limit} words.\n"
-		+ "Keep natural paragraph form and factual repository details.\n\n"
-		+ source_prompt
+	template = prompt_loader.load_prompt("blog_word_band_retry.txt")
+	retry_prompt = prompt_loader.render_prompt(
+		template,
+		{
+			"current_words": str(current_words),
+			"min_words": str(min_words),
+			"max_words": str(max_words),
+			"word_limit": str(word_limit),
+			"source_prompt": source_prompt,
+		},
 	)
 	retry_markdown = client.generate(
 		prompt=retry_prompt,
@@ -647,13 +662,7 @@ def generate_blog_markdown_with_llm(
 					logger(
 						f"Repo draft {index}/{repo_total} flagged ({repo_issue}); retrying once."
 					)
-				retry_prompt = (
-					"Regenerate this repo draft as clean Markdown.\n"
-					+ f"Target around {repo_word_target} words.\n"
-					+ "Please do better.\n"
-					+ "No reader call-to-action. No meta blogging advice.\n\n"
-					+ prompt
-				)
+				retry_prompt = build_blog_regeneration_prompt(prompt, repo_word_target)
 				repo_markdown = client.generate(
 					prompt=retry_prompt,
 					purpose=f"repo draft regenerate {index} of {repo_total}",
@@ -710,11 +719,9 @@ def generate_blog_markdown_with_llm(
 		if fallback_issue:
 			if logger:
 				logger(f"Fallback draft flagged ({fallback_issue}); retrying once.")
-			fallback_retry_prompt = (
-				"Regenerate the blog post as clean Markdown.\n"
-				+ f"Target around {word_limit} words.\n\n"
-				+ "Please do better.\n\n"
-				+ fallback_prompt
+			fallback_retry_prompt = build_blog_regeneration_prompt(
+				fallback_prompt,
+				word_limit,
 			)
 			fallback_retry = client.generate(
 				prompt=fallback_retry_prompt,
@@ -778,13 +785,7 @@ def generate_blog_markdown_with_llm(
 	if final_issue:
 		if logger:
 			logger(f"Final trim output flagged ({final_issue}); retrying once.")
-		retry_prompt = (
-			"Regenerate the final blog post as clean Markdown.\n"
-			+ f"Target around {word_limit} words.\n"
-			+ "Please do better.\n"
-			+ "No reader call-to-action. No blogging advice content.\n\n"
-			+ final_prompt
-		)
+		retry_prompt = build_blog_regeneration_prompt(final_prompt, word_limit)
 		final_markdown = client.generate(
 			prompt=retry_prompt,
 			purpose="daily markdown blog final regenerate",

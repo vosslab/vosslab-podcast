@@ -1389,3 +1389,221 @@ What changed
 What was tested
 - `source source_me.sh && python3 -m pytest tests/` (139 passed).
 - `source source_me.sh && bash tests/e2e/run_all.sh` (all direct runners passed).
+
+---
+Session Update: 2026-08-26 (Durable daily publication ownership cutover)
+
+What changed
+- Added `automation/publish_daily_blog.py` and the typed `pipeline/daily_blog/` producer package for
+  mirror refresh, exact-date activity, authority-ranked Git evidence, two isolated authors,
+  deterministic candidate validation, anonymous referee selection, immutable bundles, typed run
+  state, hash reuse, and publisher import.
+- Added affirmative versioned author/referee/repair prompts and rubric, standard-input role routes,
+  complete-prompt/output budgets, and a deterministic provisional publication state.
+- Added the v1 bundle contract with evidence, post, asset, candidate, anonymous mapping, generator,
+  prompt, rubric, and referee hashes/identities below `out/vosslab/daily_blog/`.
+- Added the single daily producer service/timer and updated settings for mirror, publisher, identity,
+  role-route, timezone, and evidence budgets.
+- Added the sibling `vosslab-daily-blog` importer with independent schema/provenance validation,
+  complete MkDocs staging, strict build, transactional rollback, immutable releases, idempotency,
+  and final-over-provisional replacement.
+- Added producer and publisher architecture, file-structure, operations, README, generated-path, and
+  changelog documentation for the cross-repository ownership boundary.
+- Completed the test-helper rename for broad and direct E2E tests so the current `file_utils` module
+  replaces stale imports of the removed helper.
+
+What was tested
+- Python 3.12 focused producer tests passed: evidence providers, temporary Git objects, mirror and
+  date locks, run schemas, prompt/output bounds, two-author/referee behavior, and bundles.
+- Publisher bundle/import tests passed under Python 3.12, including tampering, referee mapping,
+  idempotency, supersession, staged-build failure, install rollback, and release preservation.
+- The synthetic exact-Git date passed through the real bundle writer, sibling importer, and strict
+  MkDocs build into a temporary publisher site.
+- The real publisher source passed a strict MkDocs build.
+- Publisher tests excluding the three superseded legacy test modules and the historical link gate
+  passed: 1097 passed.
+- The full producer suite executed under Python 3.12 with 1694 passes and 54 existing repo-wide
+  hygiene failures; the direct E2E aggregate passed 9 of 11 runners, with the two remaining failures
+  confined to superseded daily GitHub modules awaiting cutover removal.
+
+Next actions
+1. Retire the explicitly listed legacy M2/M3/M4 producer modules, publisher collector/editorial
+   scripts and timers, and their superseded tests after explicit deletion authorization.
+2. Archive `docs/active_plans/DAILY_GITHUB_BLOG_REVIVAL_PLAN.md` with the final producer/publisher
+   ownership record after the same authorization.
+3. Disable the prior Hermes cron, mirror timer, and editorial timer on the host, then install and
+   verify the single producer timer while retaining the publisher static service.
+4. Rerun both complete suites and the direct E2E aggregate after the retirement set is removed.
+
+---
+Session Update: 2026-08-26 (Editorial v2 and historical shadow contract)
+
+What changed
+- Replaced the editorial templates and rubric with v2 contracts that encode the August house style:
+  a compact opening realization, strongest-thread focus, cross-project synthesis, 350-650 narrative
+  words, two to four thematic sections, current-state closure, and complete active-project coverage.
+- Added deterministic final-candidate validation for those measurable requirements while retaining
+  the intentionally concise deterministic provisional work log.
+- Made Hermes role routes transport-only and rejected profile skills, repository rules, inline
+  queries, and resumed sessions as competing instruction sources.
+- Added the non-publishing historical shadow evaluator, immutable typed scorecards, exact-evidence
+  reuse, and a default-deny model data-sharing setting.
+- Added a hash-bound schedule admission gate requiring accepted current-version scorecards for both
+  August 22 and 23 before any scheduled model or publication work.
+- Updated producer and publisher documentation and advanced accepted prompt/rubric identities to v2.
+- Removed the superseded producer M2/M3/M4 implementation, publisher collector/layered editor/state
+  wrappers and timer, their superseded tests, and the v1 templates. Archived the old revival plan and
+  branch scorecard with the final ownership decision.
+- Stopped and disabled the two installed legacy timers, archived their unit files, and installed and
+  enabled the single producer timer while retaining the publisher static service.
+
+What was tested
+- Focused editorial, shadow, and schedule-gate tests passed under Python 3.12: 20 passed.
+- Producer bundle/editorial and publisher importer contract tests passed: 17 and 9 passed.
+- After cutover removal, full producer execution passed 1822 tests with 33 unrelated established
+  typing, vendored-document link, and source-length hygiene failures. Full publisher execution passed 1033 tests with
+  eight historical or not-yet-tracked documentation link failures.
+- All 11 direct Python 3.12 E2E runners passed, including the complete cross-repository cutover and
+  the assertion that superseded entry points remain absent. Both repository diffs passed
+  `git diff --check`.
+- The real publisher source passed a strict quiet MkDocs build in a temporary release directory.
+- Exact historical evidence preflight completed for August 22 and 23: four active repositories on
+  each date, with 23 and 25 typed evidence items respectively.
+- The installed producer timer is enabled and waiting for 02:00 America/Chicago. A manual service
+  start was safely skipped at `ExecCondition` because both required scorecards are pending; the old
+  mirror/editorial timers are not found and the static publisher service remains active.
+
+Next actions
+1. Obtain explicit approval for the configured Hermes author destinations to receive exact-Git
+   evidence and the referee destination to receive the preserved August 22-23 posts plus evidence,
+   then enable
+   `daily_blog.shadow_evaluation.external_model_data_sharing` and run both shadow scorecards.
+2. Review the immutable scorecards for factual grounding, changelog use, thematic structure, reader
+   interest, and house-style match. Scheduled publication will remain machine-blocked until both
+   dates pass the current acceptance gate.
+
+---
+Session Update: 2026-08-27 (Permanent-test lifetime audit)
+
+What changed
+- Applied the permanent-test checklist in `docs/PYTEST_STYLE.md` to the new producer and publisher
+  coverage. Stable parsing, schema, ordering, provenance, isolation, bundle, idempotency, and atomic
+  rollback properties remain in pytest.
+- Moved real Git repository and mirror checks into direct E2E programs, renamed the complete
+  producer-to-publisher runner as a permanent publication E2E, and removed its one-time retired-file
+  assertion.
+- Removed the fixed August schedule gate, its permanent pytest, and the derived score threshold.
+  Historical shadow output now supplies measurements for human review rather than pretending that a
+  machine threshold proves editorial quality.
+- Added durable publisher checks for unsupported schemas and asset-path confinement, and simplified
+  rollback coverage to one complete before/after transaction snapshot.
+- Documented permanent versus one-time verification with explicit owners, success conditions, and
+  validation commands. The installed producer service now has no historical-date condition; its
+  timer remains disabled and inactive while the static publisher service remains active.
+- Ran and removed a one-time structural profiler for the preserved August references. August 22 has
+  613 narrative words, four narrative H2s, and a 42-word opening; August 23 has 636 narrative words,
+  four narrative H2s, and a 38-word opening. Both use first person and Project coverage.
+
+What was tested
+- Focused permanent producer tests: 29 passed under Python 3.12.
+- Focused publisher importer tests: 11 passed under Python 3.12.
+- Direct producer E2E aggregate: 13 passed, including exact Git evidence, mirror identity, and the
+  complete strict-build producer-to-publisher flow.
+- Full producer suite: 1781 passed and 33 established unrelated typing, vendored-link, and legacy
+  source-size gates failed.
+- Full publisher suite: 1035 passed and eight established historical or untracked-document link
+  checks failed.
+- The checked-in publisher source passed a strict MkDocs build.
+- Host verification reported the producer timer disabled/inactive and the static publisher service
+  active after reloading the installed service without `ExecCondition`.
+
+Next actions
+1. Obtain explicit approval for exact-Git evidence to reach the configured Hermes author routes and
+   for the preserved August posts plus evidence to reach the configured referee route.
+2. Run the August 22 and 23 shadow comparisons, review the immutable posts and scorecards, record the
+   approved shadow IDs in `docs/DAILY_BLOG_OWNERSHIP_CUTOVER.md`, then enable the producer timer.
+
+---
+Session Update: 2026-08-27 (Positive model-instruction contract)
+
+What changed
+- Added a shared runtime validator that requires model-facing templates to state desired outcomes
+  directly, including disguised ownership deferrals, and applied it to daily-publication prompts.
+- Rephrased active blog, Bluesky, podcast, outline, depth-polish, referee, and speaker prompts around
+  their factual source, useful actions, structure, and exact output contract.
+- Moved the remaining programmatically composed blog and Bluesky retry instructions into three
+  versioned templates governed by the same runtime policy.
+- Added `docs/HUMAN_GUIDANCE.md` as the durable local instruction-design policy and linked it from
+  `AGENTS.md`.
+- Removed prompt tests that depended on particular negative wording or a frozen template inventory;
+  retained stable behavioral coverage of the shared policy and rendered contracts.
+
+What was tested
+- Focused positive-prompt and content-pipeline pytest selection: 66 passed.
+- One-time complete-library audit: all 40 active prompt templates loaded through the shared policy;
+  the scratch audit program was removed.
+- Direct E2E aggregate: 13 passed, including exact Git evidence, mirror refresh, publication, strict
+  imports, security, lint, and whitespace.
+- Full producer suite: 1778 passed and the same 33 established typing, vendored-link, and legacy
+  source-size gates failed.
+
+Next actions
+1. With explicit external model data-sharing approval, run the August 22 and 23 semantic shadow
+   comparisons and review the immutable scorecards before enabling the producer timer.
+
+---
+Session Update: 2026-08-27 (Independent pre-merge audit)
+
+What changed
+- Ran six independent plan, test, style, documentation, legacy, and comment review passes over the
+  complete producer and publisher cutover.
+- Strengthened the permanent bundle test so the stable `latest.json` pointer must identify the
+  returned immutable run and bundle.
+
+What was tested
+- The focused bundle contract passed: 2 tests.
+- Both staged and working-tree diff checks passed.
+- Documentation, legacy, and comment reviewers reported no source-level findings; live user-systemd
+  state and external-model shadow comparisons remain operator-owned checks.
+
+Next actions
+1. Represent non-linear same-day Git activity with complete exact-revision ranges and collect every
+   branch's diff, documentation, and screenshot evidence.
+2. Extend hash-addressed reuse across authoring, validation, referee, bundle, and idempotent import
+   phases, then split the orchestrator into typed phase helpers.
+3. Give each author route a versioned positive role brief and include it in prompt and cache identity.
+4. Resolve producer and publisher repository roots through the shared Git-root contract.
+
+---
+Session Update: 2026-08-27 (Exact evidence and reusable publication phases)
+
+What changed
+- Advanced the producer and publisher evidence contract to v2. Repository activity now retains
+  every attributed commit-to-parent revision range and every attributed branch-tip snapshot, and
+  providers assemble evidence across all of them without losing divergent same-day work.
+- Refactored the daily orchestrator into explicit phase methods and added hash-verified cache
+  envelopes for activity, evidence, valid author output, candidate validation, final referee
+  decisions, and complete immutable bundles.
+- Kept provisional results retryable, revalidated every reused bundle artifact, and continued to
+  invoke the publisher so an already-installed release is confirmed as idempotent external state.
+- Resolved both repository roots through Git instead of relying on a fixed checkout depth.
+- Updated producer and publisher contracts, architecture, operations, file-layout, and changelog
+  documentation. Prompt templates and author-role briefs were intentionally unchanged in this
+  follow-up.
+
+What was tested
+- Focused producer daily-publication tests: 30 passed under Python 3.12.
+- Focused publisher importer tests: 11 passed under Python 3.12.
+- Direct producer E2E aggregate: 13 passed, including divergent-branch evidence, cross-run phase
+  reuse, idempotent import, strict build, security, lint, and whitespace.
+- Full producer suite: 1803 passed with the same 33 established typing, vendored-link, and legacy
+  source-size failures.
+- Full publisher suite: 1035 passed with the same eight established historical or untracked-document
+  link failures.
+- The checked-in publisher source passed a strict MkDocs build, and both repositories passed staged
+  and working-tree diff checks.
+
+Next actions
+1. Keep author-role prompt differentiation deferred until prompt editing resumes.
+2. With explicit external model data-sharing approval, run the August 22 and 23 semantic shadow
+   comparisons and review their immutable scorecards before enabling the producer timer.

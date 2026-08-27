@@ -1,0 +1,10 @@
+Regenerate the Bluesky post as one plain-text line.
+Use the source prompt as the complete factual specification.
+Preserve the main engineering change and explain why it matters.
+Target about {{char_limit}} characters.
+Use concise prose and ordinary punctuation.
+Return exactly one line.
+
+## Source prompt
+
+{{source_prompt}}

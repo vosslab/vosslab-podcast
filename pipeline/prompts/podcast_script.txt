@@ -4,19 +4,20 @@ Target length: about {{word_limit}} words.
 
 {{speaker_styles}}
 
-The dialogue should sound like hosts chatting on air, not reading a script.
+The dialogue should sound spontaneous and conversational, like hosts chatting on air.
 Speakers react to each other. Use short sentences.
 Mention repo names, file names, and commit details from the blog.
-If the blog lacks details, say "not much detail here" and move on.
+Use the blog as the complete factual source. When detail is limited, say
+"The blog has limited detail today" and continue.
 
 Output format: plain text lines, one per speaker turn:
 {{speaker_format}}
 
-Example exchange (do not copy, use actual data):
+Example of the desired exchange rhythm. Use the blog post for the response facts:
 BHOST: So what was the big push today?
 KCOLOR: Let me tell you -- thirteen commits to bkchem. Theme system overhaul.
 CPRODUCER: Yeah the main commit added YAML theme configs. Touched eight files.
-BHOST: Eight files? That is not a small change.
+BHOST: Eight files? That is a broad change.
 
 Blog post:
 {{blog_text}}

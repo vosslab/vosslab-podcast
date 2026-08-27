@@ -8,12 +8,12 @@ Candidate {{label_b}}:
 
 Compare the two candidates on these measurable criteria:
 - Which draft contains more concrete specifics in limited characters (repo names, numbers, key details)?
-- Which draft has fewer generic phrases or vague filler?
+- Which draft uses the highest density of specific information?
 - Which draft stays within the character limit while conveying more information?
 - Which draft reads as one clean plain-text line suitable for Bluesky?
 
 Output your decision in exactly this format:
 <winner>{{label_a}} or {{label_b}}</winner><reason>one sentence explaining why</reason>
 
-Do not add any other text. Your entire response must be the winner and reason tags.
+Return exactly the winner and reason tags in one response.
 Example: <winner>A</winner><reason>Draft A fits more concrete details within the character limit.</reason>

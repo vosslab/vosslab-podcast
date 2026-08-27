@@ -26,6 +26,58 @@ tts:
     voice: "Siri"
     rate_wpm: 185
 
-daily_site:
-  bind_address: "192.168.2.13"
-  port: 8765
+daily_blog:
+  repository_path: "/home/vosslab/nsh/vosslab-daily-blog"
+  mirror_cache_root: "/home/vosslab/repo-mirrors/vosslab"
+  report_timezone: "America/Chicago"
+  repository_urls: []
+  identity_names:
+    - "Dr. Neil R Voss"
+  identity_emails:
+    - "vosslab@users.noreply.github.com"
+  shadow_evaluation:
+    # Historical post text and exact-Git evidence cross the configured model route only by opt-in.
+    external_model_data_sharing: false
+  routes:
+    authors:
+      - name: "author_one"
+        command:
+          - "hermes"
+          - "chat"
+          - "--in"
+          - "{generator_repository}"
+          - "--query-file"
+          - "-"
+          - "--ignore-rules"
+          - "--quiet"
+      - name: "author_two"
+        command:
+          - "hermes"
+          - "chat"
+          - "--in"
+          - "{generator_repository}"
+          - "--query-file"
+          - "-"
+          - "--ignore-rules"
+          - "--quiet"
+    referee:
+      name: "referee"
+      command:
+        - "hermes"
+        - "chat"
+        - "--in"
+        - "{generator_repository}"
+        - "--query-file"
+        - "-"
+        - "--ignore-rules"
+        - "--quiet"
+  evidence_budgets:
+    changed_documentation_chars: 16000
+    diff_chars: 24000
+    readme_context_chars: 6000
+    commit_metadata_chars: 6000
+    per_item_chars: 8000
+    supporting_total_chars: 48000
+    author_context_chars: 72000
+    referee_context_chars: 88000
+    screenshot_count: 12

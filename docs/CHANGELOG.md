@@ -1,3 +1,123 @@
+## 2026-08-27
+
+### Additions and New Features
+- Added `docs/HUMAN_GUIDANCE.md` as the durable local record for affirmative
+  model-instruction design, context omission, concrete ownership, and explicit output contracts.
+- Advanced daily evidence to schema v2 with one exact range per attributed commit-parent edge and
+  explicit branch-tip snapshots, preserving non-linear same-day histories across the bundle.
+
+### Behavior or Interface Changes
+- Classified daily-publication verification by lifetime. Stable schema, evidence, editorial,
+  bundle, lock, and importer properties remain permanent tests; host-state and historical cutover
+  proofs remain explicit operator checks.
+- Removed the fixed August schedule gate and its derived pass/fail threshold from production. The
+  historical evaluator now emits measurements for human review, while the ordinary service remains
+  date-driven and the timer stays disabled until the one-time review is recorded.
+- Shared prompt loading now validates direct desired-outcome language before model routing. Daily
+  author, referee, repair, rubric, and shadow templates use the same policy.
+- Rephrased active blog, Bluesky, podcast, outline, depth-polish, referee, and speaker-style prompts
+  around the content, factual source, structure, and exact output each model should produce.
+- Moved blog and Bluesky repair instructions from Python string assembly into versioned prompt
+  templates so retries receive the same validation and editing workflow as first-pass prompts.
+
+### Fixes and Maintenance
+- Refactored the daily orchestrator into explicit phase methods and added hash-verified reuse for
+  activity, evidence, fully valid author output, validation, final referee decisions, and completely
+  revalidated immutable bundles. Provisional and failed editorial outcomes remain retryable, and
+  the importer still executes to confirm external idempotency.
+- Made evidence providers traverse every exact revision range and relevant branch-tip snapshot, so
+  changelogs, documentation, diffs, README context, and screenshots retain independent branch work.
+- Resolved producer and publisher repository roots through Git instead of fixed parent traversal.
+- Coordinated bundle v1/evidence v2 validation with the publisher importer, including exact range,
+  snapshot, asset, and provenance checks.
+- Strengthened the permanent bundle contract test to verify that `latest.json` identifies the
+  newly completed immutable run and bundle.
+- Moved temporary-repository Git process checks from the pytest fast lane into durable direct E2E
+  programs for exact evidence and mirror refresh behavior.
+- Renamed the complete cross-repository runner as a permanent publication E2E and removed its
+  one-time assertion about retired filenames.
+- Removed brittle tests of checked-in route defaults, fixed editorial threshold text, collection
+  lengths, and cutover dates. Retained stable error detection, round trips, behavioral ordering,
+  provenance, idempotency, and atomic-failure guarantees.
+
+### Developer Tests and Notes
+- Added permanent direct E2E coverage for non-linear exact-Git evidence and for a second immutable
+  run reusing approved phase artifacts, its validated bundle, and an idempotent site import.
+- The focused positive-prompt and content-pipeline suite passed 66 permanent tests, and all 13
+  direct E2E runners passed under Python 3.12.
+- The full producer suite passed 1803 tests. Its 33 failures remain confined to established typing,
+  vendored-document link, and oversized legacy source gates outside the daily publication rebuild.
+- A one-time complete-library audit loaded and validated all 40 active prompt templates through the
+  shared runtime policy. The scratch audit program was removed after use.
+- A one-time local profile confirmed that the preserved August 22 and 23 posts both satisfy the v2
+  structural contract: first-person voice, four narrative H2s, compact openings, Project coverage,
+  and 613/636 narrative words. The scratch profiler was removed after use.
+
+## 2026-08-26
+
+### Additions and New Features
+- Added `automation/publish_daily_blog.py` as the single explicit-date command for mirror refresh,
+  activity location, evidence assembly, two-author generation, deterministic candidate validation,
+  anonymous referee selection, immutable bundling, and local site import.
+- Added the typed `pipeline/daily_blog/` package with independent mirror, activity, evidence,
+  editorial, bundle, publisher, run-state, locking, hashing, configuration, and schema boundaries.
+- Added exact-object changelog, changed-documentation, diff, README, screenshot, and commit-metadata
+  providers with authority-ranked `EvidenceItem` records and explicit context budgets.
+- Added versioned affirmative author, referee, repair, and rubric templates under
+  `pipeline/prompts/`, with prompt validation and standard-input role routing.
+- Added `vosslab-daily-publication.service` and `.timer` as the one scheduled producer/import job for
+  the previous completed Central-calendar date.
+- Added focused temporary-Git provider, mirror lock, editorial isolation, schema, bundle, and
+  cross-repository synthetic publication tests.
+- Added `automation/evaluate_daily_blog_shadow.py` and `daily_blog.evaluation` for immutable,
+  non-publishing historical comparisons with generated/reference posts, exact evidence, candidate
+  validation, and typed reader-interest and house-style scorecards.
+- Added a hash-bound two-date schedule gate. The systemd service now skips before model execution
+  until current August 22 and 23 scorecards pass every deterministic and semantic threshold.
+- Restored `tests/e2e/run_all.sh` as the required direct end-to-end aggregate runner.
+- Added [CODE_ARCHITECTURE.md](CODE_ARCHITECTURE.md), [FILE_STRUCTURE.md](FILE_STRUCTURE.md), and
+  [DAILY_BLOG_OPERATIONS.md](DAILY_BLOG_OPERATIONS.md) for the producer ownership contract.
+- Added [DAILY_BLOG_OWNERSHIP_CUTOVER.md](DAILY_BLOG_OWNERSHIP_CUTOVER.md) and archived the obsolete
+  revival plan and its branch scorecard as historical decision records.
+
+### Behavior or Interface Changes
+- Daily publication bundles now live under `out/<user>/daily_blog/YYYY-MM-DD/RUN_ID/`, while typed
+  run records and hash-addressed reusable artifacts use separate `daily_blog_runs` and
+  `daily_blog_cache` namespaces.
+- `settings.yaml` now configures the publisher repository, mirror cache, report timezone,
+  attribution identities, exactly two author routes, one distinct referee route, and evidence
+  budgets by role.
+- Matching `docs/CHANGELOG.md` date sections now remain complete and outrank supporting evidence
+  before any prompt rendering.
+- Bundle referee records now preserve the anonymous label-to-candidate mapping so the publisher can
+  prove that a final post is the exact valid candidate selected during judging.
+- Complete evidence now produces a deterministic provisional post when candidate validation or
+  referee approval remains pending.
+- Advanced the editorial prompt and rubric contracts to v2 with the August house style: a compact
+  opening realization, strongest-thread emphasis, evidence-supported cross-project synthesis,
+  350-650 narrative words, two to four thematic sections, a closing current state, and complete
+  active-repository coverage.
+- Made role routes transport-only. Hermes routes now use standard input with `--ignore-rules`, and
+  configuration rejects profile skills, inline queries, and resumed sessions as additional
+  instruction sources.
+- Made historical model data sharing an explicit default-deny contract. Shadow semantic evaluation
+  now stops before route execution until the configured destination is approved in settings.
+
+### Fixes and Maintenance
+- Removed the superseded M2/M3/M4 `daily_github_*` commands and library modules, the private static
+  site operations guide, and v1 daily editorial templates at the no-compatibility cutover.
+- Bounded role failures and typed failed-phase serialization so external command output cannot
+  corrupt or mask the authoritative run record.
+- Added deterministic final-candidate gates for opening shape, narrative length, section count, and
+  complete Project coverage while preserving the concise provisional contract.
+- Brought every new daily-blog source and test under the repository typing, Bandit, import, pyflakes,
+  shebang, whitespace, and source-size gates, including the cross-repository importer loader.
+- Completed the repository hygiene-helper migration in broad-pipeline and direct E2E tests by
+  replacing imports of the removed `git_file_utils` module with the current `file_utils` helper.
+- Updated [README.md](../README.md) and
+  [OUT_DIRECTORY_ORGANIZATION_SPEC.md](OUT_DIRECTORY_ORGANIZATION_SPEC.md) to document the current
+  producer-to-publisher bundle interface and generated paths.
+
 ## 2026-08-20
 
 ### Additions and New Features
@@ -53,7 +173,7 @@
 
 ### Decisions and Failures
 - Marked the daily GitHub blog revival as planned work in
-  [DAILY_GITHUB_BLOG_REVIVAL_PLAN.md](active_plans/DAILY_GITHUB_BLOG_REVIVAL_PLAN.md).
+  [the archived daily GitHub blog revival plan](archive/DAILY_GITHUB_BLOG_REVIVAL_PLAN.md).
   Its Aella/Hermes authoring path and scheduling gates are not part of the executable broad
   pipeline.
 

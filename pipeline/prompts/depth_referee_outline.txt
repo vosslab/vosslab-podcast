@@ -8,12 +8,12 @@ Candidate {{label_b}}:
 
 Compare the two candidates on these measurable criteria:
 - Which draft contains more concrete repo activity specifics (repo names, commit counts, PR details)?
-- Which draft has fewer vague summaries or generic filler?
+- Which draft uses specific summaries for each repository?
 - Which draft has better structured sections with clear organization?
 - Which draft is closer to the target word count?
 
 Output your decision in exactly this format:
 <winner>{{label_a}} or {{label_b}}</winner><reason>one sentence explaining why</reason>
 
-Do not add any other text. Your entire response must be the winner and reason tags.
+Return exactly the winner and reason tags in one response.
 Example: <winner>A</winner><reason>Draft A provides more concrete commit details per repository.</reason>

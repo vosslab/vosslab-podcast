@@ -1,12 +1,11 @@
 A Bluesky post is a short social media update, similar to a tweet.
 Summarize the blog post below into 1-2 plain text sentences.
 Target length: about {{char_limit}} characters.
-Use concrete nouns: repo names, file names, counts. No metaphors.
-Output plain text only on one line. No XML tags. No Markdown.
-No hashtags, no emojis, no links, no call-to-action.
+Use concrete nouns and literal technical language: repo names, file names, and counts.
+Return one plain-text line containing the engineering summary.
 If the blog lacks details, write a brief factual summary.
 
-Example (do not copy, use actual data):
+Example of the desired specificity. Use the blog post for the response facts:
 "13 commits to bkchem today: theme system via YAML configs, toolbar
 separators, and hex grid rotation. Also 11 commits to vosslab-skills."
 

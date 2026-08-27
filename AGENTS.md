@@ -12,6 +12,7 @@
 See Python coding style in docs/PYTHON_STYLE.md.
 See Markdown style in docs/MARKDOWN_STYLE.md.
 See repo style in docs/REPO_STYLE.md.
+Apply durable human guidance in docs/HUMAN_GUIDANCE.md.
 When making edits, document them in docs/CHANGELOG.md.
 When in doubt, implement the changes the user asked for rather than waiting for a response; the user is not the best reader and will likely miss your request and then be confused why it was not implemented or fixed.
 When changing code always run focused tests on changed code, documentation does not require tests.

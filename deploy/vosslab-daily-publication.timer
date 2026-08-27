@@ -1,0 +1,10 @@
+[Unit]
+Description=Schedule one complete Vosslab daily publication run
+
+[Timer]
+OnCalendar=*-*-* 02:00:00 America/Chicago
+Persistent=true
+Unit=vosslab-daily-publication.service
+
+[Install]
+WantedBy=timers.target

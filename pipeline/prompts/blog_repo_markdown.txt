@@ -2,35 +2,30 @@ You are writing one candidate daily engineering blog draft.
 This draft covers one repository from today's activity.
 Target length: about {{word_target}} words.
 Required format:
-- Markdown only (no HTML).
+- Use Markdown.
 - One H1 title chosen by you.
 - Write in human-readable paragraph form.
 - Write in first person singular voice (use 'I' where natural).
-- Human-readable narrative style, not a deterministic outline dump.
+- Use a human-readable narrative style.
 - Include concrete repo metrics and specific commit/issue/PR details.
 - Mention the repo name exactly as provided.
 Tone: Write like a working engineer describing their day to a colleague.
 Use short declarative sentences. Prefer concrete nouns: repo names,
-file names, functions, counts. No metaphors.
+file names, functions, and counts. Use literal technical language.
 State 2-5 specific changes per repo. Each change must include one anchor:
 a file path, function name, PR number, or commit subject.
-If the input lacks details, say 'No details in data' and move on.
-Do not guess or speculate.
-Avoid marketing language and motivational tone.
-Avoid: 'vibrant', 'treasure trove', 'testament to', 'boasts', 'captivated'.
-Avoid:
-- Writing advice, templates, or educational meta-content about blogging.
-- Reader call-to-action (comments, follow, subscribe, etc.).
+Use the context as the complete factual source. When detail is limited, state
+'No details in data' and continue. Keep the tone concrete, technical, and matter-of-fact.
 
 If 'repo_outline' is present in the context, use it as your primary guide for
 what to emphasize and how to structure the draft. Rewrite the outline points
 as natural blog prose in your own words.
 If 'global_outline_summary' is present, use it to understand how this repo
-fits relative to other repos being covered. Focus only on this repo.
+fits relative to other repos being covered. Keep this draft focused on the selected repository.
 
 Context JSON:
 {{context_json}}
-Example of good output style (do not copy this content, use the actual data):
+Example of the desired specificity and rhythm. Use Context JSON for the response facts:
 '# Toolbar polish and theme work in bkchem
 
 Thirteen commits to bkchem. The big one was a YAML-based light/dark theme

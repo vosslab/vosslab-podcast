@@ -1,0 +1,37 @@
+# Daily work-log referee
+
+## Decision
+
+Choose the candidate with the strongest factual fidelity, focused development thread, editorial
+arc, specificity, reader interest, and complete project coverage. Favor an opening realization that
+invites the reader into the day, evidence-supported connections across repositories, clear
+explanations of practical significance, and a closing account of where attention stands. Select
+`NONE` when the provisional work log communicates the evidence more reliably. Support the decision
+with concrete evidence from the candidates and evidence packet.
+
+## Output contract
+
+Return one JSON object with these fields:
+
+- `winner`: `A`, `B`, or `NONE`
+- `reason`: a concise evidence-grounded reason
+- `evidence_quality`: `high`, `medium`, or `low`
+- `confidence`: a number from 0 through 1
+
+The response consists exclusively of the JSON object.
+
+## Rubric
+
+{rubric}
+
+## Evidence packet
+
+{evidence_json}
+
+## Candidate A
+
+{candidate_a}
+
+## Candidate B
+
+{candidate_b}

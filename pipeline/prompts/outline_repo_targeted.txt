@@ -3,14 +3,14 @@ Write a detailed outline in plain text using section headers and bullet points.
 Required sections:
 1. Executive Summary (2-3 sentences covering all major workstreams)
 2. Key Workstreams (one subsection per logical area of work, with bullet details)
-3. Notable Commits (list EVERY commit message verbatim in parentheses)
-4. Issues and Pull Requests (list every issue and PR title)
+3. Notable Commits (give each distinct commit message one verbatim entry in parentheses)
+4. Issues and Pull Requests (give each distinct issue and PR title one entry)
 5. Summary of what changed (1-2 sentences with concrete anchors)
-Do not invent repo names or metrics. Use only provided data.
-Do not pad, paraphrase, or repeat information to fill space.
+Use the provided repository names, metrics, commits, issues, and pull requests as the complete
+factual source. Let available evidence determine section length and detail density.
 Target length: {{target_words}} words.
-If a section has no relevant data, write 'No activity' and move on.
-Do not speculate about risks, priorities, or future work.
+When a section has limited relevant data, write 'No activity' and continue.
+Describe completed work and the current state recorded in the data.
 
 User: {{user}}
 Window: {{window_start}} -> {{window_end}}

@@ -11,7 +11,7 @@ TESTS_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if TESTS_DIR not in sys.path:
 	sys.path.insert(0, TESTS_DIR)
 
-import git_file_utils
+import file_utils as git_file_utils
 
 REPO_ROOT = git_file_utils.get_repo_root()
 ERROR_RE = re.compile(r":[0-9]+:[0-9]+:")

@@ -1,10 +1,7 @@
 # Vosslab GitHub content pipeline
 
-Generates a local, user-scoped content package from GitHub activity. The current executable
-pipeline remains the broad GitHub-content pipeline.
-
-The proposed factual daily-blog replacement is tracked in:
-[docs/active_plans/DAILY_GITHUB_BLOG_REVIVAL_PLAN.md](docs/active_plans/DAILY_GITHUB_BLOG_REVIVAL_PLAN.md)
+Generates evidence-grounded GitHub content for Vosslab, including one durable daily publication
+workflow that ends at the private local MkDocs site.
 
 Output contract: [docs/OUT_DIRECTORY_ORGANIZATION_SPEC.md](docs/OUT_DIRECTORY_ORGANIZATION_SPEC.md)
 
@@ -45,7 +42,9 @@ from `settings.yaml` `github.username` unless `--user` overrides the fetch stage
 - `out/<user>/podcast_narration-YYYY-MM-DD.txt`: single-speaker narration script.
 - `out/<user>/podcast_audio-YYYY-MM-DD.mp3`: Qwen multi-speaker audio.
 - `out/<user>/narrator_audio-YYYY-MM-DD.mp3`: macOS `say` narration audio.
-- `out/<user>/daily_site/`: deterministic private static archive built only from M2/M3 daily artifacts.
+- `out/<user>/daily_blog/YYYY-MM-DD/RUN_ID/`: immutable daily publication bundles.
+- `out/<user>/daily_blog_runs/YYYY-MM-DD/RUN_ID/`: typed run state and phase artifacts.
+- `out/<user>/daily_blog_cache/`: hash-verified reusable phase artifacts and evidence assets.
 
 The runner reports the latest files it finds for these output classes when it completes.
 
@@ -150,99 +149,64 @@ chmod +x automation/run_local_pipeline.py automation/install_launchd_pipeline.sh
 ./automation/install_launchd_pipeline.sh
 ```
 
-## Daily-blog revival
+## Daily publication
 
-The M2 evidence acquisition command and independent M3 Hermes authoring path are separate from the
-broad local-LLM pipeline. M2 accepts one explicit local calendar date, retains raw GitHub commit
-provenance, classifies each record as `confirmed`, `ambiguous`, or `excluded`, and writes a
-date-scoped evidence contract. M3 accepts only a complete, publication-eligible M2 run and invokes
-the current active Hermes profile through its installed `daily-github-blogger` skill, without a
-project model or provider override. M4 builds and manually serves only promoted M3 posts on one
-configured private LAN address; scheduling remains disabled.
-
-Use `github.identity_login` for the GitHub login to confirm and optionally add exact
-`github.allowed_emails`. `github.timezone` must be an IANA timezone. A direct login or allowed-email
-match is confirmed unless a co-author trailer makes the record ambiguous; only confirmed records
-enter `claims.json`.
-
-Live collection requires one or more explicit repositories:
+One date-driven command owns mirror refresh, activity location, evidence assembly, two isolated
+author sessions, deterministic validation, anonymous referee selection, immutable bundling, and
+local site import:
 
 ```bash
-source source_me.sh && python3 pipeline/daily_github_evidence.py \
-  --date 2026-08-19 --repo vosslab/example --settings settings.yaml
+source source_me.sh && python3 automation/publish_daily_blog.py --date 2026-08-23
 ```
 
-Offline synthetic-input runs use the same durable contract and can set `--collected-at`
-for byte-stable evidence. An input file is either a JSON record list or an object containing `records`
-and optional `collection` metadata; every record supplies `repo_full_name`, `sha`, and GitHub's commit
-payload fields. The E2E runners create their minimal input inside their own temporary run directory;
-the repository carries no checked-in daily-blog fixture corpus.
+The command reads durable repositories below `/home/vosslab/repo-mirrors/vosslab`, resolves exact
+Git objects, and treats matching `docs/CHANGELOG.md` date sections as the primary narrative
+authority. Supporting documentation, diffs, README context, screenshots, and commit metadata follow
+the authority order encoded in `pipeline/daily_blog/schema.py`.
+
+Both authors receive the same bounded evidence packet through separate configured command routes.
+Each result must satisfy structure, front matter, and paragraph-level evidence references before the
+referee sees it anonymously. The referee can select `A`, `B`, or `NONE`. `NONE`, route failure, or
+candidate rejection produces a deterministic provisional work log, so complete evidence remains
+publishable without trusting unvalidated model output.
+
+The v2 editorial contract also validates the visible house style: one compact opening realization,
+350-650 narrative words, two to four thematic sections, and final evidence-cited coverage for every
+active repository. Role commands are transport-only. The checked-in Hermes routes read the
+repository-owned prompt from standard input with profile rules disabled, so profile skills, memory,
+and saved sessions cannot silently add a second instruction source.
+
+The immutable producer/publisher interface contains `bundle.json`, `evidence.json`, `post.md`, and
+`assets/`. The publisher repository validates every hash and provenance reference, performs a strict
+staged MkDocs build, and switches the served release only after the complete proposal succeeds.
+
+Add explicit clone sources under `daily_blog.repository_urls` when a repository has no cache yet.
+Configure attribution identities, role routes, context budgets, report timezone, mirror root, and
+publisher repository under `daily_blog` in `settings.yaml`.
+
+Compare the current editorial contract with a preserved historical post without importing into the
+site. First set `daily_blog.shadow_evaluation.external_model_data_sharing: true` only when the
+configured author and referee destinations are approved to receive exact-Git evidence and the
+referee destination is approved to receive the historical post:
 
 ```bash
-source source_me.sh && python3 pipeline/daily_github_evidence.py \
-  --date 2026-08-19 --input /path/to/owned-records.json \
-  --collected-at 2026-08-20T00:00:00Z --output-root out/smoke
+source source_me.sh && python3 automation/evaluate_daily_blog_shadow.py \
+  --date 2026-08-23 \
+  --reference ../vosslab-daily-blog/docs/blog/posts/2026-08-23.md
 ```
 
-The command writes `raw_commits.json`, `claims.json`, and `run_manifest.json` below
-`out/<user>/daily/YYYY-MM-DD/`; see
-[docs/OUT_DIRECTORY_ORGANIZATION_SPEC.md](docs/OUT_DIRECTORY_ORGANIZATION_SPEC.md). A later
-publication stage must require `run_manifest.json` `publication.eligible: true`. Complete empty
-collections are eligible for a no-activity post, while partial or rate-limited manifests are not.
+The shadow command writes generated and reference posts, exact evidence, candidate validation, and
+a typed semantic scorecard below `out/<user>/daily_blog_shadow/`. It has no publisher call. The
+data-sharing setting defaults to `false`, and the evaluator reaches no model route until the setting
+is explicitly enabled.
 
-Author and promote a complete M2 run with Hermes:
+The August 22 and 23 comparisons are one-time cutover evidence, not a permanent schedule condition
+or pytest contract. Keep the timer disabled while they await review. After an operator approves the
+generated posts and scorecards and records their shadow IDs in the ownership record, enable the
+ordinary date-driven timer. The service contains no historical-date special case.
 
-```bash
-source source_me.sh && python3 pipeline/daily_github_blog.py --date 2026-08-19
-```
+Operations: [docs/DAILY_BLOG_OPERATIONS.md](docs/DAILY_BLOG_OPERATIONS.md)
 
-The normal M3 path requires the `hermes` CLI on `PATH`, the active Hermes profile to expose the
-`daily-github-blogger` skill, and Linux `bwrap` for the required write-confined author sandbox. It
-runs through the active profile's configured route with no project model or provider override. Hosts
-without `bwrap` fail closed; use the deterministic synthetic author mode until an equivalent
-capability sandbox is available. The normal path writes `author_prompt.txt`,
-`agent_authoring_result.json`, `post_draft.md`, and `agent_generation_manifest.json` in the daily run
-directory. The manifest must map each prose paragraph to confirmed claim IDs and matching SHAs. The
-deterministic validator verifies M2 date/timezone consistency, every declared claim/SHA pair, and each
-declared GitHub commit permalink before it promotes `post-YYYY-MM-DD.md`. Invalid drafts remain in
-place and their report is retained at `validation_failures/validation_report.json`; they never replace
-a promoted post.
+Architecture: [docs/CODE_ARCHITECTURE.md](docs/CODE_ARCHITECTURE.md)
 
-Use the deterministic offline author mode for synthetic-input and CLI round trips. It makes no Hermes, model,
-or network call:
-
-```bash
-source source_me.sh && python3 pipeline/daily_github_blog.py \
-  --date 2026-08-19 --run-dir out/smoke/vosslab/daily/2026-08-19 --dry-run
-```
-
-The normal author invocation uses the installed `daily-github-blogger` Hermes skill and an equivalent
-active-profile command of the form `hermes chat --in <repo> --skills daily-github-blogger --query-file
-<prompt> --quiet`. It deliberately does not pass `--model` or `--provider`.
-
-### Private static archive
-
-Build the M4 archive only after M3 has validated and promoted one or more posts. `post_draft.md` and
-an unvalidated generation manifest are never M4 publication inputs:
-
-```bash
-source source_me.sh && python3 pipeline/daily_github_site.py --settings settings.yaml
-```
-
-The generated `out/<user>/daily_site/` archive is newest-first and includes direct date navigation,
-`status.html`, source-date/collection/commit/repository visibility, and clear markers for published,
-incomplete, validation-failed, and complete-but-unpublished runs. It reads local artifacts only.
-
-Start the local server only after selecting a configured `daily_site.bind_address` that belongs to the
-host's private LAN interface:
-
-```bash
-source source_me.sh && python3 pipeline/daily_github_site_server.py --settings settings.yaml
-```
-
-The server refuses wildcard, loopback, public, unassigned, and privileged bind configurations before
-listening. It writes query-free access records to `out/logs/daily_github_site/access.log`. See
-[docs/DAILY_GITHUB_SITE_OPERATIONS.md](docs/DAILY_GITHUB_SITE_OPERATIONS.md) for address inspection,
-HTTP smoke, recovery, and rollback steps. M4 does not install a service or schedule.
-
-Plan: [docs/active_plans/DAILY_GITHUB_BLOG_REVIVAL_PLAN.md](docs/active_plans/DAILY_GITHUB_BLOG_REVIVAL_PLAN.md)
+Generated paths: [docs/OUT_DIRECTORY_ORGANIZATION_SPEC.md](docs/OUT_DIRECTORY_ORGANIZATION_SPEC.md)

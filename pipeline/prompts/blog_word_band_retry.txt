@@ -1,0 +1,9 @@
+Regenerate the article as clean Markdown.
+The previous draft contained {{current_words}} words.
+Write between {{min_words}} and {{max_words}} words, aiming for {{word_limit}} words.
+Preserve concrete repository details and natural paragraph form.
+Return complete article content.
+
+## Source prompt
+
+{{source_prompt}}

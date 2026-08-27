@@ -8,7 +8,7 @@ TESTS_DIR = pathlib.Path(__file__).resolve().parent.parent
 if str(TESTS_DIR) not in sys.path:
 	sys.path.insert(0, str(TESTS_DIR))
 
-import git_file_utils
+import file_utils as git_file_utils
 
 REPO_ROOT = pathlib.Path(git_file_utils.get_repo_root())
 

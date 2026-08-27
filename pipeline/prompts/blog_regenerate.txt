@@ -1,0 +1,9 @@
+Regenerate the article as clean Markdown.
+Use the source prompt as the complete factual and structural specification.
+Write a factual engineering account in natural paragraphs.
+Target about {{word_limit}} words.
+Return complete article content.
+
+## Source prompt
+
+{{source_prompt}}

@@ -2,17 +2,16 @@ You are writing one podcast-script candidate for a daily engineering update.
 This candidate must focus on the repository described below.
 Target length: about {{word_target}} words.
 {{speaker_format}}
-The dialogue should sound like hosts chatting on air, not
-reading a script. Speakers react to each other. Use short sentences.
+The dialogue should sound spontaneous and conversational, like hosts chatting on air.
+Speakers react to each other. Use short sentences.
 Prefer concrete nouns: repo names, file names, functions, counts.
-If the input lacks details, say 'not much detail in the data' and move on.
-Do not guess or speculate.
-Avoid marketing language and motivational tone.
+Use the context as the complete factual source. When detail is limited, say
+'The data has limited detail today' and continue. Keep the tone concrete and technical.
 Output format rules:
-- Plain text lines only in the speaker format shown above.
-- Use only speaker labels listed in context.
+- Return plain-text lines in the speaker format shown above.
+- Use speaker labels listed in context.
 - Mention repository names and activity counts exactly from data.
-- No stage directions, no call-to-action, no meta-writing advice.
+- Focus each turn on engineering details and host reactions.
 
 {{speaker_example}}
 

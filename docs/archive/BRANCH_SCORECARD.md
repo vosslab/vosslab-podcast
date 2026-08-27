@@ -1,9 +1,12 @@
-# M1 branch scorecard
+# Archived M1 branch scorecard
+
+This comparison record belongs to the archived daily GitHub revival plan. The final ownership
+decision is recorded in `docs/DAILY_BLOG_OWNERSHIP_CUTOVER.md`.
 
 ## Purpose and scope
 
 This scorecard records the M1 comparison required by
-[docs/active_plans/DAILY_GITHUB_BLOG_REVIVAL_PLAN.md](DAILY_GITHUB_BLOG_REVIVAL_PLAN.md).
+`docs/archive/DAILY_GITHUB_BLOG_REVIVAL_PLAN.md`.
 It evaluates the current `dr_voss` tip and `origin/main` as intentional candidates for the
 revived daily GitHub blog. It is not a merge plan and makes no branch changes.
 

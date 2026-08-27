@@ -1,0 +1,29 @@
+[Unit]
+Description=Vosslab daily publication bundle generator and local importer
+Documentation=file:///home/vosslab/nsh/vosslab-podcast/docs/DAILY_BLOG_OPERATIONS.md
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/vosslab/nsh/vosslab-podcast
+Environment=TZ=America/Chicago
+Environment=HERMES_HOME=/home/vosslab/.hermes
+ExecStart=/bin/bash -lc 'source source_me.sh && python3 automation/publish_daily_blog.py --date "$(date --date=yesterday +%%F)"'
+TimeoutStartSec=60min
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=full
+ProtectHome=read-only
+ReadWritePaths=/home/vosslab/nsh/vosslab-podcast /home/vosslab/nsh/vosslab-daily-blog /home/vosslab/repo-mirrors/vosslab /home/vosslab/.hermes
+ProtectControlGroups=yes
+ProtectKernelLogs=yes
+ProtectKernelModules=yes
+ProtectKernelTunables=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+UMask=027
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target

@@ -367,12 +367,13 @@ def generate_bluesky_text_with_llm(
 		issue = bluesky_quality_issue(text)
 		if issue:
 			# one retry on quality failure
-			retry_prompt = (
-				"Regenerate as one clean plain-text line.\n"
-				+ f"Target around {char_limit} characters.\n"
-				+ "No XML tags. No Markdown. No hashtags. No emojis.\n"
-				+ "Please do better.\n\n"
-				+ prompt
+			template = prompt_loader.load_prompt("bluesky_retry.txt")
+			retry_prompt = prompt_loader.render_prompt(
+				template,
+				{
+					"char_limit": str(char_limit),
+					"source_prompt": prompt,
+				},
 			)
 			text = client.generate(
 				prompt=retry_prompt,

@@ -1,4 +1,8 @@
-# Plan: Daily GitHub blog revival
+# Archived plan: Daily GitHub blog revival
+
+This pre-cutover plan is retained as a decision record. The authoritative producer/publisher
+ownership contract is `docs/DAILY_BLOG_OWNERSHIP_CUTOVER.md`; current operations are defined by
+`docs/DAILY_BLOG_OPERATIONS.md` and `docs/CODE_ARCHITECTURE.md`.
 
 ## Context
 
@@ -92,7 +96,7 @@ not mean that the existing M2/M3/M4 code or offline contract tests are absent.
   those repositories.
 - `pipeline/github_data_to_outline.py` aggregates commit messages but truncates the evidence passed
   downstream and requires local-LLM outline synthesis before writing its final artifacts.
-- [out/vosslab/blog_post_2026-02-22.md](../../out/vosslab/blog_post_2026-02-22.md) demonstrates the
+- `out/vosslab/blog_post_2026-02-22.md` demonstrated the
   current output-quality failure: no source provenance, generic prose, and a Markdown code fence
   around the post itself.
 - Pierre's `origin/main` experiment supplies useful explicit-date and validation concepts, but uses

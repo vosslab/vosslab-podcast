@@ -4,7 +4,7 @@
 
 This milestone plan records the implemented broad GitHub-content pipeline. It is no longer the plan
 for new product work. The active follow-on is
-[docs/active_plans/DAILY_GITHUB_BLOG_REVIVAL_PLAN.md](DAILY_GITHUB_BLOG_REVIVAL_PLAN.md). Its M2
+[the archived daily GitHub blog revival plan](../archive/DAILY_GITHUB_BLOG_REVIVAL_PLAN.md). Its M2
 evidence, M3 author/validation/promotion, and M4 static archive/server code are implemented, but its
 human baseline decision, normal active-profile Hermes review, and macOS LAN-promotion gates remain
 future work.
@@ -80,4 +80,4 @@ Before any daily-blog branch-changing operation:
 - Keep scheduling disabled until manual generation, validation, and private-LAN review gates pass.
 
 The authoritative requirements, milestones, and open work for that follow-on are in
-[docs/active_plans/DAILY_GITHUB_BLOG_REVIVAL_PLAN.md](DAILY_GITHUB_BLOG_REVIVAL_PLAN.md).
+[the archived daily GitHub blog revival plan](../archive/DAILY_GITHUB_BLOG_REVIVAL_PLAN.md).

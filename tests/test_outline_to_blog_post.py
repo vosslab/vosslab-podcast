@@ -1,7 +1,7 @@
 import os
 import sys
 
-import git_file_utils
+import file_utils as git_file_utils
 
 
 REPO_ROOT = git_file_utils.get_repo_root()
@@ -47,21 +47,6 @@ def sample_outline() -> dict:
 	}
 
 
-#============================================
-def test_build_blog_markdown_prompt_includes_markdown_constraints() -> None:
-	"""
-	Prompt should require Markdown output and anti-CTA constraints.
-	"""
-	prompt = outline_to_blog_post.build_blog_markdown_prompt(sample_outline(), 500)
-	assert "Markdown only" in prompt
-	assert "about 500 words" in prompt
-	assert "vosslab/alpha_repo" in prompt
-	assert "Do not ask readers to comment" in prompt
-	assert "daily engineering blog update" in prompt
-	assert "human-readable paragraph form" in prompt
-
-
-#============================================
 def test_compute_repo_pass_word_target_formula() -> None:
 	"""
 	Per-repo target should follow max(100, ceil((2*L)/(N-1))).

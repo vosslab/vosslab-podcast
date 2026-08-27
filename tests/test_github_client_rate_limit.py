@@ -4,7 +4,7 @@ from datetime import datetime
 from datetime import timezone
 from types import SimpleNamespace
 
-import git_file_utils
+import file_utils as git_file_utils
 
 
 REPO_ROOT = git_file_utils.get_repo_root()

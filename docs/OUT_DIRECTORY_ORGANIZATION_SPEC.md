@@ -32,52 +32,46 @@ A new top-level `out/` namespace requires a documented update to this specificat
 
 ## Default user layout
 
-### Daily GitHub evidence
+### Daily publication
 
-- `out/<user>/daily/YYYY-MM-DD/raw_commits.json`
-- `out/<user>/daily/YYYY-MM-DD/claims.json`
-- `out/<user>/daily/YYYY-MM-DD/run_manifest.json`
-- `out/<user>/daily/YYYY-MM-DD/post_draft.md`
-- `out/<user>/daily/YYYY-MM-DD/agent_generation_manifest.json`
-- `out/<user>/daily/YYYY-MM-DD/author_prompt.txt` (normal Hermes authoring only)
-- `out/<user>/daily/YYYY-MM-DD/agent_authoring_result.json` (normal Hermes authoring only)
-- `out/<user>/daily/YYYY-MM-DD/post-YYYY-MM-DD.md`
-- `out/<user>/daily/YYYY-MM-DD/validation_failures/validation_report.json` (invalid drafts only)
-- `out/<user>/daily_site/index.html`
-- `out/<user>/daily_site/status.html`
-- `out/<user>/daily_site/date/YYYY-MM-DD/index.html`
-- `out/<user>/daily_site/posts/post-YYYY-MM-DD.md`
-- `out/<user>/daily_site/site_manifest.json`
+- `out/<user>/daily_blog/YYYY-MM-DD/RUN_ID/bundle.json`
+- `out/<user>/daily_blog/YYYY-MM-DD/RUN_ID/evidence.json`
+- `out/<user>/daily_blog/YYYY-MM-DD/RUN_ID/post.md`
+- `out/<user>/daily_blog/YYYY-MM-DD/RUN_ID/assets/`
+- `out/<user>/daily_blog/YYYY-MM-DD/latest.json`
+- `out/<user>/daily_blog_runs/YYYY-MM-DD/RUN_ID/run_state.json`
+- `out/<user>/daily_blog_runs/YYYY-MM-DD/RUN_ID/*.json`
+- `out/<user>/daily_blog_cache/activity_location/INPUT_HASH/`
+- `out/<user>/daily_blog_cache/evidence_assembly/INPUT_HASH/`
+- `out/<user>/daily_blog_shadow/YYYY-MM-DD/SHADOW_ID/scorecard.json`
+- `out/<user>/daily_blog_shadow/YYYY-MM-DD/SHADOW_ID/generated_post.md`
+- `out/<user>/daily_blog_shadow/YYYY-MM-DD/SHADOW_ID/reference_post.md`
+- `out/<user>/daily_blog_shadow/YYYY-MM-DD/SHADOW_ID/evidence.json`
+- `out/<user>/daily_blog_shadow/YYYY-MM-DD/latest.json`
+- `out/<user>/daily_blog_shadow_locks/YYYY-MM-DD.lock`
 
-`pipeline/daily_github_evidence.py` is the independent M2 evidence path. It requires an explicit
-`--date YYYY-MM-DD`, applies the configured IANA timezone's local-midnight interval, and stores the
-unmodified input commit records in `raw_commits.json`. `claims.json` contains only confirmed claims
-with SHA, GitHub API URL, HTML permalink, complete message, timestamps, and identity evidence.
-`run_manifest.json` records expected and received collection pages, rate-limit state, identity
-outcomes, errors, completeness, and publication prerequisites. A later publication stage must reject
-any manifest whose `publication.eligible` is false; a complete empty day remains eligible for an
-explicit no-activity post.
+`automation/publish_daily_blog.py --date YYYY-MM-DD` creates one immutable run ID. The typed
+`run_state.json` records all eight legal phases, their status, input and output hashes, reuse state,
+timestamps, evidence packet reference, bundle reference, and bounded failure details. Phase-specific
+JSON artifacts remain beside it for inspection.
 
-`pipeline/daily_github_blog.py` is the independent M3 Hermes authoring and deterministic validation
-path. The normal authoring path requires the `hermes` CLI and a current active Hermes profile that
-exposes the `daily-github-blogger` skill. It uses that profile's configured route without a
-project-local model or provider setting, records the prompt and Hermes subprocess result in the same
-run directory, then writes the draft and generation manifest there. The generation manifest maps every
-prose paragraph to confirmed claim IDs and matching SHAs. Promotion creates `post-YYYY-MM-DD.md` only
-after M2 metadata, claim/SHA declarations, paragraph coverage, and exact Markdown commit permalinks
-validate. Failed drafts remain inspectable alongside a separate validation report and never overwrite a
-promoted post.
+Every complete bundle contains the current schema version, report identity, generator revision,
+prompt and rubric versions, authority-ranked evidence, exact selected post, asset bytes, candidate
+validation summaries, and structured referee result. `latest.json` points to the newest complete
+bundle for one date without changing prior run directories.
 
-`pipeline/daily_github_site.py` reads only these generated daily artifacts and rebuilds the static
-archive deterministically. It sorts dates newest-first, copies only the promoted post filename,
-renders one page per date, and leaves incomplete, validation-failed, and complete-unpublished runs
-visible in the archive and status page. M4 does not independently rerun M3 validation: the operation
-requires a prior successful M3 validation and promotion to `post-YYYY-MM-DD.md`; a draft or generation
-manifest cannot satisfy that promotion requirement.
-It makes no GitHub, Hermes, model, or provider call. `pipeline/daily_github_site_server.py` serves an
-already-built archive only after it validates a configured, locally assigned RFC1918 IPv4 address and
-a non-privileged port. The server refuses wildcard, loopback, public, unassigned, and privileged bind
-choices before listening.
+Phase caches use canonical input hashes and store hash-verified envelopes. Matching repository refs,
+date, identity, budgets, and contract versions can reuse activity, evidence, valid author,
+candidate-validation, and final-referee artifacts while a new run record still owns the current
+execution. Evidence assets are stored beside their cached packet and verified against their asset
+manifest. Provisional editorial results remain retryable. Complete bundles retain the producing run
+directory and can be referenced by later runs only after full artifact revalidation.
+
+`automation/evaluate_daily_blog_shadow.py` writes an immutable non-publishing comparison under the
+shadow namespace. Each completed evaluation retains the generated and reference posts, evidence,
+candidate outputs and validation, assets, deterministic measurements, and typed semantic scorecard.
+Its `latest.json` pointer is independent of production bundle pointers, and the command has no site
+import path.
 
 ### Fetch and changelog processing
 
@@ -152,7 +146,6 @@ successful MP3 conversion.
 Operational logs that are stored in `out/` use:
 
 - `out/logs/<program>/...`
-- `out/logs/daily_github_site/access.log` for the private static-site server's query-free requests.
 
 The macOS launchd installer is an explicit exception. It writes its standard output and error logs
 to:
@@ -163,7 +156,8 @@ to:
 ## Cleanup
 
 Safe cleanup targets include `out/tmp/`, stale `out/smoke/` artifacts, and old cache files below
-`out/<user>/daily_cache/` or `out/<user>/cache/github_api/`.
+`out/<user>/daily_cache/` or `out/<user>/cache/github_api/`. Daily publication bundles and run
+records are immutable audit artifacts; remove them only under an explicit retention policy.
 
 Do not delete the newest dated fetch, blog, Bluesky, podcast script, narration, or audio artifact,
 or the current `outline.json`, without a deliberate retention decision.

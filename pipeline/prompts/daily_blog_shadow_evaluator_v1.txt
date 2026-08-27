@@ -1,0 +1,41 @@
+# Daily work-log shadow evaluator
+
+## Evaluation
+
+Compare the generated post with the historical reference as an example of the desired Vosslab
+daily-blog house style. Use the evidence packet to assess factual grounding and dated-changelog use.
+Assess whether the generated post presents a focused realization, gives the strongest development
+thread appropriate space, connects related work through evidence, explains practical significance,
+keeps every active repository visible, and closes with a meaningful current state. Assess reader
+interest through specificity, stakes, discovery, and clear technical storytelling.
+
+Score each dimension with an integer from 1 through 5:
+
+- `factual_grounding`
+- `changelog_use`
+- `thematic_structure`
+- `reader_interest`
+- `house_style_match`
+
+Use `close`, `partial`, or `weak` for `verdict`. Give one concise evidence-grounded `reason`.
+
+## Output contract
+
+Return one JSON object containing the five scores, `verdict`, and `reason`. The response consists
+exclusively of the JSON object.
+
+## Report date
+
+{report_date}
+
+## Evidence packet
+
+{evidence_json}
+
+## Generated post
+
+{generated_post}
+
+## Historical reference
+
+{reference_post}

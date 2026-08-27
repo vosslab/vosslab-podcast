@@ -1,10 +1,46 @@
 # Standard Library
 import os
+import re
 import subprocess
 
 
 _PROMPT_CACHE = {}
 _REPO_ROOT = ""
+NON_POSITIVE_INSTRUCTION_PATTERNS = (
+	(
+		"direct negation",
+		re.compile(
+			r"\b(?:do\s+not|don't|must\s+not|not|cannot|can't|never|avoid|without|"
+			r"refrain\s+from|prohibit(?:ed)?|forbid(?:den)?)\b",
+			flags=re.IGNORECASE,
+		),
+	),
+	(
+		"negative constraint",
+		re.compile(r"(?:^|[.!?]\s+|\(\s*|-\s+)no\s+[a-z]", flags=re.IGNORECASE | re.MULTILINE),
+	),
+	(
+		"deferred ownership",
+		re.compile(
+			r"\bleave\s+.{1,80}\s+to\s+(?:the\s+)?(?:manager|operator|maintainer|owner)\b",
+			flags=re.IGNORECASE,
+		),
+	),
+)
+
+
+#============================================
+def validate_positive_instructions(text: str, prompt_name: str) -> str:
+	"""Require direct desired outcomes in one model-facing instruction template."""
+	for label, pattern in NON_POSITIVE_INSTRUCTION_PATTERNS:
+		match = pattern.search(text)
+		if match is not None:
+			excerpt = " ".join(match.group(0).split())
+			raise RuntimeError(
+				f"Prompt {prompt_name} uses {label} language ({excerpt}). "
+				+ "State the desired outcome directly."
+			)
+	return text
 
 
 #============================================
@@ -55,6 +91,7 @@ def load_prompt(prompt_name: str) -> str:
 		raise FileNotFoundError(f"Prompt file not found: {path}")
 	with open(path, "r", encoding="utf-8") as handle:
 		text = handle.read()
+	text = validate_positive_instructions(text, prompt_name)
 	_PROMPT_CACHE[path] = text
 	return text
 

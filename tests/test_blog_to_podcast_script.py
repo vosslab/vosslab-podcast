@@ -1,7 +1,7 @@
 import os
 import sys
 
-import git_file_utils
+import file_utils as git_file_utils
 
 
 REPO_ROOT = git_file_utils.get_repo_root()

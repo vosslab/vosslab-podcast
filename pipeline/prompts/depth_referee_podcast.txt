@@ -8,7 +8,7 @@ Candidate {{label_b}}:
 
 Compare the two candidates on these measurable criteria:
 - Which draft contains more concrete specifics from the blog input (repo names, commit details, numbers)?
-- Which draft has fewer vague filler lines or generic commentary?
+- Which draft uses specific engineering details throughout the dialogue?
 - Which draft uses correct SPEAKERNAME: format on every line?
 - Which draft is closer to the target word count?
 - Which draft has all required speakers appearing at least once?
@@ -16,5 +16,5 @@ Compare the two candidates on these measurable criteria:
 Output your decision in exactly this format:
 <winner>{{label_a}} or {{label_b}}</winner><reason>one sentence explaining why</reason>
 
-Do not add any other text. Your entire response must be the winner and reason tags.
+Return exactly the winner and reason tags in one response.
 Example: <winner>A</winner><reason>Draft A references more specific commits and all speakers appear.</reason>
