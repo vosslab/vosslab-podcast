@@ -29,8 +29,10 @@ publication timer remains alongside `vosslab-daily-blog.service`.
 
 ## Acceptance record
 
-- The same explicit-date producer command supports manual and scheduled runs. Timer activation is
-  an operator action after the one-time historical review is recorded.
+- The same explicit-date producer command supports manual and scheduled runs. It validates a coherent
+  publisher receipt before generation, so retrying an immutable published date returns its exact bundle
+  without spending model work or producing a competing publication. Timer activation is an operator
+  action after the current producer-to-publisher contracts pass live verification.
 - Exact Git and dated changelogs anchor evidence before model execution.
 - Two author routes and one referee route receive repository-owned, versioned prompts through
   isolated standard-input sessions.
@@ -49,21 +51,17 @@ files were moved to the recoverable
 `~/.config/systemd/user/retired-daily-blog-20260826/` archive. The single producer service and timer
 were installed, and the static `vosslab-daily-blog.service` remained active.
 
-On 2026-08-27, the producer timer was disabled and left inactive while the August 22 and 23
-historical comparisons await explicit model-data-sharing approval and human review. The transient
-fixed-date `ExecCondition` was removed from the service: it was cutover scaffolding rather than a
-durable publishing contract. Enable the installed timer only after both approved shadow IDs and the
-review outcome are added to this record.
+On 2026-08-27, the producer timer was temporarily disabled while the August 22 and 23 historical
+comparisons were considered. That gate was retired as pre-production scaffolding: historical shadow
+comparisons are optional editorial benchmarks, not prerequisites for an operationally correct
+publication system. The transient fixed-date `ExecCondition` was removed from the service.
 
 Later on 2026-08-27, the operator explicitly directed the repair path to work immediately and asked
-for the missing August 26 run. That instruction superseded the temporary activation gate while the
-historical comparisons remained pending quality evidence. The former Hermes cron was paused, the
-producer timer was enabled, and its persistent activation imported a legacy v1 fallback bundle
-`0fa0c52859c243890857c9e85f63c6f370e649739f47cda1ab6466f9cb49c8a6` from run
-`20260827T151213Z-ea25b1e79b`. The follow-up audit removed the obsolete Hermes cron job, archived its
+for the missing August 26 run. The follow-up audit removed the obsolete Hermes cron job, archived its
 four deleted-path wrappers under `~/.hermes/retired-daily-blog-20260827/`, and replaced one-date
 timer catch-up with a durable, bounded, oldest-first cursor so a multi-day outage cannot silently
-skip older report dates.
+skip older report dates. The clean pre-production cutover then removed the superseded fallback
+transaction and imported the final-only v2 publication described below.
 
 ## One-time verification record
 
@@ -73,9 +71,9 @@ skip older report dates.
 | August 23 exact-object preflight | Complete | Four active repositories, 25 typed evidence items, and 10 assets |
 | Reference structure profile | Complete | Both posts use first person, four narrative H2s, compact openings, Project coverage, and 613/636 narrative words |
 | Synthetic producer-to-publisher flow | Complete | `tests/e2e/e2e_daily_publication.py` passed through strict MkDocs staging on 2026-08-27 |
-| August 22 semantic shadow | Pending quality review | Shadow ID and human decision remain to be recorded |
-| August 23 semantic shadow | Pending quality review | Shadow ID and human decision remain to be recorded |
-| August 26 repaired publication | Complete | Run `20260827T151213Z-ea25b1e79b`; legacy v1 fallback bundle `0fa0c52859c2` imported |
+| August 22 semantic shadow | Optional benchmark | Non-publishing comparison remains available but is not a cutover gate |
+| August 23 semantic shadow | Optional benchmark | Non-publishing comparison remains available but is not a cutover gate |
+| August 26 repaired publication | Complete | Run `20260828T003950Z-bdee87fdc1`; v2 bundle `d6d06817bec1`; "Making the Interface Tell the Truth" served at its thematic route |
 
 These are cutover facts rather than permanent regression cases. The permanent suite covers the
 general contracts that produced them.

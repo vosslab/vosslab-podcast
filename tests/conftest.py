@@ -1,6 +1,15 @@
+import sys
 import pathlib
 
 import pytest
+
+
+# Keep repository-owned packages such as automation importable when pytest is
+# launched from outside the checkout. The parent repository root belongs on
+# sys.path; adding automation/ itself would break the package import contract.
+_REPO_ROOT = str(pathlib.Path(__file__).resolve().parents[1])
+if _REPO_ROOT not in sys.path:
+	sys.path.insert(0, _REPO_ROOT)
 
 
 collect_ignore = ["e2e", "playwright"]
@@ -33,7 +42,7 @@ def find_test_topology_violations() -> list[str]:
 
 
 #============================================
-def pytest_sessionstart(session) -> None:
+def pytest_sessionstart(session: pytest.Session) -> None:
 	"""Fail fast when excluded E2E files could be silently skipped by pytest."""
 	del session
 	violations = find_test_topology_violations()

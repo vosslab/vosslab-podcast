@@ -3,10 +3,12 @@
 
 # Standard Library
 import argparse
+import os
 
 # local repo modules
 import daily_blog.config
 import daily_blog.orchestrator
+import daily_blog.schedule
 
 
 #============================================
@@ -36,6 +38,18 @@ def main() -> None:
 	"""Run the complete producer-to-local-publisher workflow."""
 	args = parse_args()
 	config = daily_blog.config.load_config(args.settings_path)
+	existing_bundle_id = daily_blog.schedule.published_bundle_id(config, args.report_date)
+	if existing_bundle_id is not None:
+		bundle_path = os.path.join(
+			os.path.abspath(config.daily_blog_repository),
+			"data",
+			"publication_bundles",
+			existing_bundle_id,
+		)
+		print(f"Daily publication bundle: {bundle_path}")
+		print(f"Bundle ID: {existing_bundle_id}")
+		print("Publication status: already published")
+		return
 	bundle_path, bundle = daily_blog.orchestrator.run_daily_publication(
 		config,
 		args.report_date,

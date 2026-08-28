@@ -63,6 +63,9 @@
   publication when the model supplies an overlong explanation. Tuned prompt bytes remain unchanged.
 - Validated publisher receipt status, report date, and bundle identity before completing the external
   import phase.
+- Added an explicit-date publication preflight that validates the complete publisher-owned receipt,
+  archive, installed post, and served release before any mirror or model work. An already published
+  immutable date now returns its exact bundle instead of generating a competing candidate.
 - Advanced the schedule cursor to v2, bound each completed date to its exact publication v2 bundle,
   and revalidated that publisher receipt before each backlog scan. Unsupported, missing, or divergent
   publisher state cannot silently advance or outrank the final-only cursor.
@@ -111,14 +114,18 @@
   run reusing approved phase artifacts, its validated bundle, and an idempotent site import.
 - The focused positive-prompt and content-pipeline suite passed 66 permanent tests, and all 13
   direct E2E runners passed under Python 3.12.
-- The full producer test command reported 1833 passing tests. Its 33 failures remain confined to
+- The full producer test command reported 1914 passing tests. Its 32 failures remain confined to
   established typing, vendored-document link, and oversized legacy source gates outside the daily
-  publication rebuild.
-- A live August 26 rerun `20260827T235958Z-944f3d5aad` completed all nine phases and imported final
-  bundle `e7b0ac649fa4fb09c63dba9a66e61c13c2933efe9b73d8607e071c50550f88e8`. The selected post uses the
-  thematic title `Making authority visible in working software`; the publisher record, byte-identical
-  archived artifacts, strict site build, served release pointer, HTTP post/status routes, durable
-  schedule cursor, static service, and next timer activation were verified.
+  publication rebuild. The producer-owned `pytest_sessionstart` hook now carries its native
+  `pytest.Session` annotation and passes the repository typing gate. `tests/conftest.py` derives the
+  checkout root from its own path and inserts that package parent on `sys.path`, so
+  `automation.publish_daily_blog` imports correctly even when pytest starts outside the checkout.
+- A live August 26 rerun `20260828T003950Z-bdee87fdc1` completed all editorial and bundle phases. The
+  clean pre-production cutover imported final bundle
+  `d6d06817bec1b057411b10d135400e0db8024a7f750f603bd45c630d783c5799` with the thematic title
+  `Making the Interface Tell the Truth`. The exact publication-v2 record, four byte-identical archived
+  artifacts, all ten assets, strict site build, served release pointer, live thematic HTTP route,
+  durable schedule cursor, active static service, and enabled timer were verified.
 - A one-time complete-library audit loaded and validated all 40 active prompt templates through the
   shared runtime policy. The scratch audit program was removed after use.
 - A one-time local profile confirmed that the preserved August 22 and 23 posts both satisfy the v2

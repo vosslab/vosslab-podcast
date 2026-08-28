@@ -19,8 +19,11 @@ source source_me.sh && python3 automation/publish_daily_blog.py --date 2026-08-2
 ```
 
 A successful command reports the approved bundle path and bundle ID, then performs the site import.
-If authoring, validation, prompt rendering, or referee approval is blocked, the command raises
-`EditorialBlockedError` and creates or imports no bundle.
+Before mirror refresh or model execution, the command validates the publisher-owned receipt for that
+immutable date. When its record, archive, installed post, and served release are coherent, the command
+reports the existing bundle with `Publication status: already published` and returns without generating
+a competing bundle. If authoring, validation, prompt rendering, or referee approval is blocked for an
+unpublished date, the command raises `EditorialBlockedError` and creates or imports no bundle.
 
 ## Configuration
 
@@ -161,9 +164,9 @@ match. Shadow evaluation has a separate per-date lock and never changes `daily_b
 publisher content.
 
 The scorecard reports deterministic structure and provenance measurements alongside the semantic
-scores. For the one-time August 22 and 23 cutover comparison, a human reviews the scorecard,
-generated post, reference post, and cited evidence together. Record the approved shadow IDs in
-[DAILY_BLOG_OWNERSHIP_CUTOVER.md](DAILY_BLOG_OWNERSHIP_CUTOVER.md) before enabling the timer.
+scores. For an optional historical comparison, a human reviews the scorecard, generated post, reference
+post, and cited evidence together. Shadow results measure editorial behavior without changing the
+publisher; they are not an activation gate.
 
 ## Verification classes
 
@@ -175,7 +178,7 @@ installations. One-time checks establish that this particular rebuild is ready t
 | Schema, prompt, candidate, bundle, and lock unit tests | Producer maintainer | Stable offline contracts pass in the pytest fast lane | `pytest tests/test_daily_blog_*.py` |
 | Exact-Git evidence and mirror E2E | Producer maintainer | Temporary repositories preserve revision, boundary, and cache identity | Run `tests/e2e/e2e_daily_blog_evidence_git.py` and `e2e_daily_blog_mirror_refresh.py` |
 | Complete producer-to-publisher E2E | Producer and publisher maintainers | A synthetic bundle imports into a temporary strict MkDocs site | Run `tests/e2e/e2e_daily_publication.py` |
-| August 22-23 editorial comparison | Producer operator | Both immutable scorecards and posts receive human approval | Inspect each shadow directory and record its ID in the cutover record |
+| Historical editorial comparison | Producer operator | Optional scorecards preserve reproducible quality evidence | Inspect each shadow directory without changing publication state |
 | Host ownership cutover | Producer operator | Old timers remain retired, the static server remains active, and one producer timer is installed | Inspect user units with `systemctl --user` |
 
 Historical filenames staying absent, fixed August dates, and one host's installed-unit snapshot are
@@ -203,8 +206,8 @@ through yesterday. It advances the cursor only after a matching publisher record
 import followed by a lost cursor write reconciles without duplicate generation. Only publication v2
 records can satisfy reconciliation; a pre-cutover or malformed record stops the schedule rather than
 advancing the cursor. Schedule v2 binds the completed date to the exact publisher bundle ID and
-revalidates that receipt on every activation. A first invocation without a cursor starts with
-yesterday rather than treating the historical archive as a backlog.
+revalidates that receipt on every activation. A first invocation without a cursor starts only from
+the explicit `daily_blog.schedule_start_date`; without that operator-owned boundary it fails closed.
 
 The `vosslab-daily-blog.service` static server remains independently enabled in the publisher
 repository. On August 27, 2026, the operator explicitly activated the producer timer to restore

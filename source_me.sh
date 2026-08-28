@@ -15,7 +15,7 @@ REPO_ROOT="$(git rev-parse --show-toplevel)"
 
 # Add packages to PYTHONPATH
 unset PYTHONPATH
-export PYTHONPATH="${REPO_ROOT}/pipeline:${REPO_ROOT}/local-llm-wrapper"
+export PYTHONPATH="${REPO_ROOT}/pipeline:${HOME}/nsh/local-llm-wrapper"
 
 echo "Environment configured:"
 echo "  REPO_ROOT=${REPO_ROOT}"

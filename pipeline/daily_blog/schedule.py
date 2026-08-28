@@ -351,6 +351,16 @@ def _record_bundle_id(config: daily_blog.config.DailyBlogConfig, report_date: st
 
 
 #============================================
+def published_bundle_id(
+	config: daily_blog.config.DailyBlogConfig,
+	report_date: str,
+) -> str | None:
+	"""Return a coherent immutable publication receipt for one explicit date, when present."""
+	_parse_report_date(report_date, "Report date")
+	return _record_bundle_id(config, report_date)
+
+
+#============================================
 def _pending_dates(cursor: datetime.date, target: datetime.date) -> list[datetime.date]:
 	"""Return one bounded oldest-first activation slice."""
 	pending = []
