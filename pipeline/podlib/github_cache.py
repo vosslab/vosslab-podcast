@@ -11,7 +11,7 @@ class GitHubQueryCache:
 	Filesystem-backed cache for GitHub query payloads.
 	"""
 
-	def __init__(self, cache_dir: str, default_ttl_seconds: int):
+	def __init__(self, cache_dir: str, default_ttl_seconds: int) -> None:
 		self.cache_dir = os.path.abspath(cache_dir)
 		self.default_ttl_seconds = int(default_ttl_seconds)
 		os.makedirs(self.cache_dir, exist_ok=True)
@@ -31,7 +31,12 @@ class GitHubQueryCache:
 		return os.path.join(self.cache_dir, f"{category}_{hash_text}.json")
 
 	#============================================
-	def get(self, category: str, query: dict, ttl_seconds: int | None = None):
+	def get(
+		self,
+		category: str,
+		query: dict,
+		ttl_seconds: int | None = None,
+	) -> object | None:
 		if ttl_seconds is None:
 			ttl_seconds = self.default_ttl_seconds
 		cache_path = self._cache_path(category, query)
@@ -61,7 +66,7 @@ class GitHubQueryCache:
 		return payload.get("data")
 
 	#============================================
-	def set(self, category: str, query: dict, data) -> str:
+	def set(self, category: str, query: dict, data: object) -> str:
 		cache_path = self._cache_path(category, query)
 		payload = {
 			"category": category,

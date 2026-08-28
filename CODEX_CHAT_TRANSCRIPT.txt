@@ -1702,3 +1702,25 @@ Verification
   source-size failures.
 - Publisher importer/status suite: 23 passed; strict MkDocs build passed.
 - Publisher full suite: 1092 passed with six existing historical Markdown-link failures.
+
+---
+Session Update: 2026-08-27 (Pipeline ownership cleanup and green pytest suite)
+
+What changed
+- Extracted GitHub fetch support into `pipeline/podlib/fetch_github_support.py`.
+- Extracted deterministic outline parsing and artifact I/O into
+  `pipeline/podlib/github_outline_io.py`.
+- Kept the executable pipeline stages focused on command orchestration and moved the affected tests
+  to the modules that own the behavior.
+- Added concrete type annotations at the GitHub and local-LLM boundaries.
+
+What was tested
+- Focused fetch, changelog, and outline tests passed: 23 tests.
+- Focused structural and hygiene tests passed: 1276 tests.
+- `source source_me.sh && pytest tests/` passed: 1716 tests.
+- Python 3.12 compilation passed for every changed Python file. A Python 3.12 pytest run could not
+  start because that interpreter does not have the `pytest` module installed in this environment.
+
+Next actions
+1. Keep new deterministic fetch and outline behavior in the two owning `podlib` modules.
+2. Keep CLI entry points limited to argument resolution, dependency setup, orchestration, and logs.

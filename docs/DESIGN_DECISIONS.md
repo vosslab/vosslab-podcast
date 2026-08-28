@@ -24,6 +24,22 @@ authoritative code or contract document, rather than a person.
 
 ## Software design
 
+### Humans own editorial prompt wording
+
+**Decision.** Daily-blog editorial prose and rubric wording change only through explicit human review
+of the exact text. Software-owned envelope, evidence, and output-schema contracts evolve separately
+and identify their versions independently.
+
+**Why.** Small wording changes materially affect long-form voice, and coupling editorial revisions
+to schema migrations obscures whether an output changed because of content guidance or plumbing.
+
+**Consequence.** Agents can diagnose output, prepare candidate diffs, and change deterministic
+prompt assembly, but they preserve active prompt prose until the human approves an exact editorial
+change. Prompt experiments compare outputs against human-selected reference posts before activation.
+
+**Owner.** `docs/HUMAN_GUIDANCE.md`, `pipeline/prompts/`, and
+`daily_blog.editorial.prompt_contract_identity()`.
+
 ### Propagation records consumer maintenance
 
 **Decision.** A successful, non-dry-run single-repository propagation that changes files adds one

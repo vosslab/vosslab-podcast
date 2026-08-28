@@ -1,6 +1,8 @@
 import os
 import sys
 
+import pytest
+
 import file_utils as git_file_utils
 
 
@@ -57,15 +59,25 @@ def test_build_bluesky_text_from_blog_extracts_title() -> None:
 
 
 #============================================
-def test_generate_bluesky_text_with_llm_single_pass(monkeypatch) -> None:
+def test_generate_bluesky_text_with_llm_single_pass(monkeypatch: pytest.MonkeyPatch) -> None:
 	"""
 	Generation should produce text from blog markdown via single LLM call.
 	"""
 	class FakeClient:
-		def generate(self, prompt=None, messages=None, purpose=None, max_tokens=0):
+		def generate(
+			self,
+			prompt: object = None,
+			messages: object = None,
+			purpose: object = None,
+			max_tokens: int = 0,
+		) -> str:
 			return "alpha_repo shipped 8 commits and 3 PRs today."
 
-	def fake_create_client(transport_name: str, model_override: str, quiet: bool):
+	def fake_create_client(
+		transport_name: str,
+		model_override: str,
+		quiet: bool,
+	) -> FakeClient:
 		return FakeClient()
 
 	monkeypatch.setattr(blog_to_bluesky_post, "create_llm_client", fake_create_client)

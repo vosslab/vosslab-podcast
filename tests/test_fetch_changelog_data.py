@@ -9,7 +9,7 @@ import file_utils as git_file_utils
 REPO_ROOT = git_file_utils.get_repo_root()
 sys.path.insert(0, REPO_ROOT)
 
-import pipeline.fetch_github_data as fetch_mod
+import pipeline.podlib.fetch_github_support
 
 
 MULTI_DAY_CHANGELOG = """\
@@ -43,9 +43,9 @@ SINGLE_DAY_CHANGELOG = """\
 
 
 #============================================
-def test_parse_all_changelog_entries_multi():
+def test_parse_all_changelog_entries_multi() -> None:
 	"""Multi-day changelog returns all sections."""
-	results = fetch_mod.parse_all_changelog_entries(MULTI_DAY_CHANGELOG)
+	results = pipeline.podlib.fetch_github_support.parse_all_changelog_entries(MULTI_DAY_CHANGELOG)
 	assert len(results) == 3
 	# check dates in order
 	dates = [entry[1] for entry in results]
@@ -62,27 +62,27 @@ def test_parse_all_changelog_entries_multi():
 
 
 #============================================
-def test_parse_all_changelog_entries_single():
+def test_parse_all_changelog_entries_single() -> None:
 	"""Single-day changelog returns list of one."""
-	results = fetch_mod.parse_all_changelog_entries(SINGLE_DAY_CHANGELOG)
+	results = pipeline.podlib.fetch_github_support.parse_all_changelog_entries(SINGLE_DAY_CHANGELOG)
 	assert len(results) == 1
 	assert results[0][1] == "2026-02-22"
 	assert "Added feature A" in results[0][2]
 
 
 #============================================
-def test_parse_all_changelog_entries_empty():
+def test_parse_all_changelog_entries_empty() -> None:
 	"""Empty string returns empty list."""
-	assert fetch_mod.parse_all_changelog_entries("") == []
-	assert fetch_mod.parse_all_changelog_entries("   ") == []
-	assert fetch_mod.parse_all_changelog_entries("# No date headings here\n") == []
+	assert pipeline.podlib.fetch_github_support.parse_all_changelog_entries("") == []
+	assert pipeline.podlib.fetch_github_support.parse_all_changelog_entries("   ") == []
+	assert pipeline.podlib.fetch_github_support.parse_all_changelog_entries("# No date headings here\n") == []
 
 
 #============================================
-def test_strip_changelog_noise_links_and_paths():
+def test_strip_changelog_noise_links_and_paths() -> None:
 	"""Markdown links become plain text, backticked paths become basenames."""
 	text = "- Added [docs/FILE.md](docs/FILE.md) with `pipeline/podlib/audio_utils.py` helper"
-	result = fetch_mod.strip_changelog_noise(text)
+	result = pipeline.podlib.fetch_github_support.strip_changelog_noise(text)
 	# markdown link replaced with link text
 	assert "docs/FILE.md" in result
 	assert "](docs/FILE.md)" not in result
@@ -92,7 +92,7 @@ def test_strip_changelog_noise_links_and_paths():
 
 
 #============================================
-def test_build_changelog_records_filters_by_window():
+def test_build_changelog_records_filters_by_window() -> None:
 	"""Only entries whose UTC date falls within the window are included."""
 	from datetime import datetime, timezone
 	# window spans UTC dates 2026-02-21 and 2026-02-22
@@ -104,7 +104,7 @@ def test_build_changelog_records_filters_by_window():
 		"size": 500,
 		"changelog_text": MULTI_DAY_CHANGELOG,
 	}
-	records = fetch_mod.build_changelog_records(
+	records = pipeline.podlib.fetch_github_support.build_changelog_records(
 		"testuser", window_start, window_end,
 		"owner/repo", "repo", changelog_info,
 	)
@@ -125,7 +125,7 @@ def test_build_changelog_records_filters_by_window():
 
 
 #============================================
-def test_build_changelog_records_window_spans_utc_dates():
+def test_build_changelog_records_window_spans_utc_dates() -> None:
 	"""Window start/end on different UTC dates captures both."""
 	from datetime import datetime, timezone
 	# window from Feb 20 11:00 to Feb 21 11:00 spans UTC dates 20, 21
@@ -137,7 +137,7 @@ def test_build_changelog_records_window_spans_utc_dates():
 		"size": 500,
 		"changelog_text": MULTI_DAY_CHANGELOG,
 	}
-	records = fetch_mod.build_changelog_records(
+	records = pipeline.podlib.fetch_github_support.build_changelog_records(
 		"testuser", window_start, window_end,
 		"owner/repo", "repo", changelog_info,
 	)
@@ -148,7 +148,7 @@ def test_build_changelog_records_window_spans_utc_dates():
 
 
 #============================================
-def test_build_changelog_records_no_match():
+def test_build_changelog_records_no_match() -> None:
 	"""No entries match window returns empty list."""
 	from datetime import datetime, timezone
 	# window in January does not overlap any changelog dates
@@ -160,7 +160,7 @@ def test_build_changelog_records_no_match():
 		"size": 500,
 		"changelog_text": MULTI_DAY_CHANGELOG,
 	}
-	records = fetch_mod.build_changelog_records(
+	records = pipeline.podlib.fetch_github_support.build_changelog_records(
 		"testuser", window_start, window_end,
 		"owner/repo", "repo", changelog_info,
 	)

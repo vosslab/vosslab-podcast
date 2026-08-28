@@ -4,6 +4,7 @@ import json
 import os
 import random
 import re
+import collections.abc
 from datetime import datetime
 
 from podlib import depth_orchestrator
@@ -450,12 +451,12 @@ def blog_word_band_issue(markdown_text: str, target_words: int) -> str:
 
 #============================================
 def enforce_blog_word_band(
-	client,
+	client: object,
 	markdown_text: str,
 	source_prompt: str,
 	word_limit: int,
 	max_tokens: int,
-	logger=None,
+	logger: collections.abc.Callable[[str], None] | None = None,
 	purpose: str = "blog word-band repair",
 ) -> str:
 	"""
@@ -497,7 +498,7 @@ def enforce_blog_word_band(
 
 #============================================
 def _referee_blog(
-	client,
+	client: object,
 	draft_a: str,
 	draft_b: str,
 	max_tokens: int,
@@ -526,8 +527,8 @@ def _referee_blog(
 
 #============================================
 def _polish_blog(
-	client,
-	drafts: list,
+	client: object,
+	drafts: list[str],
 	depth: int,
 	word_limit: int,
 	max_tokens: int,
@@ -567,7 +568,7 @@ def generate_blog_markdown_with_llm(
 	repo_draft_cache_dir: str,
 	depth: int = 1,
 	depth_cache_dir: str = "",
-	logger=None,
+	logger: collections.abc.Callable[[str], None] | None = None,
 ) -> str:
 	"""
 	Generate Markdown blog body with multi-pass local-llm-wrapper flow.
@@ -943,7 +944,7 @@ def main() -> None:
 		def _referee(draft_a: str, draft_b: str) -> str:
 			return _referee_blog(client, draft_a, draft_b, max_tokens)
 
-		def _polish(drafts: list, d: int) -> str:
+		def _polish(drafts: list[str], d: int) -> str:
 			return _polish_blog(
 				client, drafts, d, args.word_limit, max_tokens,
 			)

@@ -16,7 +16,7 @@ from podlib import github_client
 
 
 #============================================
-def make_stub_client(overview_object):
+def make_stub_client(overview_object: object) -> github_client.GitHubClient:
 	"""
 	Build GitHubClient instance with mocked get_rate_limit response.
 	"""

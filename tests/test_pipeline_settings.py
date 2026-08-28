@@ -1,5 +1,6 @@
 import os
 import sys
+import pathlib
 
 import pytest
 
@@ -15,7 +16,7 @@ from podlib import pipeline_settings
 
 
 #============================================
-def test_load_settings_missing_file(tmp_path) -> None:
+def test_load_settings_missing_file(tmp_path: pathlib.Path) -> None:
 	"""
 	Missing settings file should return empty settings.
 	"""
@@ -25,7 +26,7 @@ def test_load_settings_missing_file(tmp_path) -> None:
 
 
 #============================================
-def test_load_settings_reads_yaml(tmp_path) -> None:
+def test_load_settings_reads_yaml(tmp_path: pathlib.Path) -> None:
 	"""
 	YAML settings should be parsed into nested mapping values.
 	"""

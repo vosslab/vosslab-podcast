@@ -10,6 +10,13 @@ origin belongs there too. Rules: [REPO_STYLE.md](REPO_STYLE.md).
 
 ## Model instructions
 
+- Treat the daily-blog prompt prose as human-owned editorial material. Agents may analyze outputs,
+  identify failure patterns, and propose a reviewable diff, but they do not rewrite or approve the
+  prompt wording without my explicit approval of the exact text.
+- Keep software and schema migrations separate from editorial prompt revisions. A machine-contract
+  change alone does not justify changing the human prompt edition or its prose.
+- Use the August 22 and August 23, 2026 posts as the current positive voice references: thematic,
+  first-person human blog entries rather than exhaustive or mechanical changelogs.
 - Lead with the action, source, structure, and output the model should produce.
 - Phrase each instruction as a direct desired outcome, such as "Use the evidence packet as the
   factual source" or "Return one JSON object."

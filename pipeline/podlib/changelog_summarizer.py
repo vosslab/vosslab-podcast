@@ -5,6 +5,10 @@ via an LLM, and concatenates the summaries into a shorter but complete
 representation of the full changelog content.
 """
 
+# Standard Library
+import collections.abc
+
+# local repo modules
 from podlib import prompt_loader
 
 
@@ -46,7 +50,7 @@ def chunk_text(text: str, chunk_size: int = 2250, overlap: int = 250) -> list[st
 
 #============================================
 def summarize_changelog_chunks(
-	client,
+	client: object,
 	chunks: list[str],
 	max_tokens: int = 1024,
 ) -> str:
@@ -79,13 +83,13 @@ def summarize_changelog_chunks(
 
 #============================================
 def summarize_long_changelog(
-	client,
+	client: object,
 	entry_text: str,
 	threshold: int = 6000,
 	chunk_size: int = 2250,
 	overlap: int = 250,
 	max_tokens: int = 1024,
-	log_fn=None,
+	log_fn: collections.abc.Callable[[str], None] | None = None,
 ) -> str:
 	"""
 	Summarize a changelog entry if it exceeds the character threshold.
@@ -117,10 +121,10 @@ def summarize_long_changelog(
 
 #============================================
 def summarize_bucket_changelogs(
-	client,
+	client: object,
 	bucket: dict,
 	threshold: int = 6000,
-	log_fn=None,
+	log_fn: collections.abc.Callable[[str], None] | None = None,
 ) -> None:
 	"""
 	Summarize long changelog entries in a repo activity bucket in place.

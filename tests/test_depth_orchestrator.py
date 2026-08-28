@@ -3,6 +3,7 @@
 # Standard Library
 import os
 import sys
+import pathlib
 
 import pytest
 
@@ -13,14 +14,14 @@ from podlib import depth_orchestrator
 
 
 #============================================
-def test_validate_depth_valid():
+def test_validate_depth_valid() -> None:
 	"""Depths 1, 2, 3, 4 pass without error."""
 	for d in (1, 2, 3, 4):
 		depth_orchestrator.validate_depth(d)
 
 
 #============================================
-def test_validate_depth_invalid():
+def test_validate_depth_invalid() -> None:
 	"""Depths 0, 5, -1 raise ValueError."""
 	for d in (0, 5, -1):
 		with pytest.raises(ValueError):
@@ -28,7 +29,7 @@ def test_validate_depth_invalid():
 
 
 #============================================
-def test_compute_draft_count():
+def test_compute_draft_count() -> None:
 	"""Draft count equals depth value."""
 	assert depth_orchestrator.compute_draft_count(1) == 1
 	assert depth_orchestrator.compute_draft_count(2) == 2
@@ -37,7 +38,7 @@ def test_compute_draft_count():
 
 
 #============================================
-def test_needs_referee():
+def test_needs_referee() -> None:
 	"""Only depth 4 needs a referee."""
 	assert depth_orchestrator.needs_referee(1) is False
 	assert depth_orchestrator.needs_referee(2) is False
@@ -46,7 +47,7 @@ def test_needs_referee():
 
 
 #============================================
-def test_needs_polish():
+def test_needs_polish() -> None:
 	"""Depth 1 does not need polish; 2, 3, 4 do."""
 	assert depth_orchestrator.needs_polish(1) is False
 	assert depth_orchestrator.needs_polish(2) is True
@@ -55,7 +56,7 @@ def test_needs_polish():
 
 
 #============================================
-def test_build_referee_brackets():
+def test_build_referee_brackets() -> None:
 	"""4 items produce 2 pairs; 2 items produce 1 pair."""
 	# 4 items -> 2 pairs
 	result = depth_orchestrator.build_referee_brackets(["a", "b", "c", "d"])
@@ -66,7 +67,7 @@ def test_build_referee_brackets():
 
 
 #============================================
-def test_parse_referee_winner_valid():
+def test_parse_referee_winner_valid() -> None:
 	"""Extracts winner from <winner>A</winner> tag."""
 	raw = "Some preamble <winner>A</winner> trailing text"
 	result = depth_orchestrator.parse_referee_winner(raw, "A", "B")
@@ -74,7 +75,7 @@ def test_parse_referee_winner_valid():
 
 
 #============================================
-def test_parse_referee_winner_fallback():
+def test_parse_referee_winner_fallback() -> None:
 	"""No <winner> tag found returns label_b."""
 	raw = "No tag here at all"
 	result = depth_orchestrator.parse_referee_winner(raw, "A", "B")
@@ -82,7 +83,7 @@ def test_parse_referee_winner_fallback():
 
 
 #============================================
-def test_parse_referee_winner_no_match():
+def test_parse_referee_winner_no_match() -> None:
 	"""Tag content does not match either label; returns label_b."""
 	raw = "<winner>Unknown</winner>"
 	result = depth_orchestrator.parse_referee_winner(raw, "A", "B")
@@ -90,26 +91,26 @@ def test_parse_referee_winner_no_match():
 
 
 #============================================
-def test_run_depth_pipeline_depth_1(tmp_path):
+def test_run_depth_pipeline_depth_1(tmp_path: pathlib.Path) -> None:
 	"""Depth 1: single draft returned, no referee or polish called."""
 	counter = [0]
 
-	def generate_draft_fn():
+	def generate_draft_fn() -> str:
 		counter[0] += 1
 		return f"draft_{counter[0]}"
 
 	referee_called = []
 	polish_called = []
 
-	def referee_fn(a, b):
+	def referee_fn(a: str, b: str) -> str:
 		referee_called.append((a, b))
 		return "<winner>Draft 1</winner><reason>test</reason>"
 
-	def polish_fn(drafts, depth):
+	def polish_fn(drafts: list[str], depth: int) -> str:
 		polish_called.append((drafts, depth))
 		return "polished_" + "_".join(drafts)
 
-	def quality_check_fn(text):
+	def quality_check_fn(text: str) -> str:
 		return ""
 
 	result = depth_orchestrator.run_depth_pipeline(
@@ -131,27 +132,27 @@ def test_run_depth_pipeline_depth_1(tmp_path):
 
 
 #============================================
-def test_run_depth_pipeline_depth_2(tmp_path):
+def test_run_depth_pipeline_depth_2(tmp_path: pathlib.Path) -> None:
 	"""Depth 2: 2 drafts generated, polish called, no referee."""
 	counter = [0]
 
-	def generate_draft_fn():
+	def generate_draft_fn() -> str:
 		counter[0] += 1
 		return f"draft_{counter[0]}"
 
 	referee_called = []
 
-	def referee_fn(a, b):
+	def referee_fn(a: str, b: str) -> str:
 		referee_called.append((a, b))
 		return "<winner>Draft 1</winner><reason>test</reason>"
 
 	polish_called = []
 
-	def polish_fn(drafts, depth):
+	def polish_fn(drafts: list[str], depth: int) -> str:
 		polish_called.append((drafts, depth))
 		return "polished_" + "_".join(drafts)
 
-	def quality_check_fn(text):
+	def quality_check_fn(text: str) -> str:
 		return ""
 
 	result = depth_orchestrator.run_depth_pipeline(
@@ -175,17 +176,17 @@ def test_run_depth_pipeline_depth_2(tmp_path):
 
 
 #============================================
-def test_run_depth_pipeline_depth_4(tmp_path):
+def test_run_depth_pipeline_depth_4(tmp_path: pathlib.Path) -> None:
 	"""Depth 4: 4 drafts, 2 referee calls, 1 polish call."""
 	counter = [0]
 
-	def generate_draft_fn():
+	def generate_draft_fn() -> str:
 		counter[0] += 1
 		return f"draft_{counter[0]}"
 
 	referee_called = []
 
-	def referee_fn(a, b):
+	def referee_fn(a: str, b: str) -> str:
 		referee_called.append((a, b))
 		# always pick the first draft (label_a pattern: "Draft N")
 		# bracket 0: label_a = "Draft 1", bracket 1: label_a = "Draft 3"
@@ -195,11 +196,11 @@ def test_run_depth_pipeline_depth_4(tmp_path):
 
 	polish_called = []
 
-	def polish_fn(drafts, depth):
+	def polish_fn(drafts: list[str], depth: int) -> str:
 		polish_called.append((drafts, depth))
 		return "polished_" + "_".join(drafts)
 
-	def quality_check_fn(text):
+	def quality_check_fn(text: str) -> str:
 		return ""
 
 	result = depth_orchestrator.run_depth_pipeline(

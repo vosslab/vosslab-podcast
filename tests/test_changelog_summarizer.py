@@ -85,7 +85,12 @@ def test_summarize_long_changelog_calls_llm() -> None:
 	call_count = [0]
 
 	class FakeClient:
-		def generate(self, prompt=None, purpose=None, max_tokens=0):
+		def generate(
+			self,
+			prompt: object = None,
+			purpose: object = None,
+			max_tokens: int = 0,
+		) -> str:
 			call_count[0] += 1
 			return f"Summary of chunk {call_count[0]}."
 
@@ -113,7 +118,12 @@ def test_summarize_bucket_changelogs_mutates_entries() -> None:
 	call_count = [0]
 
 	class FakeClient:
-		def generate(self, prompt=None, purpose=None, max_tokens=0):
+		def generate(
+			self,
+			prompt: object = None,
+			purpose: object = None,
+			max_tokens: int = 0,
+		) -> str:
 			call_count[0] += 1
 			return "Condensed summary."
 

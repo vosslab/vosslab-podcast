@@ -7,6 +7,7 @@ passes run, and manages draft caching for continue-mode resumption.
 # Standard Library
 import os
 import re
+import collections.abc
 
 
 #============================================
@@ -63,7 +64,7 @@ def needs_polish(depth: int) -> bool:
 
 
 #============================================
-def build_referee_brackets(drafts: list) -> list:
+def build_referee_brackets(drafts: list[str]) -> list[tuple[str, str]]:
 	"""Pair adjacent drafts for tournament-style referee comparison.
 
 	Args:
@@ -169,7 +170,10 @@ def _save_draft_cache(path: str, text: str) -> None:
 
 
 #============================================
-def _log(logger, msg: str) -> None:
+def _log(
+	logger: collections.abc.Callable[[str], None] | None,
+	msg: str,
+) -> None:
 	"""Call the logger if it is not None.
 
 	Args:
@@ -182,16 +186,16 @@ def _log(logger, msg: str) -> None:
 
 #============================================
 def run_depth_pipeline(
-	generate_draft_fn,
-	referee_fn,
-	polish_fn,
+	generate_draft_fn: collections.abc.Callable[[], str],
+	referee_fn: collections.abc.Callable[[str, str], str] | None,
+	polish_fn: collections.abc.Callable[[list[str], int], str] | None,
 	depth: int,
 	cache_dir: str,
 	cache_key_prefix: str,
 	continue_mode: bool,
 	max_tokens: int,
-	quality_check_fn,
-	logger=None,
+	quality_check_fn: collections.abc.Callable[[str], str],
+	logger: collections.abc.Callable[[str], None] | None = None,
 ) -> str:
 	"""Run the full depth-based draft generation pipeline.
 

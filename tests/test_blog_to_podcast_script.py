@@ -1,6 +1,8 @@
 import os
 import sys
 
+import pytest
+
 import file_utils as git_file_utils
 
 
@@ -66,19 +68,29 @@ def test_build_podcast_lines_from_blog() -> None:
 
 
 #============================================
-def test_generate_podcast_lines_with_llm_single_pass(monkeypatch) -> None:
+def test_generate_podcast_lines_with_llm_single_pass(monkeypatch: pytest.MonkeyPatch) -> None:
 	"""
 	Generation should produce speaker lines from blog via single LLM call.
 	"""
 	class FakeClient:
-		def generate(self, prompt=None, messages=None, purpose=None, max_tokens=0):
+		def generate(
+			self,
+			prompt: object = None,
+			messages: object = None,
+			purpose: object = None,
+			max_tokens: int = 0,
+		) -> str:
 			return (
 				"BHOST: alpha_repo had 8 commits today.\n"
 				"KCOLOR: It also moved 3 pull requests and 2 issues.\n"
 				"CPRODUCER: The repo stayed focused on Python automation."
 			)
 
-	def fake_create_client(transport_name: str, model_override: str, quiet: bool):
+	def fake_create_client(
+		transport_name: str,
+		model_override: str,
+		quiet: bool,
+	) -> FakeClient:
 		return FakeClient()
 
 	monkeypatch.setattr(blog_to_podcast_script, "create_llm_client", fake_create_client)

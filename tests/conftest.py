@@ -3,18 +3,28 @@ import pathlib
 
 import pytest
 
+# local repo modules
+import file_utils
+
 
 # Keep repository-owned packages such as automation importable when pytest is
-# launched from outside the checkout. The parent repository root belongs on
-# sys.path; adding automation/ itself would break the package import contract.
-_REPO_ROOT = str(pathlib.Path(__file__).resolve().parents[1])
+# launched from outside the checkout. file_utils owns repository-root
+# discovery so the test environment follows the repository-wide contract.
+_REPO_ROOT = file_utils.get_repo_root()
 if _REPO_ROOT not in sys.path:
 	sys.path.insert(0, _REPO_ROOT)
 
+# local-llm-wrapper is a sibling repository, not vendored source. Keep its
+# package importable when pytest is launched without sourcing source_me.sh.
+_LOCAL_LLM_WRAPPER_ROOT = str(pathlib.Path.home() / "nsh" / "local-llm-wrapper")
+if _LOCAL_LLM_WRAPPER_ROOT not in sys.path:
+	sys.path.insert(0, _LOCAL_LLM_WRAPPER_ROOT)
+
 
 collect_ignore = ["e2e", "playwright"]
-E2E_DIRECTORY = pathlib.Path(__file__).resolve().parent / "e2e"
-PLAYWRIGHT_DIRECTORY = pathlib.Path(__file__).resolve().parent / "playwright"
+_TESTS_ROOT = pathlib.Path(_REPO_ROOT) / "tests"
+E2E_DIRECTORY = _TESTS_ROOT / "e2e"
+PLAYWRIGHT_DIRECTORY = _TESTS_ROOT / "playwright"
 
 
 #============================================

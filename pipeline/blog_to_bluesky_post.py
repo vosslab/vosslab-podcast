@@ -4,6 +4,7 @@ import glob
 import os
 import random
 import re
+import collections.abc
 from datetime import datetime
 
 from podlib import depth_orchestrator
@@ -276,7 +277,7 @@ def build_bluesky_trim_prompt(draft_text: str, char_limit: int) -> str:
 
 #============================================
 def _referee_bluesky(
-	client,
+	client: object,
 	draft_a: str,
 	draft_b: str,
 	max_tokens: int,
@@ -306,8 +307,8 @@ def _referee_bluesky(
 
 #============================================
 def _polish_bluesky(
-	client,
-	drafts: list,
+	client: object,
+	drafts: list[str],
 	depth: int,
 	char_limit: int,
 	max_tokens: int,
@@ -346,7 +347,7 @@ def generate_bluesky_text_with_llm(
 	depth: int = 1,
 	cache_dir: str = "",
 	continue_mode: bool = True,
-	logger=None,
+	logger: collections.abc.Callable[[str], None] | None = None,
 ) -> str:
 	"""
 	Generate Bluesky text with single-pass or depth-pipeline blog summarization.
@@ -399,7 +400,7 @@ def generate_bluesky_text_with_llm(
 	def _referee(draft_a: str, draft_b: str) -> str:
 		return _referee_bluesky(client, draft_a, draft_b, max_tokens)
 
-	def _polish(drafts: list, d: int) -> str:
+	def _polish(drafts: list[str], d: int) -> str:
 		return _polish_bluesky(client, drafts, d, char_limit, max_tokens)
 
 	text = depth_orchestrator.run_depth_pipeline(

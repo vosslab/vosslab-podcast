@@ -1,5 +1,6 @@
 import random
 import time
+import collections.abc
 from datetime import datetime
 from datetime import timezone
 
@@ -18,7 +19,12 @@ class GitHubClient:
 	Thin PyGithub wrapper for fetch pipeline use-cases.
 	"""
 
-	def __init__(self, token: str, log_fn=None, cache_dir: str = "out/cache/github_api"):
+	def __init__(
+		self,
+		token: str,
+		log_fn: collections.abc.Callable[[str], None] | None = None,
+		cache_dir: str = "out/cache/github_api",
+	) -> None:
 		self.log_fn = log_fn
 		self._rate_check_count = 0
 		self._low_remaining_threshold = 5
@@ -42,7 +48,11 @@ class GitHubClient:
 		self.client = self._build_github_client(Github, token)
 
 	#============================================
-	def _build_github_client(self, github_class, token: str):
+	def _build_github_client(
+		self,
+		github_class: collections.abc.Callable[..., object],
+		token: str,
+	) -> object:
 		"""
 		Create Github client with retry disabled when supported.
 		"""
@@ -108,7 +118,10 @@ class GitHubClient:
 		return value.astimezone(timezone.utc)
 
 	#============================================
-	def parse_rate_limit_reset(self, reset_value) -> datetime:
+	def parse_rate_limit_reset(
+		self,
+		reset_value: datetime | int | float | str,
+	) -> datetime:
 		"""
 		Normalize PyGithub reset values to timezone-aware UTC datetime.
 		"""
@@ -192,7 +205,11 @@ class GitHubClient:
 		time.sleep(delay)
 
 	#============================================
-	def call_with_retry(self, context: str, call_fn):
+	def call_with_retry(
+		self,
+		context: str,
+		call_fn: collections.abc.Callable[[], object],
+	) -> object:
 		"""
 		Run one API call with jitter.
 		"""
@@ -209,9 +226,9 @@ class GitHubClient:
 		category: str,
 		query: dict,
 		context: str,
-		call_fn,
+		call_fn: collections.abc.Callable[[], object],
 		ttl_seconds: int | None = None,
-	):
+	) -> object:
 		"""
 		Resolve one query through filesystem cache plus API fallback.
 		"""
@@ -249,7 +266,7 @@ class GitHubClient:
 		)
 
 	#============================================
-	def list_repos(self, user: str):
+	def list_repos(self, user: str) -> list[dict]:
 		"""
 		List owner repositories sorted by updated timestamp.
 		"""
@@ -269,7 +286,12 @@ class GitHubClient:
 		)
 
 	#============================================
-	def list_commits(self, repo_full_name: str, since: datetime, until: datetime):
+	def list_commits(
+		self,
+		repo_full_name: str,
+		since: datetime,
+		until: datetime,
+	) -> list[dict]:
 		"""
 		List repository commits inside time window.
 		"""
@@ -288,7 +310,7 @@ class GitHubClient:
 		)
 
 	#============================================
-	def list_issues(self, repo_full_name: str, since: datetime):
+	def list_issues(self, repo_full_name: str, since: datetime) -> list[dict]:
 		"""
 		List repository issues and pull requests updated since window start.
 		"""
@@ -305,7 +327,7 @@ class GitHubClient:
 		)
 
 	#============================================
-	def get_repo(self, full_name: str):
+	def get_repo(self, full_name: str) -> object:
 		"""
 		Get one repository object by full name.
 		"""

@@ -5,6 +5,7 @@ import json
 import os
 import random
 import re
+import collections.abc
 from datetime import datetime
 
 from podlib import depth_orchestrator
@@ -501,7 +502,7 @@ def build_podcast_trim_prompt(
 
 #============================================
 def _referee_podcast(
-	client,
+	client: object,
 	draft_a: str,
 	draft_b: str,
 	max_tokens: int,
@@ -531,8 +532,8 @@ def _referee_podcast(
 
 #============================================
 def _polish_podcast(
-	client,
-	drafts: list,
+	client: object,
+	drafts: list[str],
 	depth: int,
 	word_limit: int,
 	max_tokens: int,
@@ -571,7 +572,7 @@ def generate_podcast_lines_with_llm(
 	depth: int = 1,
 	cache_dir: str = "",
 	continue_mode: bool = True,
-	logger=None,
+	logger: collections.abc.Callable[[str], None] | None = None,
 ) -> list[tuple[str, str]]:
 	"""
 	Generate podcast lines with single-pass or depth-pipeline blog summarization.
@@ -623,7 +624,7 @@ def generate_podcast_lines_with_llm(
 	def _referee(draft_a: str, draft_b: str) -> str:
 		return _referee_podcast(client, draft_a, draft_b, max_tokens)
 
-	def _polish(drafts: list, d: int) -> str:
+	def _polish(drafts: list[str], d: int) -> str:
 		return _polish_podcast(client, drafts, d, word_limit, max_tokens)
 
 	final_text = depth_orchestrator.run_depth_pipeline(
@@ -651,7 +652,7 @@ def generate_narration_lines_with_llm(
 	model_override: str,
 	max_tokens: int,
 	word_limit: int,
-	logger=None,
+	logger: collections.abc.Callable[[str], None] | None = None,
 ) -> list[tuple[str, str]]:
 	"""
 	Generate 1-speaker narration lines from blog text.

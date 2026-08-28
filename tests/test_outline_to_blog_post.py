@@ -1,6 +1,9 @@
 import os
 import sys
 
+# PIP3 modules
+import pytest
+
 import file_utils as git_file_utils
 
 
@@ -59,7 +62,9 @@ def test_compute_repo_pass_word_target_formula() -> None:
 
 
 #============================================
-def test_generate_blog_markdown_with_llm_retries_for_limit(monkeypatch) -> None:
+def test_generate_blog_markdown_with_llm_retries_for_limit(
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
 	"""
 	Generation should run repo-pass then final trim pass.
 	"""
@@ -69,10 +74,20 @@ def test_generate_blog_markdown_with_llm_retries_for_limit(monkeypatch) -> None:
 	]
 
 	class FakeClient:
-		def generate(self, prompt=None, messages=None, purpose=None, max_tokens=0):
+		def generate(
+			self,
+			prompt: str | None = None,
+			messages: list[dict[str, str]] | None = None,
+			purpose: str | None = None,
+			max_tokens: int = 0,
+		) -> str:
 			return responses.pop(0)
 
-	def fake_create_client(transport_name: str, model_override: str, quiet: bool):
+	def fake_create_client(
+		transport_name: str,
+		model_override: str,
+		quiet: bool,
+	) -> FakeClient:
 		assert transport_name == "ollama"
 		assert model_override == ""
 		assert quiet is False
@@ -132,7 +147,9 @@ def test_blog_word_band_issue_bounds() -> None:
 
 
 #============================================
-def test_generate_blog_markdown_with_llm_rejects_out_of_band(monkeypatch) -> None:
+def test_generate_blog_markdown_with_llm_rejects_out_of_band(
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
 	"""
 	Generator should raise when final output remains outside hard word band.
 	"""
@@ -143,10 +160,20 @@ def test_generate_blog_markdown_with_llm_rejects_out_of_band(monkeypatch) -> Non
 	]
 
 	class FakeClient:
-		def generate(self, prompt=None, messages=None, purpose=None, max_tokens=0):
+		def generate(
+			self,
+			prompt: str | None = None,
+			messages: list[dict[str, str]] | None = None,
+			purpose: str | None = None,
+			max_tokens: int = 0,
+		) -> str:
 			return responses.pop(0)
 
-	def fake_create_client(transport_name: str, model_override: str, quiet: bool):
+	def fake_create_client(
+		transport_name: str,
+		model_override: str,
+		quiet: bool,
+	) -> FakeClient:
 		return FakeClient()
 
 	monkeypatch.setattr(outline_to_blog_post, "create_llm_client", fake_create_client)

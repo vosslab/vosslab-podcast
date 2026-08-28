@@ -50,6 +50,9 @@
   templates so retries receive the same validation and editing workflow as first-pass prompts.
 
 ### Fixes and Maintenance
+- Split GitHub fetch support and deterministic outline parsing/rendering into dedicated `podlib`
+  modules. The executable stages now own orchestration while reusable behavior, types, and artifact
+  contracts live with their direct tests.
 - Limited referee evidence to projection excerpts cited by candidate paragraphs while retaining all
   active repository cards, and rejected generic date-derived Work log titles.
 - Made a projected screenshot's confined, hash-bound publication path its authoritative citation,
@@ -95,8 +98,14 @@
   lengths, and cutover dates. Retained stable error detection, round trips, behavioral ordering,
   provenance, idempotency, and atomic-failure guarantees.
 - Synchronized shared style guides, tests, and repository support files from the starter template.
+- Synchronized shared style guides, tests, and repository support files from the starter template.
 
 ### Developer Tests and Notes
+- The fetch/changelog/outline behavior selection passed 23 tests, the focused structural and hygiene
+  selection passed 1276 tests, and `source source_me.sh && pytest tests/` passed all 1716 tests.
+- Python 3.12 compiled every changed Python file. Its direct pytest run was unavailable in this
+  environment because the Python 3.12 installation does not contain the `pytest` module; the required
+  repository command resolves to the installed Python 3.13 pytest executable here.
 - Confirmed the supplied projection contract started red because `daily_blog.projection` was absent;
   its five deterministic projection and envelope tests now pass.
 - Focused daily-blog, settings, and prompt-policy tests passed: 57 tests. Focused typing, import,

@@ -1,6 +1,10 @@
 import json
 import os
 import sys
+import pathlib
+
+# PIP3 modules
+import pytest
 
 import file_utils as git_file_utils
 
@@ -11,6 +15,7 @@ if PIPELINE_DIR not in sys.path:
 	sys.path.insert(0, PIPELINE_DIR)
 
 import github_data_to_outline
+from podlib import github_outline_io
 
 
 #============================================
@@ -25,7 +30,7 @@ def write_jsonl(path: str, records: list[dict]) -> None:
 
 
 #============================================
-def test_parse_jsonl_to_outline(tmp_path) -> None:
+def test_parse_jsonl_to_outline(tmp_path: pathlib.Path) -> None:
 	"""
 	Ensure parser aggregates repo, commit, issue, and pull request records.
 	"""
@@ -82,7 +87,7 @@ def test_parse_jsonl_to_outline(tmp_path) -> None:
 		},
 	]
 	write_jsonl(str(jsonl_path), records)
-	outline = github_data_to_outline.parse_jsonl_to_outline(str(jsonl_path))
+	outline = github_outline_io.parse_jsonl_to_outline(str(jsonl_path))
 
 	assert outline["user"] == "vosslab"
 	assert outline["totals"]["repos"] == 1
@@ -128,14 +133,14 @@ def test_render_outline_text_contains_sections() -> None:
 		],
 		"notable_commit_messages": ["first update"],
 	}
-	text = github_data_to_outline.render_outline_text(outline)
+	text = github_outline_io.render_outline_text(outline)
 	assert "# GitHub Daily Outline" in text
 	assert "## Repository Activity" in text
 	assert "vosslab/demo" in text
 
 
 #============================================
-def test_write_repo_outline_shards(tmp_path) -> None:
+def test_write_repo_outline_shards(tmp_path: pathlib.Path) -> None:
 	"""
 	Ensure repo-shard JSON/TXT files and manifest are written.
 	"""
@@ -173,7 +178,7 @@ def test_write_repo_outline_shards(tmp_path) -> None:
 			},
 		],
 	}
-	manifest_path = github_data_to_outline.write_repo_outline_shards(outline, str(tmp_path))
+	manifest_path = github_outline_io.write_repo_outline_shards(outline, str(tmp_path))
 	assert os.path.isfile(manifest_path)
 	with open(manifest_path, "r", encoding="utf-8") as handle:
 		manifest = json.loads(handle.read())
@@ -189,17 +194,23 @@ def test_write_repo_outline_shards(tmp_path) -> None:
 
 
 #============================================
-def test_summarize_outline_with_llm_uses_client(monkeypatch) -> None:
+def test_summarize_outline_with_llm_uses_client(monkeypatch: pytest.MonkeyPatch) -> None:
 	"""
 	LLM summary function should inject repo and global outline text.
 	"""
 	class FakeClient:
-		def generate(self, prompt=None, messages=None, purpose=None, max_tokens=0):
+		def generate(
+			self,
+			prompt: str | None = None,
+			messages: list[dict[str, str]] | None = None,
+			purpose: str | None = None,
+			max_tokens: int = 0,
+		) -> str:
 			if "daily global outline" in (purpose or ""):
 				return "GLOBAL SUMMARY"
 			return "REPO SUMMARY"
 
-	def fake_create_client(transport_name: str, model_override: str):
+	def fake_create_client(transport_name: str, model_override: str) -> FakeClient:
 		assert transport_name == "ollama"
 		assert model_override == ""
 		return FakeClient()
@@ -240,7 +251,7 @@ def test_summarize_outline_with_llm_uses_client(monkeypatch) -> None:
 
 
 #============================================
-def test_load_cached_repo_outline_map_filters_by_window(tmp_path) -> None:
+def test_load_cached_repo_outline_map_filters_by_window(tmp_path: pathlib.Path) -> None:
 	"""
 	Cache loader should only use shard outlines for the same user/window.
 	"""
@@ -277,7 +288,10 @@ def test_load_cached_repo_outline_map_filters_by_window(tmp_path) -> None:
 
 
 #============================================
-def test_summarize_outline_with_llm_reuses_cached_repo(monkeypatch, tmp_path) -> None:
+def test_summarize_outline_with_llm_reuses_cached_repo(
+	monkeypatch: pytest.MonkeyPatch,
+	tmp_path: pathlib.Path,
+) -> None:
 	"""
 	Continue mode should reuse cached repo outlines and skip repo regeneration.
 	"""
@@ -303,13 +317,19 @@ def test_summarize_outline_with_llm_reuses_cached_repo(monkeypatch, tmp_path) ->
 	generated_purposes = []
 
 	class FakeClient:
-		def generate(self, prompt=None, messages=None, purpose=None, max_tokens=0):
+		def generate(
+			self,
+			prompt: str | None = None,
+			messages: list[dict[str, str]] | None = None,
+			purpose: str | None = None,
+			max_tokens: int = 0,
+		) -> str:
 			generated_purposes.append(purpose or "")
 			if "daily global outline" in (purpose or ""):
 				return "GLOBAL SUMMARY"
 			return "NEW REPO SUMMARY"
 
-	def fake_create_client(transport_name: str, model_override: str):
+	def fake_create_client(transport_name: str, model_override: str) -> FakeClient:
 		assert transport_name == "ollama"
 		assert model_override == ""
 		return FakeClient()

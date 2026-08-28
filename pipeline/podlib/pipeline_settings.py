@@ -46,7 +46,11 @@ def load_settings(path_text: str) -> tuple[dict, str]:
 
 
 #============================================
-def get_nested_value(settings: dict, keys: list[str], default_value):
+def get_nested_value(
+	settings: dict,
+	keys: list[str],
+	default_value: object,
+) -> object:
 	"""
 	Read nested mapping value by key path.
 	"""

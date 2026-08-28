@@ -1,6 +1,7 @@
 import json
 import os
 import sys
+import pathlib
 
 import file_utils as git_file_utils
 
@@ -43,12 +44,17 @@ def _read_jsonl(path: str) -> list[dict]:
 #============================================
 class FakeClient:
 	"""Fake LLM client that returns a fixed summary string."""
-	def generate(self, prompt=None, purpose=None, max_tokens=0):
+	def generate(
+		self,
+		prompt: str | None = None,
+		purpose: str | None = None,
+		max_tokens: int = 0,
+	) -> str:
 		return "LLM condensed summary."
 
 
 #============================================
-def test_summarize_jsonl_changelogs_replaces_long_entries(tmp_path) -> None:
+def test_summarize_jsonl_changelogs_replaces_long_entries(tmp_path: pathlib.Path) -> None:
 	"""
 	Long repo_changelog latest_entry values should be replaced with LLM summary.
 	"""
@@ -78,7 +84,7 @@ def test_summarize_jsonl_changelogs_replaces_long_entries(tmp_path) -> None:
 
 
 #============================================
-def test_summarize_jsonl_changelogs_passthrough_short(tmp_path) -> None:
+def test_summarize_jsonl_changelogs_passthrough_short(tmp_path: pathlib.Path) -> None:
 	"""
 	Changelog entries under threshold should pass through unchanged.
 	"""
@@ -104,7 +110,9 @@ def test_summarize_jsonl_changelogs_passthrough_short(tmp_path) -> None:
 
 
 #============================================
-def test_summarize_jsonl_changelogs_non_changelog_records_unchanged(tmp_path) -> None:
+def test_summarize_jsonl_changelogs_non_changelog_records_unchanged(
+	tmp_path: pathlib.Path,
+) -> None:
 	"""
 	Commit, issue, and metadata records should pass through untouched.
 	"""
@@ -139,7 +147,7 @@ def test_summarize_jsonl_changelogs_non_changelog_records_unchanged(tmp_path) ->
 
 
 #============================================
-def test_summarize_jsonl_changelogs_depth2_uses_pipeline(tmp_path) -> None:
+def test_summarize_jsonl_changelogs_depth2_uses_pipeline(tmp_path: pathlib.Path) -> None:
 	"""
 	At depth 2, the pipeline should generate multiple drafts and polish.
 	"""
@@ -147,7 +155,12 @@ def test_summarize_jsonl_changelogs_depth2_uses_pipeline(tmp_path) -> None:
 
 	class DepthFakeClient:
 		"""Fake LLM client that tracks draft generation and polish calls."""
-		def generate(self, prompt=None, purpose=None, max_tokens=0):
+		def generate(
+			self,
+			prompt: str | None = None,
+			purpose: str | None = None,
+			max_tokens: int = 0,
+		) -> str:
 			# track draft generation calls (chunk summaries)
 			if "chunk" in (purpose or ""):
 				draft_count[0] += 1

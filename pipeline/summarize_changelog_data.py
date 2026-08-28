@@ -15,6 +15,7 @@ import os
 import random
 import re
 import tempfile
+import collections.abc
 from datetime import datetime
 
 # local repo modules
@@ -169,7 +170,7 @@ def _changelog_summary_quality_issue(text: str) -> str:
 
 #============================================
 def _referee_changelog(
-	client,
+	client: object,
 	draft_a: str,
 	draft_b: str,
 	max_tokens: int,
@@ -199,8 +200,8 @@ def _referee_changelog(
 
 #============================================
 def _polish_changelog(
-	client,
-	drafts: list,
+	client: object,
+	drafts: list[str],
 	depth: int,
 	max_tokens: int,
 ) -> str:
@@ -227,9 +228,9 @@ def _polish_changelog(
 #============================================
 def summarize_jsonl_changelogs(
 	input_path: str,
-	client,
+	client: object,
 	threshold: int,
-	log_fn=None,
+	log_fn: collections.abc.Callable[[str], None] | None = None,
 	chunk_size: int = 2250,
 	chunk_overlap: int = 250,
 	depth: int = 1,
@@ -305,13 +306,13 @@ def summarize_jsonl_changelogs(
 
 #============================================
 def _summarize_one_entry(
-	client,
+	client: object,
 	entry_text: str,
 	threshold: int,
 	chunk_size: int,
 	chunk_overlap: int,
 	max_tokens: int,
-	log_fn,
+	log_fn: collections.abc.Callable[[str], None] | None,
 	depth: int,
 	cache_dir: str,
 	continue_mode: bool,
@@ -342,7 +343,7 @@ def _summarize_one_entry(
 	def _referee(draft_a: str, draft_b: str) -> str:
 		return _referee_changelog(client, draft_a, draft_b, max_tokens)
 
-	def _polish(drafts: list, d: int) -> str:
+	def _polish(drafts: list[str], d: int) -> str:
 		return _polish_changelog(client, drafts, d, max_tokens)
 
 	result = depth_orchestrator.run_depth_pipeline(
