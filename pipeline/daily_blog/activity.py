@@ -7,6 +7,7 @@ import zoneinfo
 
 # local repo modules
 import daily_blog.schema
+import daily_blog.repository_contracts
 
 
 #============================================
@@ -115,6 +116,26 @@ def _within_window(
 
 
 #============================================
+def _creation_event(
+	mirror: dict,
+	start: datetime.datetime,
+	end: datetime.datetime,
+) -> daily_blog.repository_contracts.RepositoryLifecycleEvent:
+	"""Type one roster creation timestamp against the selected local day."""
+	created_at = daily_blog.repository_contracts.canonical_utc_timestamp(
+		mirror["created_at"], "Mirror repository creation time"
+	)
+	moment = datetime.datetime.fromisoformat(created_at.replace("Z", "+00:00"))
+	local_moment = moment.astimezone(start.tzinfo)
+	return daily_blog.repository_contracts.RepositoryLifecycleEvent(
+		event_type="repository_created",
+		occurred_at=created_at,
+		occurred_in_report_window=start <= local_moment < end,
+		source="github_owner_roster",
+	)
+
+
+#============================================
 def _is_ancestor(cache_path: str, ancestor: str, descendant: str) -> bool:
 	"""Return whether one selected commit is an ancestor of another."""
 	result = _run_git(
@@ -181,6 +202,11 @@ def locate_activity(
 		commits.sort(key=lambda item: (item.author_timestamp, item.sha))
 		if not commits:
 			continue
+		is_fork = mirror["is_fork"]
+		if type(is_fork) is not bool:
+			raise RuntimeError(
+				f"Mirror fork state is missing or invalid: {mirror['repository']}"
+			)
 		activity = daily_blog.schema.RepositoryActivity(
 			repository=mirror["repository"],
 			repository_url=mirror["repository_url"],
@@ -189,6 +215,8 @@ def locate_activity(
 			commits=tuple(commits),
 			revision_ranges=_revision_ranges(commits),
 			snapshot_commits=_snapshot_commits(mirror["cache_path"], commits),
+			is_fork=is_fork,
+			lifecycle_events=(_creation_event(mirror, start, end),),
 		)
 		activities.append(activity)
 	activities.sort(key=lambda item: item.repository.casefold())

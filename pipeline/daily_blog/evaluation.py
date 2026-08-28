@@ -17,9 +17,11 @@ import daily_blog.activity
 import daily_blog.evidence
 import daily_blog.projection
 import daily_blog.editorial
+import daily_blog.contracts
 import daily_blog.candidates
 import daily_blog.io_utils
 import daily_blog.mirrors
+import daily_blog.repositories
 
 
 SHADOW_SCHEMA_VERSION = "vosslab.daily-blog.shadow.v1"
@@ -33,6 +35,183 @@ SCORE_FIELDS = (
 	"house_style_match",
 )
 MAX_EVALUATOR_RESPONSE_CHARS = 5000
+VISIBLE_WORD_RE = re.compile(r"[A-Za-z0-9]+(?:['-][A-Za-z0-9]+)*")
+SENTENCE_RE = re.compile(r"[^.!?]+(?:[.!?]+|$)")
+FIRST_PERSON_RE = re.compile(
+	r"(?<![A-Za-z0-9/])(?:I|me|my|mine|myself)(?![A-Za-z0-9/])",
+	flags=re.IGNORECASE,
+)
+FIRST_PERSON_SUBJECT_RE = re.compile(
+	r"(?<![A-Za-z0-9/])I(?![A-Za-z0-9/])",
+	flags=re.IGNORECASE,
+)
+FENCED_CODE_RE = re.compile(r"(?ms)^[ \t]*(`{3,}|~{3,}).*?^[ \t]*\1[^\n]*(?:\n|$)")
+INLINE_CODE_RE = re.compile(r"`[^`\n]*`")
+COMMENT_RE = re.compile(r"<!--.*?-->", flags=re.DOTALL)
+COORDINATED_ACTION_RE = re.compile(
+	r"(?:,\s*(?:and\s+)?(?:I\s+)?|\band\s+(?:I\s+)?)([A-Za-z]+(?:'[A-Za-z]+)?)",
+	flags=re.IGNORECASE,
+)
+CONTRACTION_RE = re.compile(r"\bI'(m|ve|d|ll)\b", flags=re.IGNORECASE)
+CONCRETE_VISIBLE_SIGNAL_RE = re.compile(
+	r"\b\d+(?:\.\d+)?(?:%|[A-Za-z]+)?\b|"
+	r"\b[A-Za-z][A-Za-z0-9]*_[A-Za-z0-9_]+\b|"
+	r"\b[A-Za-z][A-Za-z0-9]*(?:\.[A-Za-z0-9_-]+)+\b|"
+	r"(?:\b[A-Za-z0-9._-]+/)+[A-Za-z0-9._-]+\b|"
+	r"\b[A-Za-z][A-Za-z0-9]*(?:-[A-Za-z0-9]+){2,}\b"
+)
+NO_INLINE_MARKDOWN_LINKS = None
+STANDALONE_SHORT_PARAGRAPH_WORD_LIMIT = 12
+ACTION_PREFIX_WORDS = {
+	"am", "are", "was", "were", "be", "been", "being", "have", "has", "had", "do",
+	"does", "did", "will", "would", "can", "could", "should", "might", "may", "must",
+	"really", "very", "quite", "just", "also", "still", "finally", "then", "now", "quickly",
+	"carefully", "slowly", "again", "actually", "probably", "perhaps", "almost", "already",
+	"only", "even", "to",
+}
+CONTRACTION_PREFIXES = {
+	"m": "am",
+	"ve": "have",
+	"d": "would",
+	"ll": "will",
+}
+
+
+#============================================
+def _matching_link_end(text: str, opening_index: int) -> int | None:
+	"""Return a balanced inline-link target end, or None for unsupported Markdown."""
+	depth = 1
+	index = opening_index + 1
+	quote = ""
+	while index < len(text):
+		character = text[index]
+		if character == "\\":
+			index += 2
+			continue
+		if quote:
+			if character == quote:
+				quote = ""
+			index += 1
+			continue
+		if character in {"\"", "'"}:
+			quote = character
+			index += 1
+			continue
+		if character == "(":
+			depth += 1
+		elif character == ")":
+			depth -= 1
+			if depth == 0:
+				return index
+		index += 1
+	return None
+
+
+#============================================
+def _visible_markdown_text_and_link_count(text: str) -> tuple[str, int]:
+	"""Return reader-visible prose and ordinary inline-link count from a bounded subset.
+
+	This scanner supports ``[label](target)`` links with balanced target parentheses and optional
+	titles. It removes comments, fenced code, inline code, image links, and link targets before
+	word or punctuation analysis. Reference links, nested labels, HTML, and full Markdown grammar
+	remain outside this diagnostic-only subset.
+	"""
+	visible = COMMENT_RE.sub(" ", text)
+	visible = FENCED_CODE_RE.sub(" ", visible)
+	visible = INLINE_CODE_RE.sub(" ", visible)
+	output = []
+	link_count = 0
+	index = 0
+	while index < len(visible):
+		is_image = visible.startswith("![", index)
+		if visible[index] == "[" or is_image:
+			label_start = index + 2 if is_image else index + 1
+			label_end = visible.find("]", label_start)
+			if label_end != -1 and label_end + 1 < len(visible) and visible[label_end + 1] == "(":
+				target_end = _matching_link_end(visible, label_end + 1)
+				if target_end is not None:
+					if not is_image:
+						output.append(visible[label_start:label_end])
+						link_count += 1
+					index = target_end + 1
+					continue
+		output.append(visible[index])
+		index += 1
+	text = "".join(output)
+	return text, link_count
+
+
+#============================================
+def _visible_markdown_text(text: str) -> str:
+	"""Return reader-visible prose while discarding the separately measured link count."""
+	visible, _link_count = _visible_markdown_text_and_link_count(text)
+	return visible
+
+
+#============================================
+def _has_concrete_surface_signal(block: str) -> bool:
+	"""Return whether a prose block has one intentionally narrow concrete-looking signal.
+
+	Evidence comments, reader-visible inline links, inline code, numbers, measurements, paths,
+	and identifier-like tokens count. This is an auditable syntax heuristic, not claim detection:
+	it will miss concrete plain-language claims and it must never serve as a quality score or gate.
+	"""
+	visible, link_count = _visible_markdown_text_and_link_count(block)
+	return bool(
+		daily_blog.candidates.EVIDENCE_COMMENT_RE.search(block)
+		or link_count
+		or INLINE_CODE_RE.search(block)
+		or CONCRETE_VISIBLE_SIGNAL_RE.search(visible)
+	)
+
+
+#============================================
+def _sentence_texts(blocks: list[str]) -> list[str]:
+	"""Return non-empty regex sentence spans from narrative prose blocks."""
+	sentences = []
+	for block in blocks:
+		visible = _visible_markdown_text(block)
+		for match in SENTENCE_RE.finditer(visible):
+			sentence = match.group(0).strip()
+			if sentence:
+				sentences.append(sentence)
+	return sentences
+
+
+#============================================
+def _first_person_action_surfaces(sentences: list[str]) -> set[str]:
+	"""Return bounded first-person action surfaces, rather than claimed grammatical verbs.
+
+	The heuristic recognizes ``I`` as a standalone pronoun, so terms such as ``I/O`` stay out.
+	It skips a bounded auxiliary/adverb prefix, then records the first surface action plus actions
+	after comma or ``and`` coordination. This supports common maker prose while deliberately
+	avoiding a claim of full part-of-speech parsing.
+	"""
+	actions = set()
+	for sentence in sentences:
+		match = FIRST_PERSON_SUBJECT_RE.search(sentence)
+		if not match:
+			continue
+		tail = sentence[match.end():]
+		contraction = CONTRACTION_RE.match(sentence, match.start())
+		if contraction:
+			tail = (
+				CONTRACTION_PREFIXES[contraction.group(1).casefold()]
+				+ " "
+				+ sentence[contraction.end():]
+			)
+		words = VISIBLE_WORD_RE.findall(tail)
+		for word in words:
+			surface = word.casefold()
+			if surface in ACTION_PREFIX_WORDS:
+				continue
+			actions.add(surface)
+			break
+		for coordinated in COORDINATED_ACTION_RE.findall(tail):
+			surface = coordinated.casefold()
+			if surface not in ACTION_PREFIX_WORDS:
+				actions.add(surface)
+	return actions
 
 
 #============================================
@@ -57,15 +236,52 @@ def _reference_date(post: str) -> str:
 
 #============================================
 def article_profile(post: str) -> dict:
-	"""Return deterministic narrative-shape measurements for one MkDocs article."""
+	"""Return deterministic narrative-shape diagnostics for one MkDocs article.
+
+	Regex parsing intentionally measures a narrow Markdown subset and bounded first-person action
+	surfaces, rather than full Markdown or grammar. Uncited blocks are provenance telemetry only.
+	The concrete-surface heuristic deliberately misses ordinary-language factual claims. These
+	measurements describe samples; they are never validation rules, thresholds, or quality verdicts.
+	"""
 	_front_matter, body = daily_blog.candidates.parse_front_matter(post)
 	title_match = re.search(r"^#\s+(.+?)\s*$", body, flags=re.MULTILINE)
 	headings = re.findall(r"^##\s+(.+?)\s*$", body, flags=re.MULTILINE)
-	coverage_match = re.search(r"^##\s+Project coverage\s*$", body, flags=re.MULTILINE | re.IGNORECASE)
-	narrative = body[:coverage_match.start()] if coverage_match else body
-	blocks = daily_blog.candidates.prose_blocks(narrative)
+	coverage_matches = list(
+		re.finditer(r"^##\s+Project coverage\s*$", body, flags=re.MULTILINE | re.IGNORECASE)
+	)
+	narrative = body[:coverage_matches[-1].start()] if coverage_matches else body
+	raw_blocks = daily_blog.candidates.prose_blocks(narrative)
+	blocks = [block for block in raw_blocks if _visible_markdown_text(block).strip()]
+	visible_blocks = [_visible_markdown_text(block) for block in blocks]
+	paragraph_word_counts = [len(VISIBLE_WORD_RE.findall(block)) for block in visible_blocks]
+	sentences = _sentence_texts(blocks)
+	sentence_word_counts = [len(VISIBLE_WORD_RE.findall(sentence)) for sentence in sentences]
+	first_person_sentences = [
+		sentence for sentence in sentences if FIRST_PERSON_RE.search(sentence)
+	]
+	first_person_actions = _first_person_action_surfaces(first_person_sentences)
+	_narrative_visible, inline_link_count = _visible_markdown_text_and_link_count(narrative)
+	if inline_link_count:
+		words_per_link = sum(paragraph_word_counts) / inline_link_count
+	else:
+		words_per_link = NO_INLINE_MARKDOWN_LINKS
+	if sentence_word_counts:
+		mean_sentence_words = sum(sentence_word_counts) / len(sentence_word_counts)
+		sentence_length_variance = sum(
+			(word_count - mean_sentence_words) ** 2
+			for word_count in sentence_word_counts
+		) / len(sentence_word_counts)
+	else:
+		sentence_length_variance = 0.0
+	if first_person_sentences:
+		first_person_action_surface_diversity_ratio = (
+			len(first_person_actions) / len(first_person_sentences)
+		)
+	else:
+		first_person_action_surface_diversity_ratio = 0.0
 	opening = body.split("<!-- more -->", 1)[0]
 	opening_blocks = daily_blog.candidates.prose_blocks(opening)
+	article_visible = _visible_markdown_text(body)
 	profile = {
 		"title": title_match.group(1).strip() if title_match else "",
 		"h2_headings": headings,
@@ -73,17 +289,46 @@ def article_profile(post: str) -> dict:
 			[heading for heading in headings if heading.casefold() != "project coverage"]
 		),
 		"narrative_words": sum(
-			daily_blog.candidates.visible_word_count(block) for block in blocks
+			len(VISIBLE_WORD_RE.findall(block)) for block in visible_blocks
 		),
 		"opening_words": (
-			daily_blog.candidates.visible_word_count(opening_blocks[0])
+			len(VISIBLE_WORD_RE.findall(_visible_markdown_text(opening_blocks[0])))
 			if len(opening_blocks) == 1
 			else 0
 		),
-		"first_person": bool(re.search(r"\b(?:I|my)\b", body, flags=re.IGNORECASE)),
+		"first_person": bool(FIRST_PERSON_RE.search(article_visible)),
 		"has_project_coverage": any(
 			heading.casefold() == "project coverage" for heading in headings
 		),
+		"narrative_prose_block_count": len(blocks),
+		"mean_narrative_paragraph_words": (
+			sum(paragraph_word_counts) / len(paragraph_word_counts)
+			if paragraph_word_counts
+			else 0.0
+		),
+		"standalone_short_single_sentence_paragraph_count": sum(
+			1
+			for block in visible_blocks
+			if len(_sentence_texts([block])) == 1
+			and len(VISIBLE_WORD_RE.findall(block)) <= STANDALONE_SHORT_PARAGRAPH_WORD_LIMIT
+		),
+		"sentence_length_variance": sentence_length_variance,
+		"sentences_under_eight_visible_words": sum(
+			1 for word_count in sentence_word_counts if word_count < 8
+		),
+		"question_count": sum(1 for sentence in sentences if "?" in sentence),
+		"inline_markdown_link_count": inline_link_count,
+		"words_per_inline_markdown_link": words_per_link,
+		"uncited_narrative_prose_block_count": sum(
+			1 for block in blocks if not daily_blog.candidates.EVIDENCE_COMMENT_RE.search(block)
+		),
+		"narrative_prose_blocks_without_concrete_surface_signal": sum(
+			1 for block in blocks if not _has_concrete_surface_signal(block)
+		),
+		"first_person_sentence_count": len(first_person_sentences),
+		"distinct_first_person_action_surfaces": sorted(first_person_actions),
+		"distinct_first_person_action_surface_count": len(first_person_actions),
+		"first_person_action_surface_diversity_ratio": first_person_action_surface_diversity_ratio,
 	}
 	return profile
 
@@ -102,8 +347,8 @@ def _evaluation_evidence(
 #============================================
 def _validate_evaluator_templates() -> tuple[str, str]:
 	"""Load affirmative versioned evaluation and repair instructions."""
-	template = daily_blog.editorial.load_prompt(EVALUATOR_TEMPLATE_NAME)
-	repair = daily_blog.editorial.load_prompt(EVALUATOR_REPAIR_TEMPLATE_NAME)
+	template = daily_blog.editorial.load_evaluation_prompt(EVALUATOR_TEMPLATE_NAME)
+	repair = daily_blog.editorial.load_evaluation_prompt(EVALUATOR_REPAIR_TEMPLATE_NAME)
 	return template, repair
 
 
@@ -199,7 +444,11 @@ def collect_evidence(
 	dict[str, bytes],
 ]:
 	"""Collect the same exact-Git evidence used by production without publishing it."""
-	manager = daily_blog.mirrors.MirrorManager(config.mirror_cache_root, config.repository_urls)
+	roster = daily_blog.repositories.discover_owner_repositories(
+		config.output_owner,
+		config.output_root,
+	)
+	manager = daily_blog.mirrors.MirrorManager(config.mirror_cache_root, roster)
 	mirrors = manager.refresh_all(refresh=refresh_mirrors)
 	failed = [item["repository"] for item in mirrors if item["refresh_result"] == "failed"]
 	if failed:
@@ -234,6 +483,7 @@ def _write_shadow_artifacts(
 	decision: daily_blog.editorial.EditorialDecision,
 	reference_post: str,
 	semantic: dict,
+	prompt_contract: dict[str, object],
 ) -> tuple[str, dict]:
 	"""Atomically install one immutable complete shadow evaluation."""
 	date_root = os.path.join(
@@ -259,8 +509,9 @@ def _write_shadow_artifacts(
 		"shadow_id": shadow_id,
 		"report_date": packet.report_date,
 		"timezone": packet.timezone,
-		"prompt_version": daily_blog.schema.PROMPT_VERSION,
-		"rubric_version": daily_blog.schema.RUBRIC_VERSION,
+		"prompt_version": prompt_contract["prompt_version"],
+		"rubric_version": prompt_contract["rubric_version"],
+		"editorial_prompt_contract": prompt_contract,
 		"evidence_packet": packet.packet_id,
 		"editorial_projection": projection.projection_id,
 		"reference": {
@@ -325,9 +576,17 @@ def evaluate_packet(
 	assets: dict[str, bytes],
 	reference_post: str,
 	runner: object | None = None,
+	contract: daily_blog.contracts.EditorialContract | None = None,
+	snapshot: daily_blog.editorial.PromptContractSnapshot | None = None,
 ) -> tuple[str, dict]:
 	"""Generate, judge, compare, and retain one non-publishing shadow evaluation."""
 	require_model_data_sharing(config)
+	# ASVS 2.2.1: one authoritative resolver owns the trusted prompt-file read.
+	resolved_snapshot = daily_blog.editorial.resolve_run_snapshot(contract, snapshot)
+	resolved_contract = resolved_snapshot.contract
+	prompt_contract = daily_blog.editorial.prompt_contract_identity(
+		snapshot=resolved_snapshot
+	)
 	if _reference_date(reference_post) != packet.report_date:
 		raise RuntimeError("Shadow reference date does not match the evidence packet.")
 	shadow_id = _new_shadow_id()
@@ -339,12 +598,15 @@ def evaluate_packet(
 		shadow_id,
 		config,
 		runner=route_runner,
+		contract=resolved_contract,
+		snapshot=resolved_snapshot,
 	)
 	candidates = daily_blog.editorial.validate_candidates(
 		raw_candidates,
 		packet,
 		projection,
 		shadow_id,
+		snapshot=resolved_snapshot,
 	)
 	decision = daily_blog.editorial.select_candidate(
 		packet,
@@ -353,6 +615,8 @@ def evaluate_packet(
 		candidates,
 		config,
 		runner=route_runner,
+		contract=resolved_contract,
+		snapshot=resolved_snapshot,
 	)
 	semantic = semantic_evaluation(
 		projection,
@@ -372,6 +636,7 @@ def evaluate_packet(
 		decision,
 		reference_post,
 		semantic,
+		prompt_contract,
 	)
 	return result
 
@@ -382,9 +647,14 @@ def run_shadow_evaluation(
 	report_date: str,
 	reference_path: str,
 	refresh_mirrors: bool = True,
+	contract: daily_blog.contracts.EditorialContract | None = None,
+	snapshot: daily_blog.editorial.PromptContractSnapshot | None = None,
 ) -> tuple[str, dict]:
 	"""Acquire the shadow lock and evaluate one historical date without site import."""
 	require_model_data_sharing(config)
+	# ASVS 2.2.1: one authoritative resolver owns the trusted prompt-file read.
+	resolved_snapshot = daily_blog.editorial.resolve_run_snapshot(contract, snapshot)
+	resolved_contract = resolved_snapshot.contract
 	daily_blog.activity.build_date_window(report_date, config.report_timezone)
 	with open(reference_path, "r", encoding="utf-8") as handle:
 		reference_post = handle.read()
@@ -400,5 +670,12 @@ def run_shadow_evaluation(
 			report_date,
 			refresh_mirrors,
 		)
-		result = evaluate_packet(config, packet, assets, reference_post)
+		result = evaluate_packet(
+			config,
+			packet,
+			assets,
+			reference_post,
+			contract=resolved_contract,
+			snapshot=resolved_snapshot,
+		)
 	return result

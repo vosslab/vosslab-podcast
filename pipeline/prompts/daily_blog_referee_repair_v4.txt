@@ -1,0 +1,16 @@
+# Structured daily maker verdict
+
+Transform the earlier response into the required verdict object. Preserve the supported choice
+and concise evidence-grounded reason.
+
+## Output contract
+
+Return one JSON object with `winner`, `reason`, `evidence_quality`, and `confidence`.
+Use `A`, `B`, or `NONE` for `winner`.
+Use `high`, `medium`, or `low` for `evidence_quality`.
+Use a number from zero through one for `confidence`.
+Return the JSON object alone.
+
+## Earlier response
+
+{response}

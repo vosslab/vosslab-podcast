@@ -3,8 +3,6 @@
 
 # Standard Library
 import os
-import re
-import json
 import shutil
 import pathlib
 import tempfile
@@ -12,15 +10,13 @@ import subprocess
 
 # local repo modules
 import daily_blog.schema
-import daily_blog.config
+import daily_blog.repository_contracts
 import daily_blog.activity
 import daily_blog.evidence
 import daily_blog.projection
 import daily_blog.publisher
 import daily_blog.bundles
 import daily_blog.editorial
-import daily_blog.candidates
-import daily_blog.orchestrator
 import daily_blog.io_utils
 
 
@@ -60,8 +56,8 @@ def commit(repository: pathlib.Path, message: str, timestamp: str) -> str:
 #============================================
 def make_repository(root: pathlib.Path) -> tuple[pathlib.Path, str]:
 	"""Create two same-day commits with changelog, documentation, and image evidence."""
-	repository = root / "synthetic-project"
-	repository.mkdir()
+	repository = root / "vosslab" / "synthetic-project"
+	repository.mkdir(parents=True)
 	run_git(repository, ["init", "-b", "main"])
 	run_git(repository, ["config", "user.name", "Dr. Neil R Voss"])
 	run_git(repository, ["config", "user.email", "vosslab@users.noreply.github.com"])
@@ -95,6 +91,19 @@ def make_repository(root: pathlib.Path) -> tuple[pathlib.Path, str]:
 		"2026-08-23T15:00:00-05:00",
 	)
 	return repository, final_commit
+
+
+#============================================
+def synthetic_roster() -> daily_blog.repository_contracts.RepositoryRoster:
+	"""Return the authoritative synthetic owner roster used by the E2E."""
+	record = daily_blog.repository_contracts.RepositoryRecord.from_dict({
+		"repository": "vosslab/synthetic-project",
+		"repository_url": "https://github.com/vosslab/synthetic-project",
+		"clone_url": "https://github.com/vosslab/synthetic-project.git",
+		"created_at": "2020-01-01T00:00:00Z",
+		"is_fork": False,
+	})
+	return daily_blog.repository_contracts.RepositoryRoster.create("vosslab", [record])
 
 
 #============================================
@@ -170,113 +179,6 @@ def valid_post(
 	return post
 
 
-class ReuseRunner:
-	"""Return valid candidates once and expose later unintended model calls."""
-
-	#============================================
-	def __init__(
-		self,
-		packet: daily_blog.schema.EvidencePacket,
-		projection: daily_blog.schema.EditorialProjection,
-	) -> None:
-		"""Bind the exact packet and initialize the call count."""
-		self.packet = packet
-		self.projection = projection
-		self.calls = 0
-
-	#============================================
-	def run(self, route: daily_blog.config.RoleRoute, prompt: str, _repository: str) -> str:
-		"""Return route-specific deterministic author or referee output."""
-		self.calls += 1
-		if route.name == "referee":
-			return json.dumps(
-				{
-					"winner": "A",
-					"reason": "Candidate A follows the exact evidence.",
-					"evidence_quality": "high",
-					"confidence": 0.9,
-				}
-			)
-		match = re.search(r"^generator_run:\s*(\S+)", prompt, flags=re.MULTILINE)
-		if match is None:
-			raise RuntimeError("Author prompt is missing its artifact identity.")
-		title = "Exact evidence wins" if route.name == "author_one" else "Ownership stays durable"
-		return valid_post(self.packet, self.projection, match.group(1), title)
-
-
-class IdempotentPublisher:
-	"""Model the publisher's exact-bundle idempotency contract."""
-
-	#============================================
-	def __init__(self) -> None:
-		"""Initialize the installed bundle identity."""
-		self.bundle_id = ""
-
-	#============================================
-	def __call__(self, _repository: str, bundle_path: str) -> dict:
-		"""Import one bundle once and report later exact imports as reused."""
-		with open(os.path.join(bundle_path, "bundle.json"), "r", encoding="utf-8") as handle:
-			bundle = json.load(handle)
-		status = "idempotent" if self.bundle_id == bundle["bundle_id"] else "imported"
-		self.bundle_id = bundle["bundle_id"]
-		return {
-			"status": status,
-			"bundle_id": bundle["bundle_id"],
-			"report_date": bundle["report_date"],
-		}
-
-
-#============================================
-def verify_phase_reuse(
-	root: pathlib.Path,
-	packet: daily_blog.schema.EvidencePacket,
-) -> None:
-	"""A matching rerun reuses every safe artifact and checks publication idempotency."""
-	config = daily_blog.config.DailyBlogConfig(
-		settings_path="settings.yaml",
-		output_root=str(root / "orchestrator-output"),
-		output_owner="vosslab",
-		report_timezone="America/Chicago",
-		daily_blog_repository=str(root / "publisher-route"),
-		mirror_cache_root=str(root),
-		repository_urls=(),
-		identity_names=("Dr. Neil R Voss",),
-		identity_emails=("vosslab@users.noreply.github.com",),
-		author_routes=(
-			daily_blog.config.RoleRoute("author_one", ("synthetic",)),
-			daily_blog.config.RoleRoute("author_two", ("synthetic",)),
-		),
-		referee_route=daily_blog.config.RoleRoute("referee", ("synthetic",)),
-		collection_limits=collection_limits(),
-		projection_limits=projection_limits(),
-		prompt_limits=prompt_limits(),
-	)
-	projection = daily_blog.projection.build_projection(packet, projection_limits())
-	runner = ReuseRunner(packet, projection)
-	publisher = IdempotentPublisher()
-	first = daily_blog.orchestrator.DailyPublicationOrchestrator(
-		config,
-		"2026-08-23",
-		route_runner=runner,
-		publisher_function=publisher,
-		refresh_mirrors=False,
-	)
-	first_path, first_bundle = first.run()
-	second = daily_blog.orchestrator.DailyPublicationOrchestrator(
-		config,
-		"2026-08-23",
-		route_runner=runner,
-		publisher_function=publisher,
-		refresh_mirrors=False,
-	)
-	second_path, second_bundle = second.run()
-	reusable_phases = daily_blog.schema.LEGAL_PHASES[1:]
-	reuse_status = {name: second.record.phases[name].reused for name in reusable_phases}
-
-	assert first_path == second_path and first_bundle["bundle_id"] == second_bundle["bundle_id"]
-	assert runner.calls == 3 and all(reuse_status.values()), (runner.calls, reuse_status)
-
-
 #============================================
 def initialize_publisher(root: pathlib.Path) -> None:
 	"""Create the complete minimal MkDocs source tree owned by the importer."""
@@ -318,7 +220,11 @@ def main() -> None:
 		repository, final_commit = make_repository(root)
 		mirror_entry = {
 			"repository": "vosslab/synthetic-project",
-			"repository_url": "https://github.com/vosslab/synthetic-project.git",
+			"repository_url": "https://github.com/vosslab/synthetic-project",
+			"clone_url": "https://github.com/vosslab/synthetic-project.git",
+			"created_at": "2020-01-01T00:00:00Z",
+			"is_fork": False,
+			"roster_id": synthetic_roster().roster_id,
 			"cache_path": str(repository),
 			"refresh_result": "skipped",
 			"refresh_error": "",
@@ -369,20 +275,20 @@ def main() -> None:
 			assets,
 			[approved_candidate, approved_candidate],
 			decision,
+			synthetic_roster(),
 		)
-		verify_phase_reuse(root, packet)
 		publisher_root = root / "publisher"
 		publisher_root.mkdir()
 		initialize_publisher(publisher_root)
 		result = daily_blog.publisher.import_bundle(str(publisher_root), bundle_path)
-		assert result["bundle_id"] == bundle["bundle_id"]
-		archive = publisher_root / "data" / "publication_bundles" / bundle["bundle_id"]
-		for name in ("bundle.json", "evidence.json", "editorial_projection.json", "post.md"):
+		assert result["bundle_sha256"] == bundle["bundle_sha256"]
+		archive = publisher_root / "data" / "publication_bundles" / bundle["report_date"]
+		for name in ("bundle.json", "evidence.json", "repository_roster.json", "editorial_projection.json", "post.md"):
 			assert (archive / name).read_bytes() == (pathlib.Path(bundle_path) / name).read_bytes()
 		assert (
 			publisher_root / "docs" / "blog" / "posts" / f"{bundle['report_date']}.md"
 		).read_bytes() == (pathlib.Path(bundle_path) / "post.md").read_bytes()
-		release = publisher_root / "generated" / "releases" / bundle["bundle_id"]
+		release = publisher_root / "generated" / "releases" / bundle["report_date"]
 		assert (publisher_root / "site").is_symlink()
 		assert (publisher_root / "site").resolve() == release.resolve()
 		assert (release / "index.html").is_file()

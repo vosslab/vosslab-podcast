@@ -1,5 +1,5 @@
 [Unit]
-Description=Vosslab daily publication bundle generator and local importer
+Description=Vosslab date-owned daily blog generator and local importer
 Documentation=file:///home/vosslab/nsh/vosslab-podcast/docs/DAILY_BLOG_OPERATIONS.md
 Wants=network-online.target
 After=network-online.target
@@ -9,7 +9,8 @@ Type=oneshot
 WorkingDirectory=/home/vosslab/nsh/vosslab-podcast
 Environment=TZ=America/Chicago
 Environment=HERMES_HOME=/home/vosslab/.hermes
-ExecStart=/bin/bash -lc 'source source_me.sh && python3 automation/publish_scheduled_daily_blog.py'
+Environment=PATH=/home/vosslab/.local/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/home/vosslab/nsh/vosslab-podcast/make_blog.py --yesterday
 TimeoutStartSec=4h
 NoNewPrivileges=yes
 PrivateTmp=yes

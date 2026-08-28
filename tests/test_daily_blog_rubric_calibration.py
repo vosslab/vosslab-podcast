@@ -1,0 +1,292 @@
+"""Historical maker-rubric calibration contracts and private artifact tests."""
+
+# Standard Library
+import json
+import pathlib
+
+# PIP3 modules
+import pytest
+
+# local repo modules
+import daily_blog.config
+import daily_blog.io_utils
+import daily_blog.rubric_calibration
+import daily_blog.rubric_calibration_artifacts
+import automation.calibrate_daily_blog_rubric
+
+
+#============================================
+def make_config(
+	tmp_path: pathlib.Path,
+	*,
+	sharing: bool,
+) -> daily_blog.config.DailyBlogConfig:
+	"""Return one isolated configuration with a fake referee route."""
+	return daily_blog.config.DailyBlogConfig(
+		settings_path="settings.yaml",
+		output_root=str(tmp_path / "out"),
+		output_owner="vosslab",
+		report_timezone="America/Chicago",
+		daily_blog_repository=str(tmp_path / "blog"),
+		mirror_cache_root=str(tmp_path / "mirrors"),
+		identity_names=("Neil",),
+		identity_emails=(),
+		author_routes=(
+			daily_blog.config.RoleRoute("one", ("fake",)),
+			daily_blog.config.RoleRoute("two", ("fake",)),
+		),
+		referee_route=daily_blog.config.RoleRoute("judge", ("fake",)),
+		collection_limits={},
+		projection_limits={},
+		prompt_limits={"author_chars": 72000, "referee_chars": 88000},
+		allow_shadow_model_data_sharing=sharing,
+	)
+
+
+#============================================
+def calibration_artifact_root(
+	config: daily_blog.config.DailyBlogConfig,
+) -> pathlib.Path:
+	"""Return the private root used by one isolated calibration configuration."""
+	return pathlib.Path(
+		config.output_root,
+		config.output_owner,
+		daily_blog.rubric_calibration.CALIBRATION_ROOT_NAME,
+	)
+
+
+#============================================
+def write_calibration_artifact(
+	path: pathlib.Path,
+	manifest: dict,
+	report: dict,
+) -> None:
+	"""Write one controlled completed artifact for a no-replace race test."""
+	path.mkdir(mode=0o700)
+	for name, value in (("manifest.json", manifest), ("report.json", report)):
+		artifact = path / name
+		artifact.write_text(daily_blog.io_utils.stable_json_text(value), encoding="utf-8")
+		artifact.chmod(0o600)
+
+
+#============================================
+def test_calibration_artifact_commit_is_idempotent_and_rejects_conflicts(
+	tmp_path: pathlib.Path,
+) -> None:
+	"""One calibration identity retains exactly one immutable completed artifact."""
+	config = make_config(tmp_path, sharing=True)
+	calibration_id = "rubric-calibration-preparation-content-addressed"
+	manifest = {"calibration_id": calibration_id, "version": 1}
+	report = {"status": "prepared", "value": 1}
+
+	path = daily_blog.rubric_calibration_artifacts.install_calibration_artifacts(
+		config, calibration_id, manifest, report,
+	)
+	assert pathlib.Path(path).is_dir()
+	assert daily_blog.rubric_calibration_artifacts.install_calibration_artifacts(
+		config, calibration_id, manifest, report,
+	) == path
+	with pytest.raises(RuntimeError, match="identity conflicts"):
+		daily_blog.rubric_calibration_artifacts.install_calibration_artifacts(
+			config, calibration_id, manifest, {"status": "different"},
+		)
+
+
+#============================================
+def test_calibration_artifact_lost_commit_race_accepts_only_same_artifact(
+	tmp_path: pathlib.Path,
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""A competing target wins only when its completed content is exactly identical."""
+	config = make_config(tmp_path, sharing=True)
+	calibration_id = "rubric-calibration-preparation-race-safe"
+	manifest = {"calibration_id": calibration_id, "version": 1}
+	report = {"status": "prepared", "value": 1}
+	root = calibration_artifact_root(config)
+
+	def lose_to_same_target(_root_fd: int, _stage_name: str, destination: str) -> None:
+		write_calibration_artifact(root / destination, manifest, report)
+		raise FileExistsError(destination)
+
+	monkeypatch.setattr(
+		daily_blog.private_artifacts,
+		"rename_directory_noreplace_at",
+		lose_to_same_target,
+	)
+	path = daily_blog.rubric_calibration_artifacts.install_calibration_artifacts(
+		config, calibration_id, manifest, report,
+	)
+	assert pathlib.Path(path, "report.json").is_file()
+	assert not list(root.glob("*.stage"))
+
+
+#============================================
+def test_calibration_artifact_lost_commit_race_rejects_conflicting_artifact(
+	tmp_path: pathlib.Path,
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""A competing target with different bytes remains a visible identity conflict."""
+	config = make_config(tmp_path, sharing=True)
+	calibration_id = "rubric-calibration-preparation-race-conflict"
+	manifest = {"calibration_id": calibration_id, "version": 1}
+	report = {"status": "prepared", "value": 1}
+	root = calibration_artifact_root(config)
+
+	def lose_to_conflicting_target(_root_fd: int, _stage_name: str, destination: str) -> None:
+		write_calibration_artifact(root / destination, manifest, {"status": "different"})
+		raise FileExistsError(destination)
+
+	monkeypatch.setattr(
+		daily_blog.private_artifacts,
+		"rename_directory_noreplace_at",
+		lose_to_conflicting_target,
+	)
+	with pytest.raises(RuntimeError, match="identity conflicts"):
+		daily_blog.rubric_calibration_artifacts.install_calibration_artifacts(
+			config, calibration_id, manifest, report,
+		)
+	assert not list(root.glob("*.stage"))
+
+
+#============================================
+def test_calibration_artifact_unsafe_competing_target_fails_closed(
+	tmp_path: pathlib.Path,
+) -> None:
+	"""A file at the final identity is unsafe rather than a benign absent target."""
+	config = make_config(tmp_path, sharing=True)
+	calibration_id = "rubric-calibration-preparation-unsafe-target"
+	root = calibration_artifact_root(config)
+	root.mkdir(parents=True, mode=0o700)
+	root.chmod(0o700)
+	unsafe_target = root / calibration_id
+	unsafe_target.write_text("not a directory", encoding="utf-8")
+	unsafe_target.chmod(0o600)
+
+	with pytest.raises(RuntimeError, match="target is unsafe"):
+		daily_blog.rubric_calibration_artifacts.install_calibration_artifacts(
+			config,
+			calibration_id,
+			{"calibration_id": calibration_id},
+			{"status": "prepared"},
+		)
+
+
+#============================================
+def response_with_score(score: int) -> str:
+	"""Return one complete exact calibration response using one stable score."""
+	scores = {
+		field: {"score": score, "evidence": f"Visible evidence for {field}."}
+		for field, _title, _weight in (
+			daily_blog.rubric_calibration.CALIBRATION_CONTRACT.expected_criteria
+		)
+	}
+	return json.dumps({"scores": scores, "overall_reason": "A stable maker assessment."})
+
+
+class FixedRunner:
+	"""Return date-independent structured calibration responses and count invocations."""
+
+	#============================================
+	def __init__(self, response: str) -> None:
+		"""Retain one fixed response and start with no route calls."""
+		self.response = response
+		self.calls = 0
+
+	#============================================
+	def run(
+		self,
+		route: daily_blog.config.RoleRoute,
+		prompt: str,
+		repository: str,
+	) -> str:
+		"""Return the fixed response and record one route invocation."""
+		del route, prompt, repository
+		self.calls += 1
+		return self.response
+
+
+class RepairRunner:
+	"""Return one malformed response followed by one complete scorecard."""
+
+	#============================================
+	def __init__(self, first_response: str = "{}") -> None:
+		"""Retain the first response and count the primary and repair requests."""
+		self.first_response = first_response
+		self.calls = 0
+
+	#============================================
+	def run(
+		self,
+		_route: daily_blog.config.RoleRoute,
+		_prompt: str,
+		_repository: str,
+	) -> str:
+		"""Return malformed JSON once, then a valid repaired scorecard."""
+		self.calls += 1
+		if self.calls == 1:
+			return self.first_response
+		return response_with_score(3)
+
+
+#============================================
+@pytest.mark.parametrize(
+	("sharing", "approved"),
+	((False, True), (True, False), (False, False)),
+)
+def test_live_calibration_requires_both_durable_and_invocation_approval(
+	tmp_path: pathlib.Path,
+	sharing: bool,
+	approved: bool,
+) -> None:
+	"""No route or output begins with only one side of the sharing decision."""
+	config = make_config(tmp_path, sharing=sharing)
+	runner = FixedRunner(response_with_score(3))
+	with pytest.raises(
+		daily_blog.rubric_calibration.CalibrationBlockedError,
+		match="explicit model-data-sharing approval",
+	):
+		daily_blog.rubric_calibration.run_live_calibration(
+			config,
+			operator_approved=approved,
+			runner=runner,
+		)
+	assert runner.calls == 0
+	assert not (tmp_path / "out").exists()
+
+
+#============================================
+def test_malformed_response_uses_one_bounded_repair_attempt(tmp_path: pathlib.Path) -> None:
+	"""A valid second response becomes a scored result after one structured repair."""
+	config = make_config(tmp_path, sharing=True)
+	runner = RepairRunner()
+
+	result = daily_blog.rubric_calibration.score_maker_post(
+		"---\ndate: 2026-08-23\n---\n\n# A maker note\n\nI built a parser today.\n",
+		config,
+		runner,
+		"historical_calibration",
+	)
+
+	assert result["status"] == "scored" and runner.calls == 2
+
+
+#============================================
+def test_cli_blocks_live_mode_with_a_stable_redacted_message(
+	tmp_path: pathlib.Path,
+	monkeypatch: pytest.MonkeyPatch,
+	capsys: pytest.CaptureFixture[str],
+) -> None:
+	"""The command exposes the approval action without exposing private configuration."""
+	config = make_config(tmp_path, sharing=False)
+	monkeypatch.setattr(
+		automation.calibrate_daily_blog_rubric.daily_blog.config,
+		"load_config",
+		lambda _path: config,
+	)
+
+	code = automation.calibrate_daily_blog_rubric.main([])
+	stderr = capsys.readouterr().err
+
+	assert code == 2
+	assert "explicit historical-post sharing approval" in stderr
+	assert str(tmp_path) not in stderr

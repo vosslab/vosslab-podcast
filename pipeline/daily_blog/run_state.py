@@ -19,7 +19,7 @@ class RunStore:
 		"daily_publication.phase_failed": frozenset({"error_class", "phase"}),
 		"daily_publication.phase_started": frozenset({"phase"}),
 		"daily_publication.run_completed": frozenset(
-			{"bundle_id", "site_import_status", "state"}
+			{"bundle_sha256", "site_import_status", "state"}
 		),
 		"daily_publication.run_started": frozenset({"state"}),
 	}
@@ -61,12 +61,16 @@ class RunStore:
 				or not error_class.isidentifier()
 			):
 				raise RuntimeError("Daily-publication error class must be a bounded identifier.")
-		if "bundle_id" in details:
-			bundle_id = details["bundle_id"]
-			if not isinstance(bundle_id, str) or len(bundle_id) != 64 or not bundle_id.isalnum():
-				raise RuntimeError("Daily-publication bundle identity is invalid.")
+		if "bundle_sha256" in details:
+			checksum = details["bundle_sha256"]
+			if (
+				not isinstance(checksum, str)
+				or len(checksum) != 64
+				or set(checksum) - set("0123456789abcdef")
+			):
+				raise RuntimeError("Daily-publication bundle checksum is invalid.")
 		if "site_import_status" in details:
-			if details["site_import_status"] not in {"idempotent", "imported"}:
+			if details["site_import_status"] not in {"idempotent", "imported", "replaced"}:
 				raise RuntimeError("Daily-publication import status is unsupported.")
 		if "state" in details:
 			expected_state = "completed" if event.endswith("run_completed") else "running"
@@ -75,7 +79,7 @@ class RunStore:
 
 	#============================================
 	def _event_line(self, event: str, details: dict[str, object]) -> str:
-		"""Validate and serialize one scheduler-safe lifecycle event."""
+		"""Validate and serialize one lifecycle-safe publication event."""
 		self._validate_event_details(event, details)
 		timestamp = datetime.datetime.now(datetime.UTC).isoformat()
 		value: dict[str, object] = {

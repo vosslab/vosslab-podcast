@@ -25,6 +25,9 @@ class GitHubClient:
 		log_fn: collections.abc.Callable[[str], None] | None = None,
 		cache_dir: str = "out/cache/github_api",
 	) -> None:
+		if not isinstance(token, str) or not token.strip():
+			raise RuntimeError("GitHubClient requires the runtime GITHUB_TOKEN credential.")
+		token = token.strip()
 		self.log_fn = log_fn
 		self._rate_check_count = 0
 		self._low_remaining_threshold = 5
@@ -56,15 +59,10 @@ class GitHubClient:
 		"""
 		Create Github client with retry disabled when supported.
 		"""
-		if token:
-			try:
-				return github_class(token, retry=None)
-			except TypeError:
-				return github_class(token)
 		try:
-			return github_class(retry=None)
+			return github_class(token, retry=None)
 		except TypeError:
-			return github_class()
+			return github_class(token)
 
 	#============================================
 	def log(self, message: str) -> None:
@@ -158,7 +156,12 @@ class GitHubClient:
 				rate_limit = getattr(resources, "core", None)
 		if rate_limit is None:
 			raise RuntimeError("Rate limit data does not expose core resource fields.")
-		remaining = int(getattr(rate_limit, "remaining"))
+		raw_remaining = getattr(rate_limit, "remaining")
+		# OWASP ASVS v5.0.0 2.2.1: accept only the provider's non-negative integer
+		# quota shape; coercion would turn Boolean, text, or fractional input into evidence.
+		if type(raw_remaining) is not int or raw_remaining < 0:
+			raise RuntimeError("Rate limit data has an invalid core remaining value.")
+		remaining = raw_remaining
 		reset_time = self.parse_rate_limit_reset(getattr(rate_limit, "reset"))
 		return remaining, reset_time
 
@@ -262,28 +265,58 @@ class GitHubClient:
 		raise RateLimitError(
 			"GitHub API rate limit exceeded while "
 			+ f"{context}; remaining={remaining_text}; reset_local={reset_text}. "
-			+ "Provide settings.yaml github.token for higher limits."
+			+ "Verify the runtime GITHUB_TOKEN credential."
 		)
 
 	#============================================
-	def list_repos(self, user: str) -> list[dict]:
+	def list_repos(self, user: str, use_cache: bool = True) -> list[dict]:
 		"""
-		List owner repositories sorted by updated timestamp.
+		List owner repositories sorted by updated timestamp, optionally fresh.
 		"""
 		self.maybe_wait_for_rate_limit("list_repos", force=True)
+		if not use_cache:
+			return self.call_with_retry(
+				f"GET /users/{user}/repos",
+				lambda: self._list_repos_live(user),
+			)
 		return self.cached_query(
 			"list_repos",
 			{"user": user, "type": "owner", "sort": "updated", "direction": "desc"},
 			f"GET /users/{user}/repos",
-			lambda: [
-				getattr(repo_obj, "raw_data", {}) or {}
-				for repo_obj in self.client.get_user(user).get_repos(
-					type="owner",
-					sort="updated",
-					direction="desc",
-				)
-			],
+			lambda: self._list_repos_live(user),
 		)
+
+	#============================================
+	def _list_repos_live(self, user: str) -> list[dict]:
+		"""Read one bounded owner roster without per-repository completion calls."""
+		repositories = self.client.get_user(user).get_repos(
+			type="owner",
+			sort="updated",
+			direction="desc",
+		)
+		result = []
+		for repo_obj in repositories:
+			created_at = getattr(repo_obj, "created_at", None)
+			if isinstance(created_at, datetime):
+				created_at = (
+					self.normalize_datetime(created_at)
+					.replace(microsecond=0)
+					.isoformat()
+					.replace("+00:00", "Z")
+				)
+			owner = getattr(repo_obj, "owner", None)
+			result.append({
+				"archived": getattr(repo_obj, "archived", None),
+				"clone_url": getattr(repo_obj, "clone_url", None),
+				"created_at": created_at,
+				"disabled": getattr(repo_obj, "disabled", None),
+				"fork": getattr(repo_obj, "fork", None),
+				"full_name": getattr(repo_obj, "full_name", None),
+				"html_url": getattr(repo_obj, "html_url", None),
+				"owner": {"login": getattr(owner, "login", None)},
+				"private": getattr(repo_obj, "private", None),
+			})
+		return result
 
 	#============================================
 	def list_commits(

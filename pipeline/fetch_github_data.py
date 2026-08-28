@@ -6,6 +6,7 @@ from datetime import datetime
 from podlib import fetch_github_support
 from podlib import github_client
 from podlib import pipeline_settings
+from podlib import runtime_credentials
 
 try:
 	import rich.console
@@ -140,11 +141,8 @@ def main() -> None:
 		+ f"(reset at {fetch_github_support.DAY_RESET_HOUR_LOCAL:02d}:00 {day_reset_tz_name})"
 	)
 
-	token = pipeline_settings.get_setting_str(settings, ["github", "token"], "")
-	if token:
-		log_step("Using authenticated GitHub API mode via settings.yaml github.token.")
-	else:
-		log_step("Using unauthenticated GitHub API mode (lower rate limit).")
+	token = runtime_credentials.get_github_token()
+	log_step("Using authenticated GitHub API mode via runtime GITHUB_TOKEN.")
 	api_cache_dir = pipeline_settings.resolve_user_scoped_out_path(
 		os.path.join("out", "cache", "github_api"),
 		os.path.join("out", "cache", "github_api"),

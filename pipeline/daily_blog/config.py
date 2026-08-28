@@ -26,17 +26,16 @@ DEFAULT_PROMPT_LIMITS = {
 	"author_chars": 72000,
 	"referee_chars": 88000,
 }
-HERMES_INSTRUCTION_SOURCE_ARGUMENTS = {
-	"--continue",
-	"--query",
-	"--resume",
-	"--skills",
-	"-c",
-	"-q",
-	"-r",
-	"-s",
-	"-z",
-}
+HERMES_EDITORIAL_ROUTE = (
+	"hermes",
+	"chat",
+	"--provider",
+	"openai-codex",
+	"--query-file",
+	"-",
+	"--ignore-rules",
+)
+HERMES_MODEL_ARGUMENTS = {"--model", "-m", "model"}
 DAILY_BLOG_SETTING_KEYS = {
 	"collection_limits",
 	"identity_emails",
@@ -46,9 +45,7 @@ DAILY_BLOG_SETTING_KEYS = {
 	"prompt_limits",
 	"report_timezone",
 	"repository_path",
-	"repository_urls",
 	"routes",
-	"schedule_start_date",
 	"shadow_evaluation",
 }
 
@@ -71,7 +68,6 @@ class DailyBlogConfig:
 	report_timezone: str
 	daily_blog_repository: str
 	mirror_cache_root: str
-	repository_urls: tuple[str, ...]
 	identity_names: tuple[str, ...]
 	identity_emails: tuple[str, ...]
 	author_routes: tuple[RoleRoute, ...]
@@ -79,7 +75,6 @@ class DailyBlogConfig:
 	collection_limits: dict[str, int]
 	projection_limits: dict[str, int]
 	prompt_limits: dict[str, int]
-	schedule_start_date: str = ""
 	allow_shadow_model_data_sharing: bool = False
 
 
@@ -116,39 +111,25 @@ def _role_route(value: object, label: str) -> RoleRoute:
 
 #============================================
 def _validate_role_command(command: tuple[str, ...], label: str) -> None:
-	"""Keep Hermes routes isolated from mutable profile instructions and sessions."""
-	if os.path.basename(command[0]) != "hermes":
-		return
+	"""Require the sealed Hermes stdin transport contract for every editorial role."""
+	if command[:2] != ("hermes", "chat"):
+		raise RuntimeError(f"{label}.command must invoke hermes chat.")
 	for argument in command:
 		name = argument.split("=", 1)[0]
-		if name in HERMES_INSTRUCTION_SOURCE_ARGUMENTS:
+		if name in HERMES_MODEL_ARGUMENTS:
 			raise RuntimeError(
-				f"{label}.command includes an external instruction source or saved session: {name}"
+				f"{label}.command must leave model selection to Hermes: {name}"
 			)
-	if "--ignore-rules" not in command:
+	if command != HERMES_EDITORIAL_ROUTE:
 		raise RuntimeError(
-			f"{label}.command must use --ignore-rules so repository templates own instructions."
+			f"{label}.command must exactly match the sealed Hermes editorial route."
 		)
-	if "--query-file" not in command:
-		raise RuntimeError(f"{label}.command must receive its prompt through --query-file stdin.")
-	index = command.index("--query-file")
-	if index + 1 >= len(command) or command[index + 1] not in {"-", "/dev/stdin"}:
-		raise RuntimeError(f"{label}.command query file must be stdin.")
 
 
 #============================================
 def _default_command() -> list[str]:
 	"""Return the isolated Hermes stdin transport route."""
-	command = [
-		"hermes",
-		"chat",
-		"--in",
-		"{generator_repository}",
-		"--query-file",
-		"-",
-		"--ignore-rules",
-		"--quiet",
-	]
+	command = list(HERMES_EDITORIAL_ROUTE)
 	return command
 
 
@@ -225,11 +206,6 @@ def load_config(settings_path: str = "settings.yaml", output_root: str = "out") 
 		["daily_blog", "report_timezone"],
 		"America/Chicago",
 	)
-	schedule_start_date = pipeline_settings.get_setting_str(
-		settings,
-		["daily_blog", "schedule_start_date"],
-		"",
-	)
 	daily_blog_repository = pipeline_settings.get_setting_str(
 		settings,
 		["daily_blog", "repository_path"],
@@ -238,11 +214,7 @@ def load_config(settings_path: str = "settings.yaml", output_root: str = "out") 
 	mirror_cache_root = pipeline_settings.get_setting_str(
 		settings,
 		["daily_blog", "mirror_cache_root"],
-		"/home/vosslab/repo-mirrors/vosslab",
-	)
-	repository_urls = _string_list(
-		pipeline_settings.get_nested_value(settings, ["daily_blog", "repository_urls"], []),
-		"daily_blog.repository_urls",
+		"/home/vosslab/repo-mirrors",
 	)
 	default_name = pipeline_settings.get_github_identity_login(settings)
 	identity_names = _string_list(
@@ -271,7 +243,6 @@ def load_config(settings_path: str = "settings.yaml", output_root: str = "out") 
 		report_timezone=report_timezone,
 		daily_blog_repository=os.path.abspath(daily_blog_repository),
 		mirror_cache_root=os.path.abspath(mirror_cache_root),
-		repository_urls=repository_urls,
 		identity_names=identity_names,
 		identity_emails=identity_emails,
 		author_routes=author_routes,
@@ -291,7 +262,6 @@ def load_config(settings_path: str = "settings.yaml", output_root: str = "out") 
 			"prompt_limits",
 			DEFAULT_PROMPT_LIMITS,
 		),
-		schedule_start_date=schedule_start_date,
 		allow_shadow_model_data_sharing=pipeline_settings.get_setting_bool(
 			settings,
 			["daily_blog", "shadow_evaluation", "external_model_data_sharing"],

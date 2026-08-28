@@ -1,0 +1,16 @@
+# Structured daily maker scorecard repair
+
+Transform the earlier response into the scorecard JSON contract below. Preserve the earlier
+assessment wherever it already satisfies the contract.
+
+Return one JSON object with exactly `scores` and `overall_reason`. `scores` contains exactly these
+fields:
+
+{criterion_contract}
+
+Each field contains exactly an integer `score` from 1 through 4 and one concise, post-grounded
+`evidence` string. `overall_reason` is concise and non-empty. Return the JSON object alone.
+
+## Earlier response
+
+{response}

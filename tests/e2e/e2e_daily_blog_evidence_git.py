@@ -88,7 +88,11 @@ def make_repository(
 	final_commit = commit(repository, "Add atomic staging", "2026-08-23T15:00:00-05:00")
 	mirror = {
 		"repository": "vosslab/evidence-repository",
-		"repository_url": "https://github.com/vosslab/evidence-repository.git",
+		"repository_url": "https://github.com/vosslab/evidence-repository",
+		"clone_url": "https://github.com/vosslab/evidence-repository.git",
+		"created_at": "2020-01-01T00:00:00Z",
+		"is_fork": False,
+		"roster_id": "r" * 64,
 		"cache_path": str(repository),
 		"refresh_result": "skipped",
 		"refresh_error": "",
@@ -226,7 +230,11 @@ def verify_non_linear_activity(root: pathlib.Path) -> None:
 	branch_b = commit(repository, "Record branch B", "2026-08-23T10:00:00-05:00")
 	mirror = {
 		"repository": "vosslab/branched-repository",
-		"repository_url": "https://github.com/vosslab/branched-repository.git",
+		"repository_url": "https://github.com/vosslab/branched-repository",
+		"clone_url": "https://github.com/vosslab/branched-repository.git",
+		"created_at": "2020-01-01T00:00:00Z",
+		"is_fork": False,
+		"roster_id": "r" * 64,
 		"cache_path": str(repository),
 		"refresh_result": "skipped",
 		"refresh_error": "",

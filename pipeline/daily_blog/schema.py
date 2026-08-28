@@ -3,21 +3,24 @@
 # Standard Library
 import dataclasses
 import datetime
-from collections.abc import Iterator, Mapping
+import collections.abc
 
 # local repo modules
 import daily_blog.io_utils
+import daily_blog.json_contracts
+import daily_blog.repository_contracts
 
 
-BUNDLE_SCHEMA_VERSION = "vosslab.daily-blog.bundle.v2"
-EVIDENCE_SCHEMA_VERSION = "vosslab.daily-blog.evidence.v3"
-PROJECTION_SCHEMA_VERSION = "vosslab.daily-blog.editorial-projection.v1"
-RUN_SCHEMA_VERSION = "vosslab.daily-blog.run.v2"
+BUNDLE_SCHEMA_VERSION = "vosslab.daily-blog.bundle.v4"
+EVIDENCE_SCHEMA_VERSION = "vosslab.daily-blog.evidence.v4"
+PROJECTION_SCHEMA_VERSION = "vosslab.daily-blog.editorial-projection.v2"
+RUN_SCHEMA_VERSION = "vosslab.daily-blog.run.v3"
 GENERATOR_VERSION = "daily-blog-generator-v2"
 PROMPT_VERSION = "daily-blog-prompts-v3"
 RUBRIC_VERSION = "daily-blog-rubric-v3"
 
 LEGAL_PHASES = (
+	"repository_discovery",
 	"mirror_refresh",
 	"activity_location",
 	"evidence_assembly",
@@ -47,68 +50,6 @@ AUTHORITY_LEVELS = {
 	"commit_metadata": "locator_provenance",
 }
 
-
-@dataclasses.dataclass(frozen=True)
-class FrozenMapping(Mapping[str, object]):
-	"""Deeply immutable JSON-object storage with deterministic key order."""
-
-	_entries: tuple[tuple[str, object], ...]
-
-	#============================================
-	@classmethod
-	def create(cls, value: Mapping[str, object]) -> "FrozenMapping":
-		"""Copy and recursively freeze one JSON object."""
-		entries = []
-		for key in sorted(value):
-			if not isinstance(key, str):
-				raise RuntimeError("Frozen mapping keys must be text.")
-			entries.append((key, _freeze_json_value(value[key])))
-		return cls(tuple(entries))
-
-	#============================================
-	def __getitem__(self, key: str) -> object:
-		"""Return one immutable value by key."""
-		for candidate, value in self._entries:
-			if candidate == key:
-				return value
-		raise KeyError(key)
-
-	#============================================
-	def __iter__(self) -> Iterator[str]:
-		"""Iterate keys in deterministic order."""
-		return (key for key, _value in self._entries)
-
-	#============================================
-	def __len__(self) -> int:
-		"""Return the number of keys."""
-		return len(self._entries)
-
-	#============================================
-	def to_dict(self) -> dict:
-		"""Return a detached mutable JSON-object serialization."""
-		return {key: _thaw_json_value(value) for key, value in self._entries}
-
-
-#============================================
-def _freeze_json_value(value: object) -> object:
-	"""Recursively freeze one JSON-compatible value."""
-	if isinstance(value, Mapping):
-		return FrozenMapping.create(value)
-	if isinstance(value, (list, tuple)):
-		return tuple(_freeze_json_value(item) for item in value)
-	return value
-
-
-#============================================
-def _thaw_json_value(value: object) -> object:
-	"""Return a detached JSON-compatible value from immutable storage."""
-	if isinstance(value, FrozenMapping):
-		return value.to_dict()
-	if isinstance(value, tuple):
-		return [_thaw_json_value(item) for item in value]
-	return value
-
-
 #============================================
 def utc_now() -> str:
 	"""Return a stable UTC timestamp without microseconds."""
@@ -118,17 +59,17 @@ def utc_now() -> str:
 
 
 #============================================
-def validate_site_import_result(value: object, bundle_id: str, report_date: str) -> dict:
+def validate_site_import_result(value: object, bundle_sha256: str, report_date: str) -> dict:
 	"""Validate the publisher receipt before completing the external-import phase."""
 	if not isinstance(value, dict):
 		raise RuntimeError("Site importer result must be an object.")
-	for key in ("status", "bundle_id", "report_date"):
+	for key in ("status", "bundle_sha256", "report_date"):
 		if key not in value:
 			raise RuntimeError(f"Site importer result is missing {key}.")
-	if value["status"] not in {"idempotent", "imported"}:
+	if value["status"] not in {"idempotent", "imported", "replaced"}:
 		raise RuntimeError("Site importer returned an unsupported status.")
-	if value["bundle_id"] != bundle_id:
-		raise RuntimeError("Site importer bundle identity does not match the requested bundle.")
+	if value["bundle_sha256"] != bundle_sha256:
+		raise RuntimeError("Site importer bundle checksum does not match the requested bundle.")
 	if value["report_date"] != report_date:
 		raise RuntimeError("Site importer report date does not match the requested date.")
 	return value
@@ -220,6 +161,8 @@ class RepositoryActivity:
 	commits: tuple[CommitActivity, ...]
 	revision_ranges: tuple[RevisionRange, ...]
 	snapshot_commits: tuple[str, ...]
+	is_fork: bool
+	lifecycle_events: tuple[daily_blog.repository_contracts.RepositoryLifecycleEvent, ...]
 
 	#============================================
 	def to_dict(self) -> dict:
@@ -228,6 +171,7 @@ class RepositoryActivity:
 		value["commits"] = [commit.to_dict() for commit in self.commits]
 		value["revision_ranges"] = [item.to_dict() for item in self.revision_ranges]
 		value["snapshot_commits"] = list(self.snapshot_commits)
+		value["lifecycle_events"] = [item.to_dict() for item in self.lifecycle_events]
 		return value
 
 	#============================================
@@ -242,6 +186,8 @@ class RepositoryActivity:
 			"commits",
 			"revision_ranges",
 			"snapshot_commits",
+			"is_fork",
+			"lifecycle_events",
 		)
 		for key in required:
 			if key not in value:
@@ -268,6 +214,16 @@ class RepositoryActivity:
 			raise RuntimeError("Repository activity revision ranges do not match commit parents.")
 		if any(commit not in commits_by_id for commit in snapshot_commits):
 			raise RuntimeError("Repository activity snapshot commit is not attributed.")
+		if type(value["is_fork"]) is not bool:
+			raise RuntimeError("Repository activity fork state must be Boolean.")
+		if not isinstance(value["lifecycle_events"], list):
+			raise RuntimeError("Repository activity lifecycle events must be a list.")
+		lifecycle_events = tuple(
+			daily_blog.repository_contracts.RepositoryLifecycleEvent.from_dict(item)
+			for item in value["lifecycle_events"]
+		)
+		if len(lifecycle_events) != 1:
+			raise RuntimeError("Repository activity requires one creation lifecycle event.")
 		activity = cls(
 			repository=str(value["repository"]),
 			repository_url=str(value["repository_url"]),
@@ -276,6 +232,8 @@ class RepositoryActivity:
 			commits=commits,
 			revision_ranges=ranges,
 			snapshot_commits=snapshot_commits,
+			is_fork=value["is_fork"],
+			lifecycle_events=lifecycle_events,
 		)
 		return activity
 
@@ -393,8 +351,8 @@ class EvidencePacket:
 	report_date: str
 	timezone: str
 	complete: bool
-	collection_limits: FrozenMapping
-	mirrors: tuple[FrozenMapping, ...]
+	collection_limits: daily_blog.json_contracts.FrozenMapping
+	mirrors: tuple[daily_blog.json_contracts.FrozenMapping, ...]
 	activity: tuple[RepositoryActivity, ...]
 	items: tuple[EvidenceItem, ...]
 	packet_id: str
@@ -429,8 +387,11 @@ class EvidencePacket:
 		report_date: str,
 		timezone_name: str,
 		complete: bool,
-		collection_limits: Mapping[str, object],
-		mirrors: list[Mapping[str, object]] | tuple[Mapping[str, object], ...],
+		collection_limits: collections.abc.Mapping[str, object],
+		mirrors: (
+			list[collections.abc.Mapping[str, object]]
+			| tuple[collections.abc.Mapping[str, object], ...]
+		),
 		activity: list[RepositoryActivity],
 		items: list[EvidenceItem],
 	) -> "EvidencePacket":
@@ -448,8 +409,11 @@ class EvidencePacket:
 			report_date=report_date,
 			timezone=timezone_name,
 			complete=complete,
-			collection_limits=FrozenMapping.create(collection_limits),
-			mirrors=tuple(FrozenMapping.create(mirror) for mirror in mirrors),
+			collection_limits=daily_blog.json_contracts.FrozenMapping.create(collection_limits),
+			mirrors=tuple(
+				daily_blog.json_contracts.FrozenMapping.create(mirror)
+				for mirror in mirrors
+			),
 			activity=tuple(activity),
 			items=tuple(ordered),
 			packet_id="",
@@ -499,6 +463,10 @@ class RepositoryCard:
 	commit_count: int
 	commit_shas: tuple[str, ...]
 	commit_subjects: tuple[str, ...]
+	created_at: str
+	created_in_report_window: bool
+	is_fork: bool
+	story_signals: tuple[str, ...]
 
 	#============================================
 	def to_dict(self) -> dict:
@@ -506,6 +474,7 @@ class RepositoryCard:
 		value = dataclasses.asdict(self)
 		value["commit_shas"] = list(self.commit_shas)
 		value["commit_subjects"] = list(self.commit_subjects)
+		value["story_signals"] = list(self.story_signals)
 		return value
 
 	#============================================
@@ -518,6 +487,10 @@ class RepositoryCard:
 			"commit_count",
 			"commit_shas",
 			"commit_subjects",
+			"created_at",
+			"created_in_report_window",
+			"is_fork",
+			"story_signals",
 		)
 		for key in required:
 			if key not in value:
@@ -528,12 +501,24 @@ class RepositoryCard:
 			raise RuntimeError("Repository card commit IDs must be a list.")
 		if not isinstance(value["commit_subjects"], list):
 			raise RuntimeError("Repository card commit subjects must be a list.")
+		if type(value["created_in_report_window"]) is not bool:
+			raise RuntimeError("Repository card creation-window state must be Boolean.")
+		if type(value["is_fork"]) is not bool:
+			raise RuntimeError("Repository card fork state must be Boolean.")
+		if not isinstance(value["story_signals"], list):
+			raise RuntimeError("Repository card story signals must be a list.")
 		card = cls(
 			repository=str(value["repository"]),
 			repository_url=str(value["repository_url"]),
 			commit_count=value["commit_count"],
 			commit_shas=tuple(str(item) for item in value["commit_shas"]),
 			commit_subjects=tuple(str(item) for item in value["commit_subjects"]),
+			created_at=daily_blog.repository_contracts.canonical_utc_timestamp(
+				value["created_at"], "Repository card creation time"
+			),
+			created_in_report_window=value["created_in_report_window"],
+			is_fork=value["is_fork"],
+			story_signals=tuple(str(item) for item in value["story_signals"]),
 		)
 		if not card.repository or card.commit_count <= 0:
 			raise RuntimeError("Repository card requires active repository identity.")
@@ -541,6 +526,13 @@ class RepositoryCard:
 			raise RuntimeError("Repository card includes more commit IDs than recorded activity.")
 		if len(card.commit_shas) != len(card.commit_subjects):
 			raise RuntimeError("Repository card commit IDs and subjects do not align.")
+		expected_signals = (
+			("new_source_repository",)
+			if card.created_in_report_window and not card.is_fork
+			else ()
+		)
+		if card.story_signals != expected_signals:
+			raise RuntimeError("Repository card story signals do not match lifecycle evidence.")
 		return card
 
 
@@ -643,7 +635,7 @@ class EditorialProjection:
 	packet_id: str
 	report_date: str
 	timezone: str
-	projection_limits: FrozenMapping
+	projection_limits: daily_blog.json_contracts.FrozenMapping
 	repositories: tuple[RepositoryCard, ...]
 	excerpts: tuple[EvidenceExcerpt, ...]
 	projection_id: str
@@ -706,7 +698,7 @@ class EditorialProjection:
 		packet_id: str,
 		report_date: str,
 		timezone_name: str,
-		projection_limits: Mapping[str, object],
+		projection_limits: collections.abc.Mapping[str, object],
 		repositories: list[RepositoryCard],
 		excerpts: list[EvidenceExcerpt],
 	) -> "EditorialProjection":
@@ -715,7 +707,7 @@ class EditorialProjection:
 			packet_id=packet_id,
 			report_date=report_date,
 			timezone=timezone_name,
-			projection_limits=FrozenMapping.create(projection_limits),
+			projection_limits=daily_blog.json_contracts.FrozenMapping.create(projection_limits),
 			repositories=tuple(repositories),
 			excerpts=tuple(excerpts),
 			projection_id="",
@@ -794,6 +786,7 @@ class RunRecord:
 	state: str
 	current_phase: str
 	phases: dict[str, PhaseRecord]
+	repository_roster: dict
 	evidence_packet: dict
 	editorial_projection: dict
 	publication_bundle: dict
@@ -815,6 +808,7 @@ class RunRecord:
 			state="running",
 			current_phase="",
 			phases=phases,
+			repository_roster={},
 			evidence_packet={},
 			editorial_projection={},
 			publication_bundle={},
@@ -917,7 +911,8 @@ class RunRecord:
 			if any(phase.status != "completed" for phase in self.phases.values()):
 				raise RuntimeError("Completed run contains an unfinished phase.")
 			if (
-				not self.evidence_packet
+				not self.repository_roster
+				or not self.evidence_packet
 				or not self.editorial_projection
 				or not self.publication_bundle
 			):
@@ -951,6 +946,7 @@ class RunRecord:
 			state=str(value["state"]),
 			current_phase=str(value["current_phase"]),
 			phases=phases,
+			repository_roster=dict(value["repository_roster"]),
 			evidence_packet=dict(value["evidence_packet"]),
 			editorial_projection=dict(value["editorial_projection"]),
 			publication_bundle=dict(value["publication_bundle"]),

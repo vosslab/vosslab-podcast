@@ -8,7 +8,7 @@ import daily_blog.schema
 import daily_blog.io_utils
 
 
-PROJECTION_POLICY_VERSION = "coverage-first-authority-round-robin-v2"
+PROJECTION_POLICY_VERSION = "story-first-lifecycle-authority-round-robin-v3"
 PROJECTION_LIMIT_KEYS = {
 	"commit_subject_chars",
 	"context_chars",
@@ -43,6 +43,9 @@ def _repository_card(
 	commit_subject_chars: int,
 ) -> daily_blog.schema.RepositoryCard:
 	"""Build one bounded activity card without dropping repository identity."""
+	if len(activity.lifecycle_events) != 1:
+		raise RuntimeError("Repository projection requires one creation lifecycle event.")
+	creation = activity.lifecycle_events[0]
 	remaining = commit_subject_chars
 	shas = []
 	subjects = []
@@ -62,8 +65,24 @@ def _repository_card(
 		commit_count=len(activity.commits),
 		commit_shas=tuple(shas),
 		commit_subjects=tuple(subjects),
+		created_at=creation.occurred_at,
+		created_in_report_window=creation.occurred_in_report_window,
+		is_fork=activity.is_fork,
+		story_signals=(
+			("new_source_repository",)
+			if creation.occurred_in_report_window and not activity.is_fork
+			else ()
+		),
 	)
 	return card
+
+
+#============================================
+def _activity_order(activity: daily_blog.schema.RepositoryActivity) -> tuple[int, str]:
+	"""Put newly created source repositories before routine active repositories."""
+	creation = activity.lifecycle_events[0]
+	new_source = creation.occurred_in_report_window and not activity.is_fork
+	return (0 if new_source else 1, activity.repository.casefold())
 
 
 #============================================
@@ -227,7 +246,7 @@ def build_projection(
 	if not packet.complete:
 		raise RuntimeError("Editorial projection requires a complete evidence packet.")
 	limits = _validate_limits(projection_limits)
-	activities = sorted(packet.activity, key=lambda item: item.repository.casefold())
+	activities = sorted(packet.activity, key=_activity_order)
 	cards = [
 		_repository_card(activity, limits["commit_subject_chars"])
 		for activity in activities

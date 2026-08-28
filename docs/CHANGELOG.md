@@ -1,6 +1,241 @@
+## 2026-08-28
+
+### Additions and New Features
+
+- Added the pre-production maker experiment's two-stage evidence boundary. Fresh capture writes a
+  sealed `vosslab.daily-blog.prompt-experiment-capture.v2` artifact, while the new
+  `vosslab.daily-blog.prompt-experiment-attestation.v2` schema, loader, and CLI join a completed
+  capture with a passing live calibration and recompute the deterministic acceptance result.
+- Added executable repository-root `make_blog.py` as the single manual daily-blog
+  command. `--yesterday` uses the configured report timezone; `--date` accepts
+  canonical `YYYY-MM-DD` and the requested unambiguous `YYYY-DD-MM` form before
+  delegating one canonical date to the date-owned publication workflow.
+- Refreshed the complete repository documentation set across the README, architecture and file
+  structure, install and usage, release and news, related projects, operational guides, file formats,
+  roadmap, and remaining work.
+- Added reproducible offline documentation capture with
+  `automation/capture_work_log_screenshots.mjs` and two managed README images:
+  `docs/screenshots/work_log_landing_page.png` and
+  `docs/screenshots/making_the_interface_tell_the_truth.png`.
+- Added authoritative fresh GitHub owner-roster discovery, immutable roster artifacts,
+  owner-qualified repository caches and locks, typed repository-creation lifecycle evidence, and
+  an Aug. 26 regression proving `vosslab/cancer-clicker` becomes a first-day story candidate.
+- Added first-class immutable owner-roster snapshots and content-addressed experiment fixture v2.
+  Fresh Aug. 23 and Aug. 26 fixtures now bind the same verified 111-repository snapshot without a
+  publisher-bundle bootstrap dependency.
+- Added a fail-closed historical maker-rubric calibration command, immutable resource contract,
+  fixed Aug. 22-26 loader, structured repeated scorecards, private artifacts, and a route-free
+  calibration report. Preparation identity
+  `aa1ceeb9d14db2c5d68b7be9c1369cf9231709f2cc0acc7a30f50570b74a2e87` used no model route.
+- Added a manager-ready daily-blog Hermes fixup plan that accepts the proven CLI transport,
+  keeps model credentials out of the project, explicitly binds author/referee roles to
+  `openai-codex`, and records the confirmed fresh-process defect as a required Hermes shared-snapshot
+  and bounded-refresh repair before full-prompt publication proof.
+
+### Behavior or Interface Changes
+
+- Advanced the immutable producer candidate-validation records to policy v3 without compatibility
+  aliases. Active `v3-historical` is
+  `aada487814ca0080d4a49648440ee6614e5f3a3628be6197ffafcef242969324`; experimental `v4-maker`
+  is `3a4b7148579e509b6c32fa19b31d107dc4278eb5f721b2a01353a1a9a51264ee`. Both declare a
+  24,000-character candidate cap, one excerpt marker, one opening prose block, no pre-marker H2,
+  and a 100-word opening cap. Policy versions 1 and 2 reject without compatibility behavior.
+- Kept active v3 production and v4 experimentation separate: the publication orchestrator rejects
+  v4 before lock acquisition, mirror refresh, model routing, bundle writing, or publisher import.
+  The publisher independently enforces the same policy shape and imports only active v3 policy v3.
+- Cut the pre-production evidence boundary to evidence v4, editorial projection v2, and run v3.
+  Projection exposes `new_source_repository` and puts same-day new source repositories before
+  routine cards while leaving the author and referee responsible for the final editorial choice.
+- Advanced the producer/publisher boundary to bundle v4. `report_date` is the sole publication
+  identity, `bundle_sha256` is integrity-only, and one stable `publication/` directory holds the
+  current validated bundle for that date.
+- Made existing-date behavior explicit at the root command. Interactive runs ask
+  `Overwrite YYYY-MM-DD? [N/y]:`; exact `y` replaces through one per-date lock, while unattended
+  runs preserve the coherent installed date and exit successfully without model work.
+- Made systemd the sole schedule owner. The 04:00 America/Chicago service directly calls
+  `./make_blog.py --yesterday`; Hermes remains the configured model/provider runner inside prose
+  generation, and the retired cursor/backlog wrapper is removed.
+- Made `source_me.sh` select and positively verify a physical repository-local Python 3.12
+  environment instead of inheriting an ambiguous shell interpreter.
+- Made the repository-root blog command enforce that same Python 3.12 boundary after relaunch and
+  added a direct executable E2E that exercises help and fail-closed date parsing without reaching a
+  model route or publisher.
+- Reserved one highest-authority budgeted evidence item for every active repository before routine
+  supporting material. Projection can now enforce citable coverage without global-budget
+  starvation dropping a newly discovered repository.
+
+### Fixes and Maintenance
+
+- Replaced alternating single-order maker-post comparisons with a complete paired order matrix.
+  Every generated candidate pair now reaches the anonymous referee once as A/B and once as B/A;
+  capture v2 verifies both positional records and their canonical-arm mapping, while acceptance v2
+  requires v4 to win every repetition in both displayed positions before activation can be attested.
+  Direct and CLI execution also share the calibration contract's bounded two-to-five repetition
+  range, preventing accidental unbounded route work.
+- Replaced anonymous/settings-backed GitHub discovery with one runtime credential boundary. The
+  collector accepts an explicitly injected `GITHUB_TOKEN` or reads only that named value from the
+  active `$HERMES_HOME/.env`; it never sources neighboring Hermes credentials or places the token in
+  generated artifacts and logs. Manual and systemd publication now share authenticated discovery.
+- Made `repository_contracts.py` the sole owner of repository identities, roster records,
+  lifecycle events, and canonical repository timestamps. Production, capture automation, and tests
+  now use that module directly; `schema.py` no longer re-exports a compatibility surface.
+- Corrected current documentation to the physical repository-local Python 3.12.13 bootstrap,
+  distinguished its contract-test evidence from the remaining real-route activation gate, clarified
+  the current bundle v4 and publication-date identity, and renumbered the active
+  maker-voice plan through milestones 15 and 16.
+- Rebuilt the daily-blog Hermes fixup plan as dependency-scoped milestones. The plan now uses a
+  shared sanitized capacity snapshot, pre-refresh-completion selection plus managed refresh for
+  due-but-usable state, bounded synchronous refresh for unusable state, exact staged-runtime proof,
+  fixture exact-snapshot selection, disposable date-ownership checks, and the direct 04:00 systemd
+  contract.
+  Each independent task receives a fresh self-contained subagent, with weak or drifting workers
+  replaced rather than reused. Permanent tests follow the fast offline repository checklist; real
+  process, PTY, captured-provider, filesystem, staged-package, and transient-systemd checks are
+  one-time evidence unless durable E2E value justifies retention. Gates must trace to behavior, security, protocol, policy, or repository
+  rules rather than arbitrary counts, performance targets, or output equivalence. Every milestone now
+  has an unattended path: M0 seals a locally available Hermes revision and a redacted integrity-pinned
+  fixture pack; fixtures, fake clocks, process barriers, and disposable roots prove capacity,
+  publication, and replacement; staged CLI/gateway packages prove exact imports and hashes without a
+  target restart, and a manager-independent unit-command emulator proves the byte-identical direct
+  command without a calendar wait or target user manager. Fresh-agent review and
+  a versioned local closure bundle replace interactive and external delivery gates. Closure
+  records owned change sets, optional commit boundaries, and a checksum index while preserving unrelated
+  working-tree changes. An independent repository-rule audit then removed the unsafe live-root `--yes`
+  example, confined documentation edits to this plan and its changelog entry, replaced stopwatch and
+  Git-hunk gates with deterministic barriers and owned change sets, and limited content-hash equality to
+  the same repaired runtime files.
+- Expanded the daily-blog bring-up report with the confirmed Hermes account-selection root cause and
+  remaining implementation concerns: per-account probe isolation, retained eligibility state,
+  daemon-thread completion, reuse of Hermes locking/atomic-write primitives, profile-scoped cache
+  identity, process-local lease limits, exact-snapshot diagnostics, and installed-runtime proof.
+- Clarified the report's deliberate refresh policy: missing, corrupt, or over-three-hour state uses a
+  bounded synchronous cold refresh, while ten-minute-to-three-hour state remains usable for immediate
+  selection and starts a bounded managed refresh that must finish or retain the prior snapshot before
+  the one-shot CLI exits.
+- Applied the repository's fresh-subagent principle to blog creation. Each author, referee, and repair
+  attempt receives a new isolated Hermes process and self-contained prompt; only deterministic
+  evidence and sanitized capacity observations cross task boundaries, never conversation or editorial
+  state.
+- Consolidated durable human guidance around the intended operating model: Hermes owns model and
+  account selection, systemd invokes `./make_blog.py --yesterday` non-interactively at 04:00, all
+  non-content phases remain deterministic, one date has one replaceable result, interactive
+  replacement requires exact `y`, and downstream prompt edits receive careful review.
+- Reconciled release, roadmap, usage, architecture, ownership-cutover, and output-layout documents
+  with the completed roster, lifecycle, and story-first salience contracts. The remaining v4 gates
+  are live real-model comparisons, rubric calibration, and an evidence-based activation decision.
+- Clarified the operating layers across the README, FAQ, usage, development, and troubleshooting
+  guides: systemd owns the daily schedule and service boundary, while Hermes is the configured
+  author and referee command runner inside the Python publication job.
+- Aligned final Project coverage heading handling between producer and publisher, including raw
+  heading behavior, while retaining the v4 compact-coverage boundary.
+- Applied the final independent audit's mechanical Python cleanup: normalized validation-policy
+  indentation, removed a duplicate function separator, and wrapped long changed lines.
+- Removed one-time, mock-only, duplicate, and hygiene checks from the permanent E2E policy. The
+  remaining direct runners each exercise a durable real boundary.
+- Closed the final multi-reviewer audit findings: mirror paths reject symbolic-link escapes and
+  nonexact origins, bundle reuse revalidates the current sealed roster, the experiment fixture
+  retains quiet eligible repositories, and real Git work now runs only in the E2E tier.
+- Corrected the reusable screenshot harness so Material's retained sticky-header state cannot crop
+  the article capture. Both 1280x800 PNGs now assert a fully visible header and reproduce
+  byte-for-byte on repeat capture.
+- Sealed the prompt-experiment consumer boundary to the approved quiet Aug. 23 and busy Aug. 26
+  fixture identities plus their shared authoritative roster. Wrong dates, fixture identities, and
+  roster identities now fail before generation or private output creation; synthetic tests replace
+  the allowlist only within their local scope.
+- Pinned roster snapshot roots, snapshot directories, and artifacts with descriptor-relative,
+  no-follow I/O so a concurrent pathname replacement cannot redirect verification. The experiment
+  CLI now distinguishes a reviewed-rotation mismatch with a stable redacted diagnostic.
+- Extracted neutral, consumer-allowlisted prompt loading and descriptor-pinned private-artifact
+  primitives. Editorial, shadow evaluation, roster snapshots, and rubric calibration retain
+  separate semantic ownership while sharing the hardened filesystem and instruction boundaries.
+- Bounded the rubric repair prompt, pinned the rubric and both calibrator templates by digest, and
+  kept live scoring behind both durable configuration and explicit per-invocation approval.
+- Removed the prompt experiment's caller-selected output root. Configuration now owns the sole
+  private `out/<user>/daily_blog_experiments/` namespace, matching the documented retention and
+  non-publishing boundary.
+- Separated fresh capture from calibration: capture contains only sealed experiment evidence, and
+  calibration remains a distinct, explicitly approved historical-scorecard artifact. A valid
+  deterministic attestation is the exact evidence boundary before a separately reviewed activation
+  decision; it does not itself activate v4, publish, import, or alter the schedule.
+- Corrected the external-data-sharing documentation to match its shadow/calibration scope,
+  documented idempotent manual publication without a new run, and recorded the exact approval-gated
+  command for the sealed non-publishing prompt comparison.
+- Restored the complete direct E2E aggregate after its hygiene runners drifted from the shared Git
+  enumeration API. The shared boundary now owns full-versus-changed selection, including untracked
+  paths, without restoring the removed generic compatibility helper.
+- Applied the follow-up six-pass audit's low-risk cleanup: removed unreachable experimental
+  identity plumbing from the active-v3 orchestrator, dropped two tests that froze tunable prompt
+  text and fixture identities, updated the remaining snapshot fixture after the Aug. 22 resource
+  cut, corrected private-artifact import order, and reconciled the central maker question,
+  idempotent-run wording, and audited Python-version wording in current docs.
+- Removed remaining brittle prompt-text assertions from the experiment path. Tests now retain
+  contract, acceptance, and isolation behavior without treating adjustable prompt prose as a
+  stable interface.
+- Split experiment result handling, private output transactions, and rubric-calibration artifact I/O
+  into owning modules below the repository line limit. Private directory installation now uses
+  atomic no-replace primitives on Linux and macOS and cleans partial stages on setup failure.
+- Closed the final audit's publication-integrity and replacement findings. Existing-date inspection
+  now verifies the complete v4 bundle, evidence, roster, projection, post, assets, release, and receipt;
+  the pre-v4 Aug. 26 install is quarantined as occupied-invalid until confirmed replacement.
+- Replaced remove-then-install directory moves with Linux/macOS kernel exchange operations. Stable
+  producer and publisher directory names remain visible, transaction recovery fingerprints staged
+  trees, and the publisher record is installed last as the authoritative commit marker.
+
+### Developer Tests and Notes
+
+- The August 26 intake defect is closed in the local producer and publisher contracts. Fresh
+  discovery bypasses the GitHub client's 24-hour list cache, fails closed on malformed roster data,
+  and persists no token or raw remote payload.
+- A live fresh owner query captured 111 repositories and proved `vosslab/cancer-clicker` is in
+  scope. Mirror reconciliation added the four missing owner-qualified caches and verified all 111
+  exact origins. The real Aug. 26 projection retains nine active repositories and places
+  `vosslab/cancer-clicker` first with `new_source_repository` and citable excerpts.
+- Producer verification passed 2,012 tests with 48 deselected under `-k not markdown_links`, the
+  focused roster regression, and the complete producer-to-publisher E2E. An earlier full suite
+  reached 2,059 passed with one README/Git-aware Markdown-link failure before the new documentation
+  and PNG assets entered the index. The current full publisher suite passes 1,278 tests.
+- The focused calibration, prompt-resource, editorial, and roster-snapshot set passed 55 tests;
+  direct Pyflakes, Python compilation, MyPy, six daily-blog E2Es, route-free preparation reuse, and
+  the fail-closed unapproved live command also passed.
+- The non-link producer suite and the roster, prompt-contract, experiment-lifecycle, and publication
+  E2Es now pass under the required Python 3.12.13 environment.
+- The live Hermes route remains unresolved. No live rubric scores, generated-prose comparison, arm
+  winner, or v4 activation is recorded by this change.
+- Focused sealed-capture, calibration, prompt-experiment, and deterministic-attestation tests pass
+  (29 passed). The direct attestation E2E passes with local route doubles and proves no route use,
+  publication, importer, or activation.
+- An authorized Hermes no-content smoke returned OK without a content payload. The attempted full
+  project-evidence capture stopped at the external-action gate before payload egress; therefore no
+  live capture, calibration, arm winner, activation, or publication is recorded.
+- The requested six-pass audit reran against the complete staged, unstaged, and untracked change.
+  Its low-risk root-command, E2E, import-heading, and documentation findings were remediated; the
+  remaining findings and the uncompleted maker-voice activation gate are recorded in the audit
+  handoff.
+- Final editorial-cap and duplicate-test pruning removed six tunable or redundant checks. The
+  permanent Python 3.12 suite passes all 2,238 pytest tests, and the eight real E2E runners pass.
+  Compilation, Pyflakes, MyPy, Bandit, Markdown, ASCII, mode, and diff checks pass for the audit
+  remediations.
+
 ## 2026-08-27
 
 ### Additions and New Features
+- Added the unactivated v4 maker-voice experiment foundation: registered immutable 0/1/3-example
+  contracts, a project-owned voice resource, snapshot-bound opaque generator identities, author and
+  referee prompt packages, non-gating voice diagnostics, sealed fixtures, a non-publishing prompt
+  harness, and an offline producer-side contract E2E.
+- Added immutable per-contract candidate-validation policies v2. Active v3-historical retains its
+  exact 350-650-word, two-to-four-section, paragraph-evidence control with
+  `all_packet_activity`, `legacy_source`, and digest
+  `28e50e99651096b2cc94c2f2023fda1fe492a205358dccd7b6eb381b3c020cb5`. Experimental v4-maker
+  owns `projected_repositories`, `reader_visible_markdown`, section-level citation, maker bounds,
+  and digest `8722d6dce7f789796784f63914fe240c1f1bdcd472e5be176f7e720f8b557947`. Version 1 policy
+  records are rejected as ambiguous. The producer binds snapshot, generator, bundle, and reuse
+  identities; the publisher independently enforces validation policy and exact active v3 import.
+  The importer remains v3-only.
+- Added maker-corpus and prompt-experiment status reports. They retain August 23 as the primary
+  project-owned house-voice example, the `v4-three-examples-corpus-v2` arm with short attributed
+  Julia Evans and Mitchell Hashimoto excerpts, the literature rationale, sealed fixture identities,
+  and the blocked first live experiment result. The old quiet-day/August 22 three-shot arm is removed.
 - Added `docs/HUMAN_GUIDANCE.md` as the durable local record for affirmative
   model-instruction design, context omission, concrete ownership, and explicit output contracts.
 - Preserved every attributed commit-parent edge and explicit branch-tip snapshot in the
@@ -101,6 +336,13 @@
 - Synchronized shared style guides, tests, and repository support files from the starter template.
 
 ### Developer Tests and Notes
+- Focused v4 prompt, candidate, citation, fixture, experiment, and voice-metric gates exercise the
+  unactivated contract. The offline v4 contract E2E exercises producer-side rendering through the
+  publisher validator boundary with the v4 policy passed explicitly; the publisher importer remains
+  intentionally v3-only.
+- The first private live prompt experiment scheduled 24 author generations across two fixtures,
+  four arms, and three repetitions. All stopped at `author_generation` because the external Hermes
+  route failed for tiny prompts; no comparison, quality conclusion, arm winner, or activation follows.
 - The fetch/changelog/outline behavior selection passed 23 tests, the focused structural and hygiene
   selection passed 1276 tests, and `source source_me.sh && pytest tests/` passed all 1716 tests.
 - Python 3.12 compiled every changed Python file. Its direct pytest run was unavailable in this

@@ -48,7 +48,6 @@ def make_config(tmp_path: pathlib.Path) -> daily_blog.config.DailyBlogConfig:
 		report_timezone="America/Chicago",
 		daily_blog_repository=str(tmp_path),
 		mirror_cache_root=str(tmp_path / "mirrors"),
-		repository_urls=(),
 		identity_names=("Author",),
 		identity_emails=(),
 		author_routes=(

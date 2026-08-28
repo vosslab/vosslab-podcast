@@ -4,7 +4,6 @@ github:
   allowed_emails: []
   timezone: America/Chicago
   #username: Febbu
-  token: ""
 
 llm:
   max_tokens: 1200
@@ -28,10 +27,8 @@ tts:
 
 daily_blog:
   repository_path: "/home/vosslab/nsh/vosslab-daily-blog"
-  mirror_cache_root: "/home/vosslab/repo-mirrors/vosslab"
+  mirror_cache_root: "/home/vosslab/repo-mirrors"
   report_timezone: "America/Chicago"
-  schedule_start_date: "2026-08-26"
-  repository_urls: []
   identity_names:
     - "Dr. Neil R Voss"
   identity_emails:
@@ -45,33 +42,30 @@ daily_blog:
         command:
           - "hermes"
           - "chat"
-          - "--in"
-          - "{generator_repository}"
+          - "--provider"
+          - "openai-codex"
           - "--query-file"
           - "-"
           - "--ignore-rules"
-          - "--quiet"
       - name: "author_two"
         command:
           - "hermes"
           - "chat"
-          - "--in"
-          - "{generator_repository}"
+          - "--provider"
+          - "openai-codex"
           - "--query-file"
           - "-"
           - "--ignore-rules"
-          - "--quiet"
     referee:
       name: "referee"
       command:
         - "hermes"
         - "chat"
-        - "--in"
-        - "{generator_repository}"
+        - "--provider"
+        - "openai-codex"
         - "--query-file"
         - "-"
         - "--ignore-rules"
-        - "--quiet"
   collection_limits:
     changed_documentation_chars: 16000
     diff_chars: 24000

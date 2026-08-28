@@ -1,9 +1,9 @@
 """Two-author generation, deterministic validation, and anonymous referee selection."""
 
 # Standard Library
-import os
-import json
 import re
+import json
+import weakref
 import dataclasses
 
 # local repo modules
@@ -11,18 +11,30 @@ import daily_blog.config
 import daily_blog.schema
 import daily_blog.routes
 import daily_blog.candidates
+import daily_blog.contracts
 import daily_blog.io_utils
+import daily_blog.prompt_resources
 import podlib.prompt_loader
 
 
-AUTHOR_TEMPLATE_NAME = "daily_blog_author_v3.txt"
-REFEREE_TEMPLATE_NAME = "daily_blog_referee_v3.txt"
-REPAIR_TEMPLATE_NAME = "daily_blog_referee_repair_v3.txt"
-RUBRIC_NAME = "daily_blog_rubric_v3.md"
 MAX_FAILURE_CHARS = 1000
 MAX_REFEREE_RESPONSE_CHARS = 4000
 MAX_REFEREE_REASON_CHARS = 500
 GENERATOR_RUN_RE = re.compile(r"^generator_run:\s*(\S+)\s*$", re.MULTILINE)
+EDITORIAL_TEMPLATE_NAMES = frozenset(
+	name
+	for contract in daily_blog.contracts.EDITORIAL_CONTRACTS.values()
+	for name in (
+		contract.author_template,
+		contract.referee_template,
+		contract.repair_template,
+		contract.rubric,
+	)
+)
+SHADOW_EVALUATION_TEMPLATE_NAMES = frozenset({
+	"daily_blog_shadow_evaluator_v1.txt",
+	"daily_blog_shadow_evaluator_repair_v1.txt",
+})
 
 
 class EditorialBlockedError(RuntimeError):
@@ -227,40 +239,352 @@ def materialize_decision(
 
 
 #============================================
-def _prompt_path(name: str) -> str:
-	"""Return one versioned prompt path adjacent to the pipeline package."""
-	package_dir = os.path.dirname(os.path.abspath(__file__))
-	path = os.path.join(os.path.dirname(package_dir), "prompts", name)
-	return path
-
-
-#============================================
 def load_prompt(name: str) -> str:
 	"""Read one complete versioned prompt or rubric."""
-	path = _prompt_path(name)
-	with open(path, "r", encoding="utf-8") as handle:
-		text = handle.read().strip()
-	if not text:
-		raise RuntimeError(f"Prompt template is empty: {name}")
-	text = podlib.prompt_loader.validate_positive_instructions(text, name)
+	text = daily_blog.prompt_resources.load_allowlisted_instruction_prompt(
+		name,
+		EDITORIAL_TEMPLATE_NAMES,
+		"editorial contract",
+	)
 	return text
 
 
 #============================================
-def validate_prompt_templates() -> dict[str, str]:
-	"""Validate positive phrasing and explicit output contracts before any LLM call."""
-	templates = {
-		"author": load_prompt(AUTHOR_TEMPLATE_NAME),
-		"referee": load_prompt(REFEREE_TEMPLATE_NAME),
-		"repair": load_prompt(REPAIR_TEMPLATE_NAME),
-		"rubric": load_prompt(RUBRIC_NAME),
+def load_evaluation_prompt(name: str) -> str:
+	"""Read one allowlisted shadow-evaluation template."""
+	text = daily_blog.prompt_resources.load_allowlisted_instruction_prompt(
+		name,
+		SHADOW_EVALUATION_TEMPLATE_NAMES,
+		"shadow evaluation",
+	)
+	return text
+
+
+#============================================
+def load_plain_prompt_resource(name: str) -> tuple[str, bytes]:
+	"""Read an approved exemplar resource without applying instruction validation."""
+	resource_names = {
+		resource.filename for resource in daily_blog.contracts.EXAMPLE_RESOURCES.values()
 	}
+	if name not in resource_names:
+		raise RuntimeError("Plain prompt resource name is not allowlisted for editorial examples.")
+	path = daily_blog.prompt_resources.prompt_resource_path(name)
+	with open(path, "rb") as handle:
+		contents = handle.read()
+	if not contents.strip():
+		raise RuntimeError(f"Prompt resource is empty: {name}")
+	try:
+		text = contents.decode("utf-8")
+	except UnicodeDecodeError as error:
+		raise RuntimeError(f"Prompt resource must be UTF-8 text: {name}") from error
+	# ASVS 2.2.1: approved resource text is bounded by the later complete-prompt limit.
+	return text, contents
+
+
+EXAMPLE_MARKER_RE = re.compile(
+	r"(?m)^<!-- editorial-example: ([a-z0-9][a-z0-9_-]{0,63}) -->\n"
+	r"(.*?)^<!-- /editorial-example -->$",
+	re.DOTALL,
+)
+UNSAFE_EXAMPLE_CONTENT_RE = re.compile(
+	r"(?im)(?:^|\n)\s*(?:ignore|disregard|override)\b[^\n]*(?:instruction|prompt|message)\b"
+	r"|(?:^|\n)\s*(?:system|developer|user)\s*:"
+	r"|\{[a-z][a-z0-9_]{0,63}\}"
+)
+
+
+#============================================
+def _example_resource_blocks(
+	resource: daily_blog.contracts.ExampleResource,
+	text: str,
+) -> dict[str, str]:
+	"""Parse one fixed example resource without treating its content as instructions."""
+	if "<!-- evidence:" in text or "## Project coverage" in text:
+		raise RuntimeError("Editorial examples may not contain provenance or coverage controls.")
+	if re.search(r"(?m)^---\s*$", text):
+		raise RuntimeError("Editorial examples may not contain YAML fences or front matter.")
+	if UNSAFE_EXAMPLE_CONTENT_RE.search(text):
+		raise RuntimeError("Editorial examples contain unsafe instruction-like content.")
+	matches = list(EXAMPLE_MARKER_RE.finditer(text))
+	if len(matches) != len(resource.block_ids):
+		raise RuntimeError("Editorial example resource markers are incomplete or nested.")
+	blocks: dict[str, str] = {}
+	for match in matches:
+		block_id = match.group(1)
+		body = match.group(2)
+		if "<!-- editorial-example:" in body or "<!-- /editorial-example -->" in body:
+			raise RuntimeError("Editorial example resource markers may not be nested.")
+		if block_id in blocks:
+			raise RuntimeError("Editorial example resource block IDs must be unique.")
+		blocks[block_id] = body
+	daily_blog.contracts.validate_example_resource_blocks(resource, blocks)
+	return blocks
+
+
+_SNAPSHOT_TOKEN = object()
+
+
+@dataclasses.dataclass(frozen=True)
+class PromptContractSnapshot:
+	"""One immutable read of all prompts and selected examples for an editorial run."""
+
+	contract: daily_blog.contracts.EditorialContract
+	selection: daily_blog.contracts.ExampleSelection | None
+	template_names: tuple[tuple[str, str], ...]
+	templates: tuple[tuple[str, str], ...]
+	example_resource_bytes: bytes
+	example_bytes: bytes
+	validation_policy_name: str = ""
+	validation_policy_version: str = ""
+	validation_policy_sha256: str = ""
+	integrity_sha256: str = ""
+	_origin: object = dataclasses.field(repr=False, compare=False, default=None)
+
+	#============================================
+	def template_dict(self) -> dict[str, str]:
+		"""Return a detached lookup view of frozen template text."""
+		values = dict(self.templates)
+		return values
+
+
+_SNAPSHOT_REGISTRY: weakref.WeakValueDictionary[
+	int, PromptContractSnapshot
+] = weakref.WeakValueDictionary()
+
+
+#============================================
+def _selected_examples(
+	contract: daily_blog.contracts.EditorialContract,
+	selection: daily_blog.contracts.ExampleSelection | None,
+) -> tuple[str, bytes, bytes, daily_blog.contracts.ExampleSelection | None]:
+	"""Read and select exact trusted example blocks once in registered order."""
+	resolved_selection = daily_blog.contracts.resolve_selection(contract, selection)
+	if resolved_selection is None:
+		return "", b"", b"", resolved_selection
+	if resolved_selection.resource_name is None:
+		raise RuntimeError("Editorial selection resource is unavailable.")
+	resource = daily_blog.contracts.EXAMPLE_RESOURCES[resolved_selection.resource_name]
+	text, contents = load_plain_prompt_resource(resource.filename)
+	blocks = _example_resource_blocks(resource, text)
+	selected_text = "\n\n".join(blocks[block_id] for block_id in resolved_selection.block_ids)
+	selected_bytes = selected_text.encode("utf-8")
+	if len(selected_text) > daily_blog.contracts.MAX_EXAMPLE_CHARS:
+		raise RuntimeError("Selected editorial examples exceed their character limit.")
+	# ASVS 1.5.2: only allowlisted example blocks are parsed from trusted plain text.
+	return selected_text, selected_bytes, contents, resolved_selection
+
+
+#============================================
+def load_prompt_contract_snapshot(
+	contract: daily_blog.contracts.EditorialContract | None = None,
+	selection: daily_blog.contracts.ExampleSelection | None = None,
+) -> PromptContractSnapshot:
+	"""Load one immutable contract snapshot for identity and all prompt renderings."""
+	resolved = daily_blog.contracts.resolve_contract(contract)
+	templates = {
+		"author": load_prompt(resolved.author_template),
+		"referee": load_prompt(resolved.referee_template),
+		"repair": load_prompt(resolved.repair_template),
+		"rubric": load_prompt(resolved.rubric),
+	}
+	examples, example_bytes, resource_bytes, resolved_selection = _selected_examples(
+		resolved,
+		selection,
+	)
+	templates["examples"] = examples
+	template_names = tuple(sorted({
+		"author": resolved.author_template,
+		"referee": resolved.referee_template,
+		"repair": resolved.repair_template,
+		"rubric": resolved.rubric,
+	}.items()))
+	frozen_templates = tuple(sorted(templates.items()))
+	integrity = _snapshot_integrity(
+		resolved,
+		resolved_selection,
+		template_names,
+		frozen_templates,
+		bytes(resource_bytes),
+		bytes(example_bytes),
+		daily_blog.contracts.policy_for_contract(resolved),
+	)
+	snapshot = PromptContractSnapshot(
+		resolved,
+		resolved_selection,
+		template_names,
+		frozen_templates,
+		bytes(resource_bytes),
+		bytes(example_bytes),
+		daily_blog.contracts.policy_for_contract(resolved).name,
+		daily_blog.contracts.policy_for_contract(resolved).version,
+		daily_blog.contracts.policy_for_contract(resolved).sha256(),
+		integrity,
+		_SNAPSHOT_TOKEN,
+	)
+	_SNAPSHOT_REGISTRY[id(snapshot)] = snapshot
+	validate_snapshot(snapshot)
+	validate_prompt_templates(snapshot=snapshot)
+	return snapshot
+
+
+#============================================
+def _snapshot_integrity(
+	contract: daily_blog.contracts.EditorialContract,
+	selection: daily_blog.contracts.ExampleSelection | None,
+	template_names: tuple[tuple[str, str], ...],
+	templates: tuple[tuple[str, str], ...],
+	resource_bytes: bytes,
+	example_bytes: bytes,
+	policy: daily_blog.contracts.CandidateValidationPolicy,
+) -> str:
+	"""Return a canonical tamper-evident binding for every snapshot payload field."""
+	selection_value = None
+	if selection is not None:
+		selection_value = {
+			"name": selection.name,
+			"contract_name": selection.contract_name,
+			"resource_name": selection.resource_name,
+			"block_ids": list(selection.block_ids),
+		}
+	payload = {
+		"contract_name": contract.name,
+		"selection": selection_value,
+		"template_names": list(template_names),
+		"templates": list(templates),
+		"resource_sha256": daily_blog.io_utils.sha256_bytes(resource_bytes),
+		"examples_sha256": daily_blog.io_utils.sha256_bytes(example_bytes),
+		"candidate_validation": {
+			"name": policy.name,
+			"version": policy.version,
+			"sha256": policy.sha256(),
+		},
+	}
+	digest = daily_blog.io_utils.hash_value(payload)
+	return digest
+
+
+#============================================
+def validate_snapshot(snapshot: PromptContractSnapshot) -> PromptContractSnapshot:
+	"""Verify that a snapshot came from one registered contract-resource read."""
+	if not isinstance(snapshot, PromptContractSnapshot) or snapshot._origin is not _SNAPSHOT_TOKEN:
+		raise RuntimeError("Editorial prompt snapshot is not trusted.")
+	if _SNAPSHOT_REGISTRY.get(id(snapshot)) is not snapshot:
+		raise RuntimeError("Editorial prompt snapshot was not issued by the trusted factory.")
+	contract = daily_blog.contracts.resolve_contract(snapshot.contract)
+	if contract is not snapshot.contract:
+		raise RuntimeError("Editorial prompt snapshot contract is not the registered object.")
+	selection = daily_blog.contracts.resolve_selection(contract, snapshot.selection)
+	if selection is not snapshot.selection:
+		raise RuntimeError("Editorial prompt snapshot selection is not the registered object.")
+	policy = daily_blog.contracts.policy_for_contract(contract)
+	if (
+		snapshot.validation_policy_name != policy.name
+		or snapshot.validation_policy_version != policy.version
+		or snapshot.validation_policy_sha256 != policy.sha256()
+	):
+		raise RuntimeError("Editorial prompt snapshot validation policy is incoherent.")
+	expected_names = tuple(sorted({
+		"author": contract.author_template,
+		"referee": contract.referee_template,
+		"repair": contract.repair_template,
+		"rubric": contract.rubric,
+	}.items()))
+	if snapshot.template_names != expected_names:
+		raise RuntimeError("Editorial prompt snapshot template resources are incoherent.")
+	templates = snapshot.template_dict()
+	if set(templates) != {"author", "referee", "repair", "rubric", "examples"}:
+		raise RuntimeError("Editorial prompt snapshot template mapping is incoherent.")
+	if selection is None:
+		if snapshot.example_resource_bytes or snapshot.example_bytes or templates["examples"]:
+			raise RuntimeError("The v3 prompt snapshot contains unexpected examples.")
+	else:
+		if selection.resource_name is None:
+			raise RuntimeError("Editorial prompt snapshot example resource is unavailable.")
+		resource = daily_blog.contracts.EXAMPLE_RESOURCES[selection.resource_name]
+		try:
+			resource_text = snapshot.example_resource_bytes.decode("utf-8")
+		except UnicodeDecodeError as error:
+			raise RuntimeError("Editorial prompt snapshot examples are not UTF-8.") from error
+		blocks = _example_resource_blocks(resource, resource_text)
+		expected_text = "\n\n".join(blocks[block_id] for block_id in selection.block_ids)
+		if (
+			templates["examples"] != expected_text
+			or snapshot.example_bytes != expected_text.encode("utf-8")
+		):
+			raise RuntimeError("Editorial prompt snapshot example bytes do not match its selection.")
+	expected_integrity = _snapshot_integrity(
+		contract,
+		selection,
+		snapshot.template_names,
+		snapshot.templates,
+		snapshot.example_resource_bytes,
+		snapshot.example_bytes,
+		policy,
+	)
+	if snapshot.integrity_sha256 != expected_integrity:
+		raise RuntimeError("Editorial prompt snapshot integrity binding is invalid.")
+	# ASVS 2.2.1: every consumer verifies registered contract, resource, and selected bytes.
+	return snapshot
+
+
+#============================================
+def resolve_snapshot(
+	contract: daily_blog.contracts.EditorialContract | None,
+	selection: daily_blog.contracts.ExampleSelection | None,
+	snapshot: PromptContractSnapshot | None,
+) -> PromptContractSnapshot:
+	"""Load or bind one snapshot without accepting conflicting loose selectors."""
+	if snapshot is None:
+		resolved = load_prompt_contract_snapshot(contract, selection)
+	else:
+		resolved = validate_snapshot(snapshot)
+		if contract is not None and contract is not resolved.contract:
+			raise RuntimeError("Editorial contract conflicts with the supplied prompt snapshot.")
+		if selection is not None and selection is not resolved.selection:
+			raise RuntimeError("Editorial selection conflicts with the supplied prompt snapshot.")
+	return resolved
+
+
+#============================================
+def resolve_run_snapshot(
+	contract: daily_blog.contracts.EditorialContract | None,
+	snapshot: PromptContractSnapshot | None,
+) -> PromptContractSnapshot:
+	"""Resolve one run snapshot while preserving the named-run mismatch boundary."""
+	if snapshot is None:
+		resolved = resolve_snapshot(contract, None, None)
+	else:
+		resolved = validate_snapshot(snapshot)
+		if contract is not None:
+			selected_contract = daily_blog.contracts.resolve_contract(contract)
+			if resolved.contract is not selected_contract:
+				raise RuntimeError("Editorial contract does not match the supplied prompt snapshot.")
+	return resolved
+
+
+#============================================
+def validate_prompt_templates(
+	contract: daily_blog.contracts.EditorialContract | None = None,
+	selection: daily_blog.contracts.ExampleSelection | None = None,
+	snapshot: PromptContractSnapshot | None = None,
+) -> dict[str, str]:
+	"""Validate positive phrasing and explicit output contracts before any LLM call."""
+	snapshot = resolve_snapshot(contract, selection, snapshot)
+	resolved = snapshot.contract
+	templates = snapshot.template_dict()
 	for name, text in templates.items():
+		if name == "examples":
+			continue
 		podlib.prompt_loader.validate_positive_instructions(text, name)
 	if "{evidence_json}" not in templates["author"]:
 		raise RuntimeError("Author prompt must declare bounded evidence context.")
 	if "## Output contract" not in templates["author"]:
 		raise RuntimeError("Author prompt must declare its output contract.")
+	if resolved.author_uses_rubric:
+		if "{rubric}" not in templates["author"]:
+			raise RuntimeError("Rubric-author prompt must declare its rubric slot.")
+	elif "{rubric}" in templates["author"] or "{examples}" not in templates["author"]:
+		raise RuntimeError("Exemplar-author prompt must declare only its examples slot.")
 	if "{candidate_a}" not in templates["referee"] or "{candidate_b}" not in templates["referee"]:
 		raise RuntimeError("Referee prompt must declare both anonymous candidates.")
 	if "## Output contract" not in templates["referee"]:
@@ -269,17 +593,38 @@ def validate_prompt_templates() -> dict[str, str]:
 
 
 #============================================
-def prompt_contract_identity() -> dict[str, object]:
+def prompt_contract_identity(
+	contract: daily_blog.contracts.EditorialContract | None = None,
+	selection: daily_blog.contracts.ExampleSelection | None = None,
+	snapshot: PromptContractSnapshot | None = None,
+) -> dict[str, object]:
 	"""Return the exact content identity that owns editorial cache reuse."""
-	templates = validate_prompt_templates()
-	return {
-		"prompt_version": daily_blog.schema.PROMPT_VERSION,
-		"rubric_version": daily_blog.schema.RUBRIC_VERSION,
+	snapshot = resolve_snapshot(contract, selection, snapshot)
+	resolved = snapshot.contract
+	templates = validate_prompt_templates(snapshot=snapshot)
+	identity: dict[str, object] = {
+		"contract_name": resolved.name,
+		"prompt_version": resolved.prompt_version,
+		"rubric_version": resolved.rubric_version,
+		"candidate_validation": {
+			"name": snapshot.validation_policy_name,
+			"version": snapshot.validation_policy_version,
+			"sha256": snapshot.validation_policy_sha256,
+		},
 		"templates": {
 			name: daily_blog.io_utils.sha256_text(text)
 			for name, text in sorted(templates.items())
+			if name != "examples"
 		},
 	}
+	if snapshot.selection is not None:
+		# ASVS 1.5.2: retain exact ordered example bytes in the cache identity.
+		identity["examples"] = {
+			"name": snapshot.selection.name,
+			"blocks": list(snapshot.selection.block_ids),
+			"sha256": daily_blog.io_utils.sha256_bytes(snapshot.example_bytes),
+		}
+	return identity
 
 
 #============================================
@@ -287,13 +632,18 @@ def render_author_prompt(
 	projection: daily_blog.schema.EditorialProjection,
 	run_id: str,
 	limit: int,
+	contract: daily_blog.contracts.EditorialContract | None = None,
+	selection: daily_blog.contracts.ExampleSelection | None = None,
+	snapshot: PromptContractSnapshot | None = None,
 ) -> str:
 	"""Render one identical author prompt for both isolated roles."""
-	templates = validate_prompt_templates()
+	snapshot = resolve_snapshot(contract, selection, snapshot)
+	templates = validate_prompt_templates(snapshot=snapshot)
 	prompt = templates["author"].format(
 		report_date=projection.report_date,
 		run_id=run_id,
 		rubric=templates["rubric"],
+		examples=templates.get("examples", ""),
 		evidence_json=projection.render_context(),
 	)
 	if len(prompt) > limit:
@@ -305,24 +655,49 @@ def render_author_prompt(
 
 
 #============================================
+def _run_route(
+	runner: object,
+	route: daily_blog.config.RoleRoute,
+	prompt: str,
+	generator_repository: str,
+) -> str:
+	"""Call the one minimal runner capability without owning its implementation."""
+	run = getattr(runner, "run")
+	response = run(route, prompt, generator_repository)
+	return response
+
+
+#============================================
 def generate_candidates(
 	packet: daily_blog.schema.EvidencePacket,
 	projection: daily_blog.schema.EditorialProjection,
 	run_id: str,
 	config: daily_blog.config.DailyBlogConfig,
 	runner: object | None = None,
+	contract: daily_blog.contracts.EditorialContract | None = None,
+	selection: daily_blog.contracts.ExampleSelection | None = None,
+	snapshot: PromptContractSnapshot | None = None,
 ) -> list[dict]:
 	"""Run two isolated author roles over the exact same evidence prompt."""
 	if not packet.complete:
 		raise EditorialBlockedError("Author generation requires a complete evidence packet.")
 	if projection.packet_id != packet.packet_id:
 		raise EditorialBlockedError("Editorial projection does not match the evidence packet.")
+	if snapshot is not None:
+		resolved_snapshot = resolve_snapshot(contract, selection, snapshot)
+		resolved_policy = daily_blog.contracts.policy_for_contract(resolved_snapshot.contract)
+	else:
+		resolved_contract = daily_blog.contracts.resolve_contract(contract)
+		resolved_policy = daily_blog.contracts.policy_for_contract(resolved_contract)
 	route_runner = runner if runner is not None else daily_blog.routes.CommandRouteRunner()
 	try:
 		prompt = render_author_prompt(
 			projection,
 			run_id,
 			config.prompt_limits["author_chars"],
+			contract,
+			selection,
+			snapshot,
 		)
 	except RuntimeError as error:
 		raise EditorialBlockedError(str(error)) from error
@@ -331,11 +706,11 @@ def generate_candidates(
 		post = ""
 		generation_error = ""
 		try:
-			post = route_runner.run(route, prompt, config.daily_blog_repository)
+			post = _run_route(route_runner, route, prompt, config.daily_blog_repository)
 		except RuntimeError as error:
 			raise EditorialBlockedError(f"Author route failed: {route.name}") from error
 		post = daily_blog.candidates.resolve_slug_placeholder(post)
-		if len(post) > daily_blog.candidates.MAX_CANDIDATE_CHARS:
+		if len(post) > resolved_policy.maximum_candidate_characters:
 			post = ""
 			generation_error = "The author response exceeded the candidate character budget."
 		post = post.rstrip() + "\n" if post else ""
@@ -357,8 +732,25 @@ def validate_candidates(
 	packet: daily_blog.schema.EvidencePacket,
 	projection: daily_blog.schema.EditorialProjection,
 	run_id: str,
+	contract: daily_blog.contracts.EditorialContract | None = None,
+	snapshot: PromptContractSnapshot | None = None,
+	policy: daily_blog.contracts.CandidateValidationPolicy | None = None,
 ) -> list[CandidateResult]:
 	"""Apply deterministic structure and provenance validation to each author result."""
+	if snapshot is not None:
+		resolved_snapshot = validate_snapshot(snapshot)
+		if contract is not None and contract is not resolved_snapshot.contract:
+			raise RuntimeError("Candidate validation contract conflicts with prompt snapshot.")
+		resolved_policy = daily_blog.contracts.policy_for_contract(resolved_snapshot.contract)
+		if policy is not None and policy is not resolved_policy:
+			raise RuntimeError("Candidate validation policy conflicts with prompt snapshot.")
+	elif contract is not None:
+		resolved_contract = daily_blog.contracts.resolve_contract(contract)
+		resolved_policy = daily_blog.contracts.policy_for_contract(resolved_contract)
+		if policy is not None and policy is not resolved_policy:
+			raise RuntimeError("Candidate validation policy conflicts with editorial contract.")
+	else:
+		resolved_policy = daily_blog.contracts.resolve_validation_policy(policy)
 	results = []
 	for candidate in raw_candidates:
 		issues = daily_blog.candidates.validate_candidate(
@@ -366,6 +758,7 @@ def validate_candidates(
 			packet,
 			projection,
 			run_id,
+			policy=resolved_policy,
 		)
 		if candidate["projection_id"] != projection.projection_id:
 			issues.insert(0, "Author candidate does not match the editorial projection.")
@@ -453,11 +846,15 @@ def _referee_verdict(
 	mapping: dict[str, int],
 	config: daily_blog.config.DailyBlogConfig,
 	runner: object,
+	contract: daily_blog.contracts.EditorialContract | None = None,
+	selection: daily_blog.contracts.ExampleSelection | None = None,
+	snapshot: PromptContractSnapshot | None = None,
 ) -> dict:
 	"""Run the separately configured referee, including one structured repair pass."""
 	limit = config.prompt_limits["referee_chars"]
 	try:
-		templates = validate_prompt_templates()
+		snapshot = resolve_snapshot(contract, selection, snapshot)
+		templates = validate_prompt_templates(snapshot=snapshot)
 		cited_ids = set()
 		for index in mapping.values():
 			cited_ids.update(daily_blog.candidates.evidence_ids_in_post(candidates[index].post))
@@ -482,7 +879,7 @@ def _referee_verdict(
 	except RuntimeError as error:
 		raise EditorialBlockedError(str(error)) from error
 	try:
-		response = runner.run(config.referee_route, prompt, config.daily_blog_repository)
+		response = _run_route(runner, config.referee_route, prompt, config.daily_blog_repository)
 	except RuntimeError as error:
 		raise EditorialBlockedError("The referee route failed.") from error
 	try:
@@ -494,7 +891,9 @@ def _referee_verdict(
 		if len(repair_prompt) > limit:
 			raise EditorialBlockedError("The complete referee repair prompt exceeds its limit.")
 		try:
-			repaired = runner.run(config.referee_route, repair_prompt, config.daily_blog_repository)
+			repaired = _run_route(
+				runner, config.referee_route, repair_prompt, config.daily_blog_repository
+			)
 		except RuntimeError as error:
 			raise EditorialBlockedError("The referee repair route failed.") from error
 		try:
@@ -513,15 +912,29 @@ def select_candidate(
 	candidates: list[CandidateResult],
 	config: daily_blog.config.DailyBlogConfig,
 	runner: object | None = None,
+	contract: daily_blog.contracts.EditorialContract | None = None,
+	selection: daily_blog.contracts.ExampleSelection | None = None,
+	snapshot: PromptContractSnapshot | None = None,
 ) -> EditorialDecision:
 	"""Anonymize valid candidates and publish exactly the referee-approved result."""
 	if projection.packet_id != packet.packet_id:
 		raise EditorialBlockedError("Editorial projection does not match the evidence packet.")
+	if snapshot is not None:
+		resolve_snapshot(contract, selection, snapshot)
 	mapping = _anonymous_mapping(projection.projection_id, candidates)
 	if not mapping:
 		raise EditorialBlockedError("No author candidate passed deterministic validation.")
 	route_runner = runner if runner is not None else daily_blog.routes.CommandRouteRunner()
-	verdict = _referee_verdict(projection, candidates, mapping, config, route_runner)
+	verdict = _referee_verdict(
+		projection,
+		candidates,
+		mapping,
+		config,
+		route_runner,
+		contract,
+		selection,
+		snapshot,
+	)
 	winner = verdict["winner"]
 	if winner == "NONE":
 		raise EditorialBlockedError("The referee did not approve candidate A or B.")

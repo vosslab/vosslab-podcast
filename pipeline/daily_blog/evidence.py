@@ -421,7 +421,10 @@ def _truncate_item(item: daily_blog.schema.EvidenceItem, limit: int) -> daily_bl
 	if len(item.content) <= limit:
 		return item
 	marker = "\n[Evidence reached its configured character budget.]\n"
-	content = item.content[: max(0, limit - len(marker))].rstrip() + marker
+	if limit <= len(marker):
+		content = item.content[:limit]
+	else:
+		content = item.content[: limit - len(marker)].rstrip() + marker
 	truncated = daily_blog.schema.EvidenceItem.create(
 		item.kind,
 		item.repository,
@@ -456,8 +459,9 @@ class EvidenceAssembler:
 	def _budget_items(
 		self,
 		items: list[daily_blog.schema.EvidenceItem],
+		required_repositories: list[str],
 	) -> list[daily_blog.schema.EvidenceItem]:
-		"""Preserve changelogs and apply per-source plus total collection limits."""
+		"""Reserve repository coverage, then apply per-source and total limits."""
 		ordered = sorted(
 			items,
 			key=lambda item: (
@@ -477,27 +481,75 @@ class EvidenceAssembler:
 		remaining_total = self.collection_limits["supporting_total_chars"]
 		screenshot_remaining = self.collection_limits["screenshot_count"]
 		selected = []
-		for item in ordered:
-			if item.kind == "dated_changelog":
-				selected.append(item)
-				continue
-			if item.kind == "screenshot":
-				if screenshot_remaining <= 0:
-					continue
-				screenshot_remaining -= 1
+		selected_ids = set()
+		selected_repositories = set()
+
+		def select_budgeted(
+			item: daily_blog.schema.EvidenceItem,
+			limit_cap: int | None = None,
+		) -> bool:
+			"""Select one bounded item when its source and total budgets permit it."""
+			nonlocal remaining_total, screenshot_remaining
+			if item.evidence_id in selected_ids:
+				return True
+			if item.kind == "screenshot" and screenshot_remaining <= 0:
+				return False
 			kind_remaining = remaining_by_kind[item.kind]
 			limit = min(
 				self.collection_limits["per_item_chars"],
 				kind_remaining,
 				remaining_total,
 			)
+			if limit_cap is not None:
+				limit = min(limit, limit_cap)
 			if limit <= 0:
-				continue
+				return False
 			bounded = _truncate_item(item, limit)
 			selected.append(bounded)
+			selected_ids.add(item.evidence_id)
+			selected_repositories.add(item.repository)
 			used = len(bounded.content)
 			remaining_by_kind[item.kind] -= used
 			remaining_total -= used
+			if item.kind == "screenshot":
+				screenshot_remaining -= 1
+			return True
+
+		# Changelogs are the primary narrative record and retain their existing
+		# unmetered contract. They also satisfy repository coverage immediately.
+		for item in ordered:
+			if item.kind == "dated_changelog":
+				selected.append(item)
+				selected_ids.add(item.evidence_id)
+				selected_repositories.add(item.repository)
+
+		# Projection requires one citable source for every active repository. Reserve
+		# that coverage before routine supporting material can consume the budget.
+		missing_repositories = [
+			repository
+			for repository in required_repositories
+			if repository not in selected_repositories
+		]
+		for index, repository in enumerate(missing_repositories):
+			remaining_slots = len(missing_repositories) - index
+			if remaining_total < remaining_slots:
+				raise RuntimeError(
+					"Evidence budget cannot retain one citable item for every active repository."
+				)
+			coverage_cap = max(1, remaining_total // remaining_slots)
+			candidates = [
+				item
+				for item in ordered
+				if item.repository == repository and item.kind != "dated_changelog"
+			]
+			if not any(select_budgeted(item, coverage_cap) for item in candidates):
+				raise RuntimeError(
+					f"Evidence assembly lacks citable source material for {repository}."
+				)
+
+		for item in ordered:
+			if item.kind != "dated_changelog":
+				select_budgeted(item)
 		return selected
 
 	#============================================
@@ -538,7 +590,10 @@ class EvidenceAssembler:
 					"date-scoped cache activity locator",
 				)
 			)
-		budgeted = self._budget_items(items)
+		budgeted = self._budget_items(
+			items,
+			[activity.repository for activity in activities],
+		)
 		selected_asset_paths = {item.asset_path for item in budgeted if item.asset_path}
 		selected_assets = {
 			path: contents for path, contents in assets.items() if path in selected_asset_paths

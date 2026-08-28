@@ -3,18 +3,26 @@
 ## Final decision
 
 `vosslab-podcast` owns the complete date-driven producer: durable Git mirrors, exact-object
-activity, authority-ranked evidence, two isolated author routes, deterministic candidate
-validation, anonymous referee selection, immutable bundle creation, typed run state, and the one
-publication schedule.
+activity, authority-ranked evidence, deterministic candidate validation, anonymous referee
+selection, validated bundle creation, and typed run state. Hermes owns only the configured author
+and referee model-route executions inside a producer run. The checked-in systemd timer owns the
+one publication schedule and directly calls `./make_blog.py --yesterday`.
 
 `vosslab-daily-blog` owns the complete local publisher: bundle and provenance validation, MkDocs
-source, publication records, strict staged builds, immutable releases, atomic installation, the
-served release pointer, and the static service on port 8016.
+source, date-owned publication records and content releases, strict staged builds, atomic
+installation, the served release pointer, and the static service on port 8016.
 
-The current v2 publication bundle is the only interface between the repositories. It requires
-evidence v3, projection v1, generator v2, and the `daily-blog-prompts-v3` plus
-`daily-blog-rubric-v3` editorial contracts. No collector, mirror, generator, model execution,
-layered editorial state, or publication timer remains in the publisher.
+The active v3 publication bundle is the only production interface between the repositories. It
+requires the active evidence, projection, run, generator, prompt, and rubric contracts that the
+publisher independently validates. The producer starts from an immutable authoritative roster,
+then persists owner-qualified mirror and lifecycle provenance for the publisher to validate. No
+collector, mirror, generator, model execution, layered editorial state, or publication timer
+remains in the publisher.
+
+V4 maker voice is an experimental contract, not a publication interface. It stays outside the
+production orchestrator, bundle writer, publisher importer, and systemd schedule until the later
+v4 producer-and-publisher cutover described below is reviewed and implemented as one explicit
+contract change.
 
 ## Retired design
 
@@ -29,20 +37,59 @@ publication timer remains alongside `vosslab-daily-blog.service`.
 
 ## Acceptance record
 
-- The same explicit-date producer command supports manual and scheduled runs. It validates a coherent
-  publisher receipt before generation, so retrying an immutable published date returns its exact bundle
-  without spending model work or producing a competing publication. Timer activation is an operator
-  action after the current producer-to-publisher contracts pass live verification.
+- The root `make_blog.py` command supports manual and scheduled runs. It validates a coherent
+  publisher receipt before generation. An interactive command asks before replacement, while the
+  non-interactive systemd run preserves existing content and exits successfully. Timer activation
+  is an operator action after the current producer-to-publisher contracts pass live verification.
 - Exact Git and dated changelogs anchor evidence before model execution.
-- Two author routes and one referee route receive repository-owned, versioned prompts through
-  isolated standard-input sessions.
+- Hermes runs exactly two configured author routes and one configured anonymous-referee route
+  through isolated standard-input sessions. It owns no schedule, publication loop, importer, or
+  producer state.
 - Measurable August house-style requirements are deterministic final-candidate gates.
 - Missing editorial approval blocks bundle creation and publisher import while preserving the
   failed producer run for retry.
 - The publisher installs only a fully validated, strictly built proposal and preserves its last
   good source and served release across failure.
-- Non-publishing historical evaluation has a default-deny model data-sharing boundary and a
-  separate immutable output namespace.
+- The maker experiment has the activation gates below. Its private artifacts use a separate
+  content-addressed namespace and cannot publish.
+
+## Maker-quality activation gates
+
+V4 activation is a two-stage evidence process followed by a separately reviewed interface
+cutover. The stages have distinct owners and side effects so a model-route result cannot silently
+become a publication decision.
+
+### Stage 1: private capture and approval-gated calibration
+
+The producer owns the sealed busy-and-quiet experiment capture. It is private and non-publishing:
+it writes only the configured experiment-artifact namespace, creates no bundle, calls no publisher
+importer, and does not alter the systemd schedule. Hermes may run the two author routes and the
+anonymous referee route only after the operator approves the configured route and project-context
+sharing for that invocation.
+
+Historical rubric calibration is a separate private artifact. It requires both the durable
+historical-post data-sharing setting and explicit per-invocation approval before any historical
+post or exact-Git evidence goes to a live route. Route-free calibration preparation establishes
+local inputs but is not live calibration evidence. The experiment capture does not accept a
+`--calibration` argument: calibration joins the capture only in Stage 2.
+
+No live capture, live historical calibration, arm winner, or v4 activation is recorded yet.
+
+### Stage 2: deterministic route-free attestation
+
+The producer's attestation command joins one sealed private capture with one passing approved
+historical-calibration artifact. It recomputes the acceptance result without loading or invoking a
+model route. It writes a private attestation only; it neither activates v4 nor creates a bundle,
+imports a post, publishes the site, or changes systemd.
+
+### Later v4 production cutover
+
+After Stage 2 attests a complete result, a human reviews the generated posts and referee evidence
+against the maker-quality question and records an activation decision. A later reviewed change then
+advances the producer's active contract and the publisher's accepted interface from v3 to v4
+together, adds the required end-to-end import evidence, and only then permits `make_blog.py` and
+its systemd schedule to use v4. An attestation is evidence for that decision, never the cutover
+itself.
 
 ## Host schedule record
 
@@ -63,6 +110,11 @@ timer catch-up with a durable, bounded, oldest-first cursor so a multi-day outag
 skip older report dates. The clean pre-production cutover then removed the superseded fallback
 transaction and imported the final-only v2 publication described below.
 
+On 2026-08-28, the pre-production design made `report_date` the sole publication identity and
+retired the cursor/backlog scheduler. The systemd timer now calls `./make_blog.py --yesterday`
+directly at 04:00 America/Chicago. Hermes remains only the author/referee model runner inside that
+date-owned deterministic pipeline.
+
 ## One-time verification record
 
 | Check | Status | Evidence |
@@ -73,7 +125,8 @@ transaction and imported the final-only v2 publication described below.
 | Synthetic producer-to-publisher flow | Complete | `tests/e2e/e2e_daily_publication.py` passed through strict MkDocs staging on 2026-08-27 |
 | August 22 semantic shadow | Optional benchmark | Non-publishing comparison remains available but is not a cutover gate |
 | August 23 semantic shadow | Optional benchmark | Non-publishing comparison remains available but is not a cutover gate |
-| August 26 repaired publication | Complete | Run `20260828T003950Z-bdee87fdc1`; v2 bundle `d6d06817bec1`; "Making the Interface Tell the Truth" served at its thematic route |
+| V4 live capture, calibration, winner, and activation | Not started | No live capture, approved historical calibration, arm winner, or activation decision exists |
+| August 26 repaired publication | Complete | Run `20260828T003950Z-bdee87fdc1`; migrated checksum `d6d06817bec1`; "Making the Interface Tell the Truth" served at its thematic route |
 
 These are cutover facts rather than permanent regression cases. The permanent suite covers the
 general contracts that produced them.

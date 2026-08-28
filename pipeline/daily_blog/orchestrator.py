@@ -5,20 +5,25 @@ import os
 import uuid
 import datetime
 import dataclasses
+import collections.abc
 
 # local repo modules
 import daily_blog.config
 import daily_blog.schema
+import daily_blog.repository_contracts
 import daily_blog.locks
 import daily_blog.mirrors
+import daily_blog.repositories
 import daily_blog.activity
 import daily_blog.evidence
 import daily_blog.projection
 import daily_blog.bundles
+import daily_blog.contracts
 import daily_blog.editorial
 import daily_blog.publisher
 import daily_blog.run_state
 import daily_blog.io_utils
+import daily_blog.roster_snapshots
 
 
 #============================================
@@ -38,6 +43,10 @@ def _stable_mirror_input(entries: list[dict]) -> list[dict]:
 			{
 				"repository": entry["repository"],
 				"repository_url": entry["repository_url"],
+				"clone_url": entry["clone_url"],
+				"created_at": entry["created_at"],
+				"is_fork": entry["is_fork"],
+				"roster_id": entry["roster_id"],
 				"cache_path": entry["cache_path"],
 				"default_revision": entry["default_revision"],
 				"object_available": entry["object_available"],
@@ -107,8 +116,42 @@ def _decision_value(decision: daily_blog.editorial.EditorialDecision) -> dict:
 	}
 
 
+#============================================
+def _resolve_active_publication_snapshot(
+	contract: daily_blog.contracts.EditorialContract | None,
+	snapshot: daily_blog.editorial.PromptContractSnapshot | None,
+) -> daily_blog.editorial.PromptContractSnapshot:
+	"""Accept the one active, factory-issued prompt snapshot for publication."""
+	# Validate every supplied object before deciding whether it is publishable.
+	# That retains the ordinary tamper/registry failures while ensuring every valid
+	# experimental selector receives the actionable non-publishing guidance.
+	resolved_contract = None
+	if contract is not None:
+		resolved_contract = daily_blog.contracts.resolve_contract(contract)
+	if snapshot is not None:
+		resolved_snapshot = daily_blog.editorial.validate_snapshot(snapshot)
+	else:
+		resolved_snapshot = None
+	active = daily_blog.contracts.active_contract()
+	if (
+		resolved_contract is not None and resolved_contract is not active
+	) or (
+		resolved_snapshot is not None and resolved_snapshot.contract is not active
+	):
+		raise RuntimeError(
+			"Experimental editorial contracts require the non-publishing prompt experiment runner."
+		)
+	resolved = daily_blog.editorial.resolve_run_snapshot(contract, snapshot)
+	if resolved.contract is not active:
+		raise RuntimeError(
+			"Experimental editorial contracts require the non-publishing prompt experiment runner."
+		)
+	return resolved
+
+
+#============================================
 class DailyPublicationOrchestrator:
-	"""Execute the nine legal phases for one immutable daily run."""
+	"""Execute the ten legal phases for one immutable daily run."""
 
 	#============================================
 	def __init__(
@@ -116,20 +159,40 @@ class DailyPublicationOrchestrator:
 		config: daily_blog.config.DailyBlogConfig,
 		report_date: str,
 		route_runner: object | None = None,
-		publisher_function: object | None = None,
+		publisher_function: collections.abc.Callable[[str, str], dict] | None = None,
+		repository_loader: collections.abc.Callable[
+			[str, str], daily_blog.repository_contracts.RepositoryRoster
+		] | None = None,
 		refresh_mirrors: bool = True,
+		contract: daily_blog.contracts.EditorialContract | None = None,
+		snapshot: daily_blog.editorial.PromptContractSnapshot | None = None,
+		force_regeneration: bool = False,
 	) -> None:
 		"""Bind dependencies while preserving replaceable test boundaries."""
 		daily_blog.activity.build_date_window(report_date, config.report_timezone)
+		if type(force_regeneration) is not bool:
+			raise RuntimeError("Force-regeneration state must be Boolean.")
 		self.config = config
 		self.report_date = report_date
+		self.force_regeneration = force_regeneration
 		self.route_runner = route_runner
 		self.publisher_function = publisher_function or daily_blog.publisher.import_bundle
+		self.repository_loader = (
+			repository_loader or daily_blog.repositories.discover_owner_repositories
+		)
 		self.refresh_mirrors = refresh_mirrors
+		# ASVS 2.2.1: one authoritative resolver owns the trusted prompt-file read.
+		self.prompt_snapshot = _resolve_active_publication_snapshot(contract, snapshot)
+		self.editorial_contract = self.prompt_snapshot.contract
+		self.prompt_contract = daily_blog.editorial.prompt_contract_identity(
+			snapshot=self.prompt_snapshot
+		)
 		self.generator_root = daily_blog.io_utils.repository_root(__file__)
 		self.generator_revision = daily_blog.bundles.generator_revision(
 			self.generator_root,
 			config.settings_path,
+			self.editorial_contract,
+			self.prompt_snapshot,
 		)
 		self.run_id = new_run_id()
 		self.store = daily_blog.run_state.RunStore(
@@ -188,17 +251,70 @@ class DailyPublicationOrchestrator:
 		)
 
 	#============================================
-	def _mirror_phase(self) -> list[dict]:
+	def _repository_phase(self) -> daily_blog.repository_contracts.RepositoryRoster:
+		"""Acquire and persist the authoritative eligible GitHub owner roster."""
+		phase_input = {
+			"owner": self.config.output_owner,
+			"policy": daily_blog.repositories.REPOSITORY_POLICY_VERSION,
+			"schema": daily_blog.repository_contracts.REPOSITORY_ROSTER_SCHEMA_VERSION,
+		}
+		self._start("repository_discovery", phase_input)
+		roster = self.repository_loader(
+			self.config.output_owner,
+			self.config.output_root,
+		)
+		# Reparse at the boundary so test providers and future adapters cannot bypass schema checks.
+		roster = daily_blog.repository_contracts.RepositoryRoster.from_dict(roster.to_dict())
+		if roster.owner.casefold() != self.config.output_owner.casefold():
+			raise RuntimeError("Repository roster owner does not match publication owner.")
+		# Persist the owner roster outside the run before any mirror can consume it.
+		# Reloading through the snapshot boundary proves the on-disk artifact has the
+		# same typed content and integrity identity as this run's roster.
+		snapshot_path, snapshot_identity = (
+			daily_blog.roster_snapshots.write_repository_roster_snapshot(
+				self.config.output_root,
+				self.config.output_owner,
+				roster,
+			)
+		)
+		verified_roster, verified_identity = (
+			daily_blog.roster_snapshots.load_repository_roster_snapshot(
+				self.config.output_root,
+				self.config.output_owner,
+				snapshot_path,
+			)
+		)
+		if verified_roster != roster or verified_identity != snapshot_identity:
+			raise RuntimeError("Repository roster snapshot verification does not match discovery.")
+		value = roster.to_dict()
+		self.store.write_artifact("repository_roster.json", value)
+		# The authoritative repository universe is the run's first content artifact.
+		# Prompt identity follows it so no prompt experiment can outrun discovery.
+		self.store.write_artifact("prompt_contract.json", self.prompt_contract)
+		self.record.repository_roster = {
+			"roster_id": roster.roster_id,
+			"artifact": "repository_roster.json",
+			"snapshot_path": snapshot_path,
+			"snapshot_identity": snapshot_identity,
+		}
+		self._complete("repository_discovery", value)
+		return roster
+
+	#============================================
+	def _mirror_phase(
+		self,
+		roster: daily_blog.repository_contracts.RepositoryRoster,
+	) -> list[dict]:
 		"""Refresh durable mirrors and persist their complete manifest."""
 		phase_input = {
 			"cache_root": self.config.mirror_cache_root,
-			"repository_urls": list(self.config.repository_urls),
+			"roster_id": roster.roster_id,
 			"refresh": self.refresh_mirrors,
 		}
 		self._start("mirror_refresh", phase_input)
 		manager = daily_blog.mirrors.MirrorManager(
 			self.config.mirror_cache_root,
-			self.config.repository_urls,
+			roster,
 		)
 		entries = manager.refresh_all(refresh=self.refresh_mirrors)
 		self.store.write_artifact("mirror_manifest.json", entries)
@@ -339,9 +455,10 @@ class DailyPublicationOrchestrator:
 		phase_input = {
 			"packet_id": packet.packet_id,
 			"projection_id": projection.projection_id,
-			"prompt_contract": daily_blog.editorial.prompt_contract_identity(),
+			"prompt_contract": self.prompt_contract,
 			"prompt_limit": self.config.prompt_limits["author_chars"],
 			"generator_revision": self.generator_revision,
+			"generation_request_id": self.run_id if self.force_regeneration else "",
 			"routes": [dataclasses.asdict(route) for route in self.config.author_routes],
 		}
 		input_hash = self._start("author_generation", phase_input)
@@ -355,6 +472,8 @@ class DailyPublicationOrchestrator:
 				artifact_run_id,
 				self.config,
 				runner=self.route_runner,
+				contract=self.editorial_contract,
+				snapshot=self.prompt_snapshot,
 			)
 			canonical = daily_blog.editorial.validate_raw_candidates(canonical)
 		else:
@@ -382,6 +501,7 @@ class DailyPublicationOrchestrator:
 			"projection_id": projection.projection_id,
 			"candidate_hashes": [item["post_hash"] for item in canonical_raw],
 			"generator_revision": self.generator_revision,
+			"prompt_contract": self.prompt_contract,
 		}
 		input_hash = self._start("candidate_validation", phase_input)
 		cached = self.cache.load_json(
@@ -394,6 +514,7 @@ class DailyPublicationOrchestrator:
 				packet,
 				projection,
 				artifact_run_id,
+				snapshot=self.prompt_snapshot,
 			)
 		else:
 			canonical = [
@@ -438,7 +559,7 @@ class DailyPublicationOrchestrator:
 			"projection_id": projection.projection_id,
 			"candidates": [candidate.to_cache_dict() for candidate in canonical_candidates],
 			"route": dataclasses.asdict(self.config.referee_route),
-			"prompt_contract": daily_blog.editorial.prompt_contract_identity(),
+			"prompt_contract": self.prompt_contract,
 			"prompt_limit": self.config.prompt_limits["referee_chars"],
 			"generator_revision": self.generator_revision,
 		}
@@ -453,6 +574,8 @@ class DailyPublicationOrchestrator:
 				canonical_candidates,
 				self.config,
 				runner=self.route_runner,
+				contract=self.editorial_contract,
+				snapshot=self.prompt_snapshot,
 			)
 			self.cache.store_json(
 				"referee_selection",
@@ -476,6 +599,7 @@ class DailyPublicationOrchestrator:
 	#============================================
 	def _bundle_phase(
 		self,
+		roster: daily_blog.repository_contracts.RepositoryRoster,
 		packet: daily_blog.schema.EvidencePacket,
 		projection: daily_blog.schema.EditorialProjection,
 		assets: dict[str, bytes],
@@ -484,8 +608,9 @@ class DailyPublicationOrchestrator:
 		canonical_decision: daily_blog.editorial.EditorialDecision,
 		current_decision: daily_blog.editorial.EditorialDecision,
 	) -> tuple[str, dict]:
-		"""Create or reuse one verified immutable publication bundle."""
+		"""Create or reuse the verified bundle for this publication attempt."""
 		phase_input = {
+			"repository_roster": roster.to_dict(),
 			"packet_id": packet.packet_id,
 			"projection_id": projection.projection_id,
 			"candidates": [candidate.to_cache_dict() for candidate in canonical_candidates],
@@ -495,6 +620,7 @@ class DailyPublicationOrchestrator:
 				for path, contents in assets.items()
 			},
 			"generator_revision": self.generator_revision,
+			"prompt_contract": self.prompt_contract,
 			"bundle_schema": daily_blog.schema.BUNDLE_SCHEMA_VERSION,
 		}
 		input_hash = self._start("bundle_creation", phase_input)
@@ -505,6 +631,8 @@ class DailyPublicationOrchestrator:
 				self.config.output_root,
 				self.config.output_owner,
 				self.generator_revision,
+				self.editorial_contract,
+				self.prompt_snapshot,
 			)
 			bundle_path, bundle = writer.write(
 				self.run_id,
@@ -513,6 +641,7 @@ class DailyPublicationOrchestrator:
 				assets,
 				current_candidates,
 				current_decision,
+				roster,
 			)
 			self.cache.store_json(
 				"bundle_creation",
@@ -534,10 +663,13 @@ class DailyPublicationOrchestrator:
 				projection,
 				assets,
 				self.generator_revision,
+				self.editorial_contract,
+				self.prompt_snapshot,
+				roster,
 			)
 		self.store.write_artifact("publication_bundle.json", bundle)
 		self.record.publication_bundle = {
-			"bundle_id": bundle["bundle_id"],
+			"bundle_sha256": bundle["bundle_sha256"],
 			"path": bundle_path,
 			"origin_run_id": bundle["generator"]["run_id"],
 			"reused": reused,
@@ -549,14 +681,15 @@ class DailyPublicationOrchestrator:
 	def _site_import_phase(self, bundle_path: str, bundle: dict) -> dict:
 		"""Invoke the idempotent publisher and record whether it reused the release."""
 		phase_input = {
-			"bundle_id": bundle["bundle_id"],
+			"bundle_sha256": bundle["bundle_sha256"],
 			"publisher_repository": self.config.daily_blog_repository,
+			"replace_existing": self.force_regeneration,
 		}
 		self._start("site_import", phase_input)
 		publisher_result = self.publisher_function(self.config.daily_blog_repository, bundle_path)
 		result = daily_blog.schema.validate_site_import_result(
 			publisher_result,
-			bundle["bundle_id"],
+			bundle["bundle_sha256"],
 			self.report_date,
 		)
 		reused = result["status"] == "idempotent"
@@ -566,9 +699,10 @@ class DailyPublicationOrchestrator:
 
 	#============================================
 	def run(self) -> tuple[str, dict]:
-		"""Sequence the nine typed phases and persist any terminal failure."""
+		"""Sequence the ten typed phases and persist any terminal failure."""
 		try:
-			mirrors = self._mirror_phase()
+			roster = self._repository_phase()
+			mirrors = self._mirror_phase(roster)
 			activities = self._activity_phase(mirrors)
 			packet, assets = self._evidence_phase(mirrors, activities)
 			projection = self._projection_phase(packet)
@@ -591,6 +725,7 @@ class DailyPublicationOrchestrator:
 				current_candidates,
 			)
 			bundle_path, bundle = self._bundle_phase(
+				roster,
 				packet,
 				projection,
 				assets,
@@ -605,7 +740,7 @@ class DailyPublicationOrchestrator:
 			self.store.append_event(
 				"daily_publication.run_completed",
 				{
-					"bundle_id": bundle["bundle_id"],
+					"bundle_sha256": bundle["bundle_sha256"],
 					"site_import_status": site_import["status"],
 					"state": self.record.state,
 				},
@@ -617,27 +752,77 @@ class DailyPublicationOrchestrator:
 
 
 #============================================
-def run_daily_publication(
+def publication_date_lock(
 	config: daily_blog.config.DailyBlogConfig,
 	report_date: str,
-	route_runner: object | None = None,
-	publisher_function: object | None = None,
-	refresh_mirrors: bool = True,
-) -> tuple[str, dict]:
-	"""Acquire the per-date lock and execute one complete immutable run."""
+) -> daily_blog.locks.FileLock:
+	"""Return the single-owner lock for one report date."""
+	daily_blog.activity.build_date_window(report_date, config.report_timezone)
 	lock_path = os.path.join(
 		config.output_root,
 		config.output_owner,
 		"daily_blog_locks",
 		f"{report_date}.lock",
 	)
-	with daily_blog.locks.FileLock(lock_path):
-		orchestrator = DailyPublicationOrchestrator(
+	return daily_blog.locks.FileLock(lock_path)
+
+
+#============================================
+def run_daily_publication_locked(
+	config: daily_blog.config.DailyBlogConfig,
+	report_date: str,
+	route_runner: object | None = None,
+	publisher_function: collections.abc.Callable[[str, str], dict] | None = None,
+	repository_loader: collections.abc.Callable[
+		[str, str], daily_blog.repository_contracts.RepositoryRoster
+	] | None = None,
+	refresh_mirrors: bool = True,
+	contract: daily_blog.contracts.EditorialContract | None = None,
+	snapshot: daily_blog.editorial.PromptContractSnapshot | None = None,
+	force_regeneration: bool = False,
+) -> tuple[str, dict]:
+	"""Execute one complete run while the caller holds the matching per-date lock."""
+	prompt_snapshot = _resolve_active_publication_snapshot(contract, snapshot)
+	orchestrator = DailyPublicationOrchestrator(
+		config,
+		report_date,
+		route_runner=route_runner,
+		publisher_function=publisher_function,
+		repository_loader=repository_loader,
+		refresh_mirrors=refresh_mirrors,
+		contract=daily_blog.contracts.active_contract(),
+		snapshot=prompt_snapshot,
+		force_regeneration=force_regeneration,
+	)
+	result = orchestrator.run()
+	return result
+
+
+#============================================
+def run_daily_publication(
+	config: daily_blog.config.DailyBlogConfig,
+	report_date: str,
+	route_runner: object | None = None,
+	publisher_function: collections.abc.Callable[[str, str], dict] | None = None,
+	repository_loader: collections.abc.Callable[
+		[str, str], daily_blog.repository_contracts.RepositoryRoster
+	] | None = None,
+	refresh_mirrors: bool = True,
+	contract: daily_blog.contracts.EditorialContract | None = None,
+	snapshot: daily_blog.editorial.PromptContractSnapshot | None = None,
+	force_regeneration: bool = False,
+) -> tuple[str, dict]:
+	"""Validate the editorial contract, then lock and execute one publication run."""
+	prompt_snapshot = _resolve_active_publication_snapshot(contract, snapshot)
+	with publication_date_lock(config, report_date):
+		result = run_daily_publication_locked(
 			config,
 			report_date,
 			route_runner=route_runner,
 			publisher_function=publisher_function,
+			repository_loader=repository_loader,
 			refresh_mirrors=refresh_mirrors,
+			snapshot=prompt_snapshot,
+			force_regeneration=force_regeneration,
 		)
-		result = orchestrator.run()
 	return result

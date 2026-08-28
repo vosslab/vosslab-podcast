@@ -9,6 +9,7 @@ import subprocess
 
 # local repo modules
 import daily_blog.mirrors
+import daily_blog.repository_contracts
 
 
 #============================================
@@ -32,7 +33,7 @@ def run_git(repository: pathlib.Path, arguments: list[str], environment: dict | 
 def make_cache(root: pathlib.Path) -> tuple[pathlib.Path, pathlib.Path]:
 	"""Create one physical cache with an exact default object and GitHub origin."""
 	cache_root = root / "mirrors"
-	repository = cache_root / "sample"
+	repository = cache_root / "vosslab" / "sample"
 	repository.mkdir(parents=True)
 	run_git(repository, ["init", "-b", "main"])
 	run_git(repository, ["config", "user.name", "Dr. Neil R Voss"])
@@ -53,7 +54,15 @@ def main() -> None:
 	"""Verify the manifest names the exact available default object."""
 	with tempfile.TemporaryDirectory(prefix="daily-blog-mirror-e2e-") as temporary:
 		cache_root, repository = make_cache(pathlib.Path(temporary))
-		manager = daily_blog.mirrors.MirrorManager(str(cache_root), ())
+		record = daily_blog.repository_contracts.RepositoryRecord.from_dict({
+			"repository": "vosslab/sample",
+			"repository_url": "https://github.com/vosslab/sample",
+			"clone_url": "https://github.com/vosslab/sample.git",
+			"created_at": "2020-01-01T00:00:00Z",
+			"is_fork": False,
+		})
+		roster = daily_blog.repository_contracts.RepositoryRoster.create("vosslab", [record])
+		manager = daily_blog.mirrors.MirrorManager(str(cache_root), roster)
 		entry = manager.refresh_all(refresh=False)[0]
 		assert entry["repository"] == "vosslab/sample"
 		assert (

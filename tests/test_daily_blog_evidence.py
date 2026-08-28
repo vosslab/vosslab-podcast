@@ -17,6 +17,68 @@ import daily_blog.orchestrator
 
 
 #============================================
+def collection_limits(supporting_total_chars: int = 60) -> dict[str, int]:
+	"""Return complete small evidence budgets for deterministic unit tests."""
+	return {
+		"changed_documentation_chars": supporting_total_chars,
+		"commit_metadata_chars": supporting_total_chars,
+		"diff_chars": supporting_total_chars,
+		"per_item_chars": supporting_total_chars,
+		"readme_context_chars": supporting_total_chars,
+		"screenshot_count": 2,
+		"supporting_total_chars": supporting_total_chars,
+	}
+
+
+#============================================
+def test_evidence_budget_reserves_one_citable_item_per_active_repository() -> None:
+	"""Routine evidence cannot consume the coverage needed by later projection."""
+	items = [
+		daily_blog.schema.EvidenceItem.create(
+			"changed_documentation",
+			f"vosslab/repo-{name}",
+			name * 40,
+			"docs/NOTES.md",
+			name * 40,
+			name * 100,
+			"git show",
+		)
+		for name in ("a", "b", "c")
+	]
+	assembler = daily_blog.evidence.EvidenceAssembler(
+		"2026-08-26",
+		"America/Chicago",
+		collection_limits(30),
+	)
+
+	selected = assembler._budget_items(
+		items,
+		["vosslab/repo-a", "vosslab/repo-b", "vosslab/repo-c"],
+	)
+
+	assert {item.repository for item in selected} == {
+		"vosslab/repo-a", "vosslab/repo-b", "vosslab/repo-c",
+	}
+	assert sum(len(item.content) for item in selected) <= 30
+
+
+#============================================
+def test_evidence_budget_fails_when_an_active_repository_has_no_source_item() -> None:
+	"""Missing active-repository provenance fails at assembly rather than prompt time."""
+	item = daily_blog.schema.EvidenceItem.create(
+		"commit_metadata", "vosslab/repo-a", "a" * 40, "", "", "commit", "git show"
+	)
+	assembler = daily_blog.evidence.EvidenceAssembler(
+		"2026-08-26",
+		"America/Chicago",
+		collection_limits(),
+	)
+
+	with pytest.raises(RuntimeError, match="vosslab/repo-b"):
+		assembler._budget_items([item], ["vosslab/repo-a", "vosslab/repo-b"])
+
+
+#============================================
 def test_extracts_every_exact_date_section_until_any_next_h2() -> None:
 	"""Matching changelog entries retain full text and respect level-two boundaries."""
 	changelog = (
@@ -88,7 +150,7 @@ def test_run_record_rejects_completed_state_with_pending_phases() -> None:
 	record = daily_blog.schema.RunRecord.create("run-one", "2026-08-23")
 	record.state = "completed"
 	record.evidence_packet = {"packet_id": "packet"}
-	record.publication_bundle = {"bundle_id": "bundle"}
+	record.publication_bundle = {"bundle_sha256": "a" * 64}
 
 	with pytest.raises(RuntimeError, match="unfinished phase"):
 		record.to_dict()
@@ -124,14 +186,14 @@ def test_run_record_round_trip_preserves_legal_phase_order() -> None:
 def test_failed_run_record_serializes_original_phase_failure() -> None:
 	"""A failed phase becomes a valid terminal record instead of masking its error."""
 	record = daily_blog.schema.RunRecord.create("run-failed", "2026-08-23")
-	record.start_phase("mirror_refresh", "a" * 64)
-	record.fail_phase("mirror_refresh", "RuntimeError", "network unavailable")
+	record.start_phase("repository_discovery", "a" * 64)
+	record.fail_phase("repository_discovery", "RuntimeError", "network unavailable")
 
 	value = record.to_dict()
 
 	assert (
 		value["state"], value["current_phase"], value["failure"]["phase"]
-	) == ("failed", "", "mirror_refresh")
+	) == ("failed", "", "repository_discovery")
 
 
 #============================================
@@ -163,7 +225,7 @@ def test_run_store_persists_safe_structured_phase_event(
 	tmp_path: pathlib.Path,
 	capsys: pytest.CaptureFixture,
 ) -> None:
-	"""The durable file and stdout receive the same scheduler-safe event."""
+	"""The durable file and stdout receive the same lifecycle-safe event."""
 	store = daily_blog.run_state.RunStore(str(tmp_path), "vosslab", "2026-08-23", "run-log")
 
 	store.append_event(
@@ -222,10 +284,14 @@ def test_site_import_receipt_requires_known_status_and_identity() -> None:
 	"""A malformed publisher receipt cannot complete the external-import phase."""
 	with pytest.raises(RuntimeError, match="status"):
 		daily_blog.schema.validate_site_import_result({}, "bundle-one", "2026-08-23")
-	with pytest.raises(RuntimeError, match="bundle identity"):
+	with pytest.raises(RuntimeError, match="bundle checksum"):
 		daily_blog.schema.validate_site_import_result(
-			{"status": "imported", "bundle_id": "bundle-two", "report_date": "2026-08-23"},
-			"bundle-one",
+			{
+				"status": "imported",
+				"bundle_sha256": "b" * 64,
+				"report_date": "2026-08-23",
+			},
+			"a" * 64,
 			"2026-08-23",
 		)
 
@@ -237,7 +303,7 @@ def test_failure_boundary_keeps_raw_message_out_of_lifecycle_events(
 ) -> None:
 	"""Private state retains the error while durable and stdout events expose only its class."""
 	record = daily_blog.schema.RunRecord.create("run-failure", "2026-08-23")
-	record.start_phase("mirror_refresh", "a" * 64)
+	record.start_phase("repository_discovery", "a" * 64)
 	store = daily_blog.run_state.RunStore(
 		str(tmp_path),
 		"vosslab",

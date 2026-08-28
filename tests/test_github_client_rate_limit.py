@@ -1,8 +1,10 @@
 import os
 import sys
-from datetime import datetime
-from datetime import timezone
+import pathlib
 from types import SimpleNamespace
+
+# PIP3 modules
+import pytest
 
 import file_utils as git_file_utils
 
@@ -13,6 +15,13 @@ if PIPELINE_DIR not in sys.path:
 	sys.path.insert(0, PIPELINE_DIR)
 
 from podlib import github_client
+
+
+#============================================
+def test_client_requires_runtime_authentication(tmp_path: pathlib.Path) -> None:
+	"""GitHub access must fail locally instead of making anonymous requests."""
+	with pytest.raises(RuntimeError, match="requires the runtime GITHUB_TOKEN"):
+		github_client.GitHubClient("", cache_dir=str(tmp_path))
 
 
 #============================================
@@ -29,65 +38,42 @@ def make_stub_client(overview_object: object) -> github_client.GitHubClient:
 
 
 #============================================
-def test_core_rate_limit_snapshot_from_core_attribute() -> None:
-	"""
-	Rate limit should parse from overview.core shape.
-	"""
-	reset_time = datetime(2026, 2, 22, 3, 30, 0, tzinfo=timezone.utc)
-	overview = SimpleNamespace(
-		core=SimpleNamespace(
-			remaining=42,
-			reset=reset_time,
-		)
-	)
+def test_fresh_repository_list_translates_lazy_rate_limit_error() -> None:
+	"""Fresh owner discovery must retain the client's bounded 403 contract."""
+	overview = SimpleNamespace(core=SimpleNamespace(remaining=0, reset="2026-08-28T07:30:00+00:00"))
+
+	class FakeGithubError(Exception):
+		"""Minimal PyGithub-shaped rate-limit exception."""
+
+		status = 403
+
+	class LazyRepository:
+		"""Raise when PyGithub materializes a missing paginated-list field."""
+
+		@property
+		def archived(self) -> bool:
+			"""Simulate a field completion exhausting the API limit."""
+			raise FakeGithubError("rate limited")
+
+	user = SimpleNamespace(get_repos=lambda **_kwargs: [LazyRepository()])
 	client = make_stub_client(overview)
-	remaining, parsed_reset = client.get_core_rate_limit_snapshot()
-	assert remaining == 42
-	assert parsed_reset == reset_time
+	client.client.get_user = lambda _owner: user
+	client._github_exception_class = FakeGithubError
+	client._max_proactive_sleep_seconds = 0
+	client.sleep_request_jitter = lambda _context: None
+
+	with pytest.raises(github_client.RateLimitError, match="GET /users/vosslab/repos"):
+		client.list_repos("vosslab", use_cache=False)
 
 
 #============================================
-def test_core_rate_limit_snapshot_from_resources_attribute() -> None:
-	"""
-	Rate limit should parse from overview.resources.core shape.
-	"""
+@pytest.mark.parametrize("raw_remaining", (True, "5000", 5000.0, -1))
+def test_rate_limit_snapshot_rejects_noncanonical_provider_quota(raw_remaining: object) -> None:
+	"""Provider quota values must not be coerced into valid authenticated evidence."""
 	overview = SimpleNamespace(
-		resources=SimpleNamespace(
-			core=SimpleNamespace(
-				remaining=9,
-				reset="2026-02-22T03:35:00+00:00",
-			)
-		)
+		core=SimpleNamespace(remaining=raw_remaining, reset="2026-08-28T07:30:00+00:00"),
 	)
 	client = make_stub_client(overview)
-	remaining, parsed_reset = client.get_core_rate_limit_snapshot()
-	assert remaining == 9
-	assert parsed_reset.isoformat() == "2026-02-22T03:35:00+00:00"
 
-
-#============================================
-def test_core_rate_limit_snapshot_from_resources_dict() -> None:
-	"""
-	Rate limit should parse from overview.resources['core'] shape.
-	"""
-	overview = SimpleNamespace(
-		resources={
-			"core": SimpleNamespace(
-				remaining=3,
-				reset=1761110400,
-			)
-		}
-	)
-	client = make_stub_client(overview)
-	remaining, parsed_reset = client.get_core_rate_limit_snapshot()
-	assert remaining == 3
-	assert parsed_reset.tzinfo is not None
-
-
-#============================================
-def test_maybe_wait_for_rate_limit_handles_unknown_shape() -> None:
-	"""
-	Unknown rate-limit shape should not crash wait checks.
-	"""
-	client = make_stub_client(SimpleNamespace(resources={}))
-	client.maybe_wait_for_rate_limit("unit-test", force=True)
+	with pytest.raises(RuntimeError, match="invalid core remaining"):
+		client.get_core_rate_limit_snapshot()

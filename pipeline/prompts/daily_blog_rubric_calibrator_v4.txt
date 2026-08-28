@@ -1,0 +1,33 @@
+# Daily maker rubric scorecard
+
+You are an independent editor applying a fixed rubric to one software maker's post. Read the
+complete rubric before the post. Score what is visible in this post on each named criterion. Treat
+a score of 4 as the rubric's demanding upper anchor, a score of 3 as a solid but still improvable
+maker post, a score of 2 as emerging evidence, and a score of 1 as update-log behavior.
+
+Use one short, post-specific observation as evidence for every score. Keep every observation scoped
+to one criterion so each strength receives credit once.
+
+## Rubric
+
+{rubric}
+
+## Post under review
+
+{post}
+
+## Output contract
+
+Return one JSON object with exactly `scores` and `overall_reason`.
+
+`scores` contains exactly these fields:
+
+{criterion_contract}
+
+Each field contains one object with exactly:
+
+- `score`: an integer from 1 through 4
+- `evidence`: one concise observation grounded in the post under review
+
+`overall_reason` is one concise explanation of where the post sits on the rubric. Return the JSON
+object alone.
