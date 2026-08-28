@@ -30,6 +30,7 @@ daily_blog:
   repository_path: "/home/vosslab/nsh/vosslab-daily-blog"
   mirror_cache_root: "/home/vosslab/repo-mirrors/vosslab"
   report_timezone: "America/Chicago"
+  schedule_start_date: "2026-08-26"
   repository_urls: []
   identity_names:
     - "Dr. Neil R Voss"
@@ -71,13 +72,18 @@ daily_blog:
         - "-"
         - "--ignore-rules"
         - "--quiet"
-  evidence_budgets:
+  collection_limits:
     changed_documentation_chars: 16000
     diff_chars: 24000
     readme_context_chars: 6000
     commit_metadata_chars: 6000
     per_item_chars: 8000
     supporting_total_chars: 48000
-    author_context_chars: 72000
-    referee_context_chars: 88000
     screenshot_count: 12
+  projection_limits:
+    context_chars: 60000
+    excerpt_chars: 6000
+    commit_subject_chars: 480
+  prompt_limits:
+    author_chars: 72000
+    referee_chars: 88000

@@ -2,12 +2,12 @@
 
 ## Status
 
-This milestone plan records the implemented broad GitHub-content pipeline. It is no longer the plan
-for new product work. The active follow-on is
-[the archived daily GitHub blog revival plan](../archive/DAILY_GITHUB_BLOG_REVIVAL_PLAN.md). Its M2
-evidence, M3 author/validation/promotion, and M4 static archive/server code are implemented, but its
-human baseline decision, normal active-profile Hermes review, and macOS LAN-promotion gates remain
-future work.
+This milestone plan is a completed historical record of the broad GitHub-content pipeline. It is not
+an active operating plan. The former daily GitHub blog follow-on is preserved in
+[the archived revival plan](../archive/DAILY_GITHUB_BLOG_REVIVAL_PLAN.md), but its M2/M3/M4 design was
+superseded by the current bundle-based daily publication subsystem documented in
+[CODE_ARCHITECTURE.md](../CODE_ARCHITECTURE.md) and
+[DAILY_BLOG_OPERATIONS.md](../DAILY_BLOG_OPERATIONS.md).
 
 ## Implemented pipeline
 
@@ -61,14 +61,14 @@ The initial milestone design named retired paths and contracts, including
 runner, bare `out/` paths, and WAV/AIFF episode outputs. Those descriptions are superseded by the
 current executable paths and output contract above.
 
-The broad pipeline still uses local LLM stages. The daily-blog revival deliberately does not carry
-that local-model execution path forward: its M3 prose author uses the current active Hermes profile
-and `daily-github-blogger` skill, with mechanical claim and provenance validation. It does not hardcode
-a project model or provider.
+The broad pipeline still uses local LLM stages. Its retired daily-blog revival assumptions do not
+describe the current daily publication subsystem, whose versioned repository prompts, isolated role
+routes, projection contract, and publisher boundary are documented in the current architecture.
 
-## Remaining active-revival gates
+## Superseded revival gates
 
-Before any daily-blog branch-changing operation:
+The following rules governed the retired branch-based revival and are retained only as historical
+decision context:
 
 - Preserve `dr_voss` and `origin/main`; do not merge, rebase, delete, or force-push either branch.
 - Compare both branches in isolated worktrees against the same date fixture.
@@ -77,7 +77,8 @@ Before any daily-blog branch-changing operation:
   `daily-github-blogger`; review the validated, promoted post before treating that route as proven.
 - Build and serve M4 only from validated, promoted `post-YYYY-MM-DD.md` artifacts. A draft or
   generation manifest is not a publication input.
-- Keep scheduling disabled until manual generation, validation, and private-LAN review gates pass.
+- Scheduling remained disabled until the original manual generation, validation, and private-LAN
+  review gates passed. That gate is complete and must not be interpreted as a current instruction.
 
-The authoritative requirements, milestones, and open work for that follow-on are in
-[the archived daily GitHub blog revival plan](../archive/DAILY_GITHUB_BLOG_REVIVAL_PLAN.md).
+Current scheduling and recovery instructions live only in
+[DAILY_BLOG_OPERATIONS.md](../DAILY_BLOG_OPERATIONS.md).

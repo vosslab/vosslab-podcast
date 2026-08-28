@@ -6,6 +6,7 @@
 automation/
   evaluate_daily_blog_shadow.py      non-publishing historical comparison
   publish_daily_blog.py              one public date-driven command
+  publish_scheduled_daily_blog.py    bounded oldest-first schedule reconciliation
 deploy/
   vosslab-daily-publication.service  complete producer/import job
   vosslab-daily-publication.timer    single daily schedule
@@ -13,7 +14,7 @@ pipeline/
   daily_blog/
     activity.py                      calendar-day Git activity location
     bundles.py                       immutable publication bundle writer
-    candidates.py                    post validation and provisional renderer
+    candidates.py                    final post and projection-reference validation
     config.py                        settings and role-route contract
     editorial.py                     two authors and anonymous referee
     evaluation.py                    historical shadow scorecards
@@ -21,24 +22,32 @@ pipeline/
     io_utils.py                      canonical hashes and atomic file writes
     locks.py                         file locks and hash-verified phase cache
     mirrors.py                       durable repository cache manager
-    orchestrator.py                  eight explicit phase boundaries and workflow owner
+    orchestrator.py                  nine explicit phase boundaries and workflow owner
+    projection.py                    bounded exact-slice editorial projection
     publisher.py                     cross-repository importer invocation
     routes.py                        isolated stdin subprocess routes
     run_state.py                     run record and artifacts
+    schedule.py                      durable cursor and publisher-receipt reconciliation
     schema.py                        typed versioned contracts
   prompts/
-    daily_blog_author_v2.txt
-    daily_blog_referee_v2.txt
-    daily_blog_referee_repair_v2.txt
-    daily_blog_rubric_v2.md
+    daily_blog_author_v3.txt
+    daily_blog_referee_v3.txt
+    daily_blog_referee_repair_v3.txt
+    daily_blog_rubric_v3.md
     daily_blog_shadow_evaluator_v1.txt
     daily_blog_shadow_evaluator_repair_v1.txt
+docs/archive/prompt-contracts/v2/
+  daily_blog_author_v2.txt
+  daily_blog_referee_v2.txt
+  daily_blog_referee_repair_v2.txt
+  daily_blog_rubric_v2.md
 tests/
   test_daily_blog_bundle.py
   test_daily_blog_editorial.py
   test_daily_blog_evaluation.py
   test_daily_blog_evidence.py
   test_daily_blog_mirrors.py
+  test_daily_blog_projection.py
   e2e/
     e2e_daily_blog_evidence_git.py    exact-object evidence with temporary Git
     e2e_daily_blog_mirror_refresh.py  durable cache identity with temporary Git
@@ -55,8 +64,11 @@ tests/
 out/vosslab/
   daily_blog/YYYY-MM-DD/RUN_ID/     immutable bundle
   daily_blog/YYYY-MM-DD/latest.json stable newest-complete pointer
-  daily_blog_runs/YYYY-MM-DD/RUN_ID typed run state and artifacts
+  daily_blog_runs/YYYY-MM-DD/RUN_ID typed run state, events, and artifacts
   daily_blog_cache/                 hash-verified reusable phase outputs
+  daily_blog_schedule.json          durable last-success schedule cursor
+  daily_blog_schedule.lock          single schedule-reconciliation owner
+  daily_blog_schedule_events.jsonl  append-only schedule activation trace
   daily_blog_shadow/YYYY-MM-DD/     immutable non-publishing comparisons
   daily_blog_shadow_locks/          per-date evaluation locks
 ```
@@ -64,9 +76,10 @@ out/vosslab/
 The mirror cache is shared by manual and scheduled runs. Default generated paths remain below the
 configured GitHub username namespace.
 
-Evidence v2 stores exact commit-to-parent ranges and attributed branch-tip snapshots. Reusable phase
-artifacts carry their input and output hashes; later runs record reuse without changing the original
-bundle or prior run directory.
+Evidence v3 stores exact commit-to-parent ranges and attributed branch-tip snapshots. Projection v1
+stores exact source slices, offsets, hashes, authority, and compact cards for every active
+repository. Reusable phase artifacts carry their input and output hashes; later runs record reuse
+without changing the original bundle or prior run directory.
 
 ## Cross-repository interface
 
@@ -75,6 +88,7 @@ One bundle directory contains:
 ```text
 bundle.json
 evidence.json
+editorial_projection.json
 post.md
 assets/
 ```

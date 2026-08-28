@@ -15,6 +15,7 @@ import daily_blog.schema
 import daily_blog.config
 import daily_blog.activity
 import daily_blog.evidence
+import daily_blog.projection
 import daily_blog.editorial
 import daily_blog.candidates
 import daily_blog.io_utils
@@ -89,34 +90,12 @@ def article_profile(post: str) -> dict:
 
 #============================================
 def _evaluation_evidence(
-	packet: daily_blog.schema.EvidencePacket,
+	projection: daily_blog.schema.EditorialProjection,
 	generated_post: str,
-	limit: int,
 ) -> str:
-	"""Render a bounded evidence subset led by primary and cited items."""
+	"""Render exact generated-post citations from the bounded projection."""
 	used_ids = daily_blog.candidates.evidence_ids_in_post(generated_post)
-	selected = []
-	for item in packet.items:
-		if item.kind != "dated_changelog" and item.evidence_id not in used_ids:
-			continue
-		value = item.to_dict()
-		remaining = limit - len(json.dumps(selected, ensure_ascii=True))
-		if remaining <= 500:
-			break
-		value["content"] = value["content"][: min(4000, remaining - 400)]
-		candidate = selected + [value]
-		text = json.dumps(candidate, ensure_ascii=True, indent=2, sort_keys=True)
-		if len(text) > limit:
-			break
-		selected = candidate
-	evidence = {
-		"packet_id": packet.packet_id,
-		"report_date": packet.report_date,
-		"authority_order": list(daily_blog.schema.AUTHORITY_ORDER),
-		"active_repositories": [activity.repository for activity in packet.activity],
-		"items": selected,
-	}
-	text = json.dumps(evidence, ensure_ascii=True, indent=2, sort_keys=True)
+	text = projection.render_context(used_ids)
 	return text
 
 
@@ -130,23 +109,16 @@ def _validate_evaluator_templates() -> tuple[str, str]:
 
 #============================================
 def render_evaluator_prompt(
-	packet: daily_blog.schema.EvidencePacket,
+	projection: daily_blog.schema.EditorialProjection,
 	generated_post: str,
 	reference_post: str,
 	limit: int,
 ) -> str:
 	"""Render one bounded semantic comparison prompt."""
 	template, _repair = _validate_evaluator_templates()
-	base = template.format(
-		report_date=packet.report_date,
-		evidence_json="[]",
-		generated_post=generated_post,
-		reference_post=reference_post,
-	)
-	evidence_limit = min(40000, max(1000, limit - len(base) - 1000))
 	prompt = template.format(
-		report_date=packet.report_date,
-		evidence_json=_evaluation_evidence(packet, generated_post, evidence_limit),
+		report_date=projection.report_date,
+		evidence_json=_evaluation_evidence(projection, generated_post),
 		generated_post=generated_post,
 		reference_post=reference_post,
 	)
@@ -194,7 +166,7 @@ def require_model_data_sharing(config: daily_blog.config.DailyBlogConfig) -> Non
 
 #============================================
 def semantic_evaluation(
-	packet: daily_blog.schema.EvidencePacket,
+	projection: daily_blog.schema.EditorialProjection,
 	generated_post: str,
 	reference_post: str,
 	config: daily_blog.config.DailyBlogConfig,
@@ -202,8 +174,8 @@ def semantic_evaluation(
 ) -> dict:
 	"""Run one isolated semantic comparison with one structured repair attempt."""
 	require_model_data_sharing(config)
-	limit = config.evidence_budgets["referee_context_chars"]
-	prompt = render_evaluator_prompt(packet, generated_post, reference_post, limit)
+	limit = config.prompt_limits["referee_chars"]
+	prompt = render_evaluator_prompt(projection, generated_post, reference_post, limit)
 	response = runner.run(config.referee_route, prompt, config.daily_blog_repository)
 	try:
 		result = parse_evaluator_result(response)
@@ -242,7 +214,7 @@ def collect_evidence(
 	assembler = daily_blog.evidence.EvidenceAssembler(
 		report_date,
 		config.report_timezone,
-		config.evidence_budgets,
+		config.collection_limits,
 	)
 	packet, assets = assembler.assemble(mirrors, activity)
 	if not packet.complete:
@@ -255,6 +227,7 @@ def _write_shadow_artifacts(
 	config: daily_blog.config.DailyBlogConfig,
 	shadow_id: str,
 	packet: daily_blog.schema.EvidencePacket,
+	projection: daily_blog.schema.EditorialProjection,
 	assets: dict[str, bytes],
 	raw_candidates: list[dict],
 	candidates: list[daily_blog.editorial.CandidateResult],
@@ -289,13 +262,13 @@ def _write_shadow_artifacts(
 		"prompt_version": daily_blog.schema.PROMPT_VERSION,
 		"rubric_version": daily_blog.schema.RUBRIC_VERSION,
 		"evidence_packet": packet.packet_id,
+		"editorial_projection": projection.projection_id,
 		"reference": {
 			"sha256": daily_blog.io_utils.sha256_text(reference_post),
 			"profile": article_profile(reference_post),
 		},
 		"generated": {
 			"sha256": daily_blog.io_utils.sha256_text(generated_post),
-			"publication_quality": decision.publication_quality,
 			"referee_winner": decision.winner,
 			"valid_candidate_count": sum(candidate.valid for candidate in candidates),
 			"profile": article_profile(generated_post),
@@ -313,6 +286,10 @@ def _write_shadow_artifacts(
 	try:
 		daily_blog.io_utils.atomic_write_json(os.path.join(stage, "scorecard.json"), scorecard)
 		daily_blog.io_utils.atomic_write_json(os.path.join(stage, "evidence.json"), packet.to_dict())
+		daily_blog.io_utils.atomic_write_json(
+			os.path.join(stage, "editorial_projection.json"),
+			projection.to_dict(),
+		)
 		daily_blog.io_utils.atomic_write_json(os.path.join(stage, "candidates.json"), raw_candidates)
 		daily_blog.io_utils.atomic_write_json(
 			os.path.join(stage, "candidate_validation.json"),
@@ -355,22 +332,30 @@ def evaluate_packet(
 		raise RuntimeError("Shadow reference date does not match the evidence packet.")
 	shadow_id = _new_shadow_id()
 	route_runner = runner if runner is not None else daily_blog.routes.CommandRouteRunner()
+	projection = daily_blog.projection.build_projection(packet, config.projection_limits)
 	raw_candidates = daily_blog.editorial.generate_candidates(
 		packet,
+		projection,
 		shadow_id,
 		config,
 		runner=route_runner,
 	)
-	candidates = daily_blog.editorial.validate_candidates(raw_candidates, packet, shadow_id)
+	candidates = daily_blog.editorial.validate_candidates(
+		raw_candidates,
+		packet,
+		projection,
+		shadow_id,
+	)
 	decision = daily_blog.editorial.select_candidate(
 		packet,
+		projection,
 		shadow_id,
 		candidates,
 		config,
 		runner=route_runner,
 	)
 	semantic = semantic_evaluation(
-		packet,
+		projection,
 		decision.post,
 		reference_post,
 		config,
@@ -380,6 +365,7 @@ def evaluate_packet(
 		config,
 		shadow_id,
 		packet,
+		projection,
 		assets,
 		raw_candidates,
 		candidates,

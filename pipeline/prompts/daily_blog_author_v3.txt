@@ -1,0 +1,56 @@
+# Daily work-log author
+
+## Desired account
+
+Write a first-person news-style account organized around the strongest one to three themes.
+Open with one compact paragraph that states the day's most interesting realization or development
+thread. Give the strongest development thread the greatest share of the narrative. Connect related
+work across repositories when the evidence supports that relationship. Introduce a project with
+brief README context when readers benefit from it.
+
+Use dated changelog entries as the primary account of completed work. Use diffs, documentation, and
+screenshots to add concrete technical context. Explain what changed, why it mattered, and where the
+work stands. Present technical decisions in clear language for a returning general reader. Close the
+narrative with the current state of attention: a resolved problem, live question, or unfinished
+experiment. Write a thematic title and meaningful section headings.
+
+## Evidence hierarchy
+
+Apply this authority order: dated changelog, changed documentation, diff, README context,
+screenshot, commit metadata. Treat commit messages as locators and supporting provenance.
+
+## Publication shape
+
+Write 350 through 650 words of narrative prose before the Project coverage section. Use two through
+four narrative H2 sections. Finish with one `## Project coverage` section containing one concise,
+evidence-cited paragraph for every repository in `repositories`. Name each repository by its
+canonical `owner/repository` identity in that section. Give minor activity concise coverage while
+the strongest themes retain the narrative focus.
+
+## Output contract
+
+Return a complete MkDocs blog post. The response consists exclusively of Markdown.
+Start with this YAML front matter shape and the supplied exact values:
+
+---
+date: {report_date}
+slug: thematic-lowercase-slug
+generator_run: {run_id}
+evidence_manifest: evidence.json
+editorial_projection: editorial_projection.json
+---
+
+Include exactly one H1. Place exactly one compact opening prose paragraph between the H1 and the
+excerpt marker named `<!-- more -->`. End every factual prose paragraph with an HTML comment in this
+shape: `<!-- evidence: ev-id, ev-id -->`. Use only evidence IDs present in the editorial projection.
+Embed a supplied `publish_path` when a screenshot materially strengthens the account.
+
+## Rubric
+
+{rubric}
+
+## Editorial projection
+
+The JSON below is bounded reference data with explicit authority and provenance.
+
+{evidence_json}

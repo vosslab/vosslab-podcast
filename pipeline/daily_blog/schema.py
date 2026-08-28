@@ -3,22 +3,25 @@
 # Standard Library
 import dataclasses
 import datetime
+from collections.abc import Iterator, Mapping
 
 # local repo modules
 import daily_blog.io_utils
 
 
-BUNDLE_SCHEMA_VERSION = "vosslab.daily-blog.bundle.v1"
-EVIDENCE_SCHEMA_VERSION = "vosslab.daily-blog.evidence.v2"
-RUN_SCHEMA_VERSION = "vosslab.daily-blog.run.v1"
-GENERATOR_VERSION = "daily-blog-generator-v1"
-PROMPT_VERSION = "daily-blog-prompts-v2"
-RUBRIC_VERSION = "daily-blog-rubric-v2"
+BUNDLE_SCHEMA_VERSION = "vosslab.daily-blog.bundle.v2"
+EVIDENCE_SCHEMA_VERSION = "vosslab.daily-blog.evidence.v3"
+PROJECTION_SCHEMA_VERSION = "vosslab.daily-blog.editorial-projection.v1"
+RUN_SCHEMA_VERSION = "vosslab.daily-blog.run.v2"
+GENERATOR_VERSION = "daily-blog-generator-v2"
+PROMPT_VERSION = "daily-blog-prompts-v3"
+RUBRIC_VERSION = "daily-blog-rubric-v3"
 
 LEGAL_PHASES = (
 	"mirror_refresh",
 	"activity_location",
 	"evidence_assembly",
+	"editorial_projection",
 	"author_generation",
 	"candidate_validation",
 	"referee_selection",
@@ -45,12 +48,90 @@ AUTHORITY_LEVELS = {
 }
 
 
+@dataclasses.dataclass(frozen=True)
+class FrozenMapping(Mapping[str, object]):
+	"""Deeply immutable JSON-object storage with deterministic key order."""
+
+	_entries: tuple[tuple[str, object], ...]
+
+	#============================================
+	@classmethod
+	def create(cls, value: Mapping[str, object]) -> "FrozenMapping":
+		"""Copy and recursively freeze one JSON object."""
+		entries = []
+		for key in sorted(value):
+			if not isinstance(key, str):
+				raise RuntimeError("Frozen mapping keys must be text.")
+			entries.append((key, _freeze_json_value(value[key])))
+		return cls(tuple(entries))
+
+	#============================================
+	def __getitem__(self, key: str) -> object:
+		"""Return one immutable value by key."""
+		for candidate, value in self._entries:
+			if candidate == key:
+				return value
+		raise KeyError(key)
+
+	#============================================
+	def __iter__(self) -> Iterator[str]:
+		"""Iterate keys in deterministic order."""
+		return (key for key, _value in self._entries)
+
+	#============================================
+	def __len__(self) -> int:
+		"""Return the number of keys."""
+		return len(self._entries)
+
+	#============================================
+	def to_dict(self) -> dict:
+		"""Return a detached mutable JSON-object serialization."""
+		return {key: _thaw_json_value(value) for key, value in self._entries}
+
+
+#============================================
+def _freeze_json_value(value: object) -> object:
+	"""Recursively freeze one JSON-compatible value."""
+	if isinstance(value, Mapping):
+		return FrozenMapping.create(value)
+	if isinstance(value, (list, tuple)):
+		return tuple(_freeze_json_value(item) for item in value)
+	return value
+
+
+#============================================
+def _thaw_json_value(value: object) -> object:
+	"""Return a detached JSON-compatible value from immutable storage."""
+	if isinstance(value, FrozenMapping):
+		return value.to_dict()
+	if isinstance(value, tuple):
+		return [_thaw_json_value(item) for item in value]
+	return value
+
+
 #============================================
 def utc_now() -> str:
 	"""Return a stable UTC timestamp without microseconds."""
 	moment = datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0)
 	text = moment.isoformat().replace("+00:00", "Z")
 	return text
+
+
+#============================================
+def validate_site_import_result(value: object, bundle_id: str, report_date: str) -> dict:
+	"""Validate the publisher receipt before completing the external-import phase."""
+	if not isinstance(value, dict):
+		raise RuntimeError("Site importer result must be an object.")
+	for key in ("status", "bundle_id", "report_date"):
+		if key not in value:
+			raise RuntimeError(f"Site importer result is missing {key}.")
+	if value["status"] not in {"idempotent", "imported"}:
+		raise RuntimeError("Site importer returned an unsupported status.")
+	if value["bundle_id"] != bundle_id:
+		raise RuntimeError("Site importer bundle identity does not match the requested bundle.")
+	if value["report_date"] != report_date:
+		raise RuntimeError("Site importer report date does not match the requested date.")
+	return value
 
 
 @dataclasses.dataclass(frozen=True)
@@ -307,13 +388,13 @@ class EvidenceItem:
 
 @dataclasses.dataclass(frozen=True)
 class EvidencePacket:
-	"""Immutable ordered evidence packet shared by both author roles."""
+	"""Immutable authoritative evidence packet retained without editorial reduction."""
 
 	report_date: str
 	timezone: str
 	complete: bool
-	budgets: dict
-	mirrors: tuple[dict, ...]
+	collection_limits: FrozenMapping
+	mirrors: tuple[FrozenMapping, ...]
 	activity: tuple[RepositoryActivity, ...]
 	items: tuple[EvidenceItem, ...]
 	packet_id: str
@@ -327,8 +408,8 @@ class EvidencePacket:
 			"report_date": self.report_date,
 			"timezone": self.timezone,
 			"complete": self.complete,
-			"budgets": self.budgets,
-			"mirrors": list(self.mirrors),
+			"collection_limits": self.collection_limits.to_dict(),
+			"mirrors": [mirror.to_dict() for mirror in self.mirrors],
 			"activity": [item.to_dict() for item in self.activity],
 			"items": [item.to_dict() for item in self.items],
 		}
@@ -348,8 +429,8 @@ class EvidencePacket:
 		report_date: str,
 		timezone_name: str,
 		complete: bool,
-		budgets: dict,
-		mirrors: list[dict],
+		collection_limits: Mapping[str, object],
+		mirrors: list[Mapping[str, object]] | tuple[Mapping[str, object], ...],
 		activity: list[RepositoryActivity],
 		items: list[EvidenceItem],
 	) -> "EvidencePacket":
@@ -367,8 +448,8 @@ class EvidencePacket:
 			report_date=report_date,
 			timezone=timezone_name,
 			complete=complete,
-			budgets=dict(budgets),
-			mirrors=tuple(mirrors),
+			collection_limits=FrozenMapping.create(collection_limits),
+			mirrors=tuple(FrozenMapping.create(mirror) for mirror in mirrors),
 			activity=tuple(activity),
 			items=tuple(ordered),
 			packet_id="",
@@ -385,8 +466,8 @@ class EvidencePacket:
 			raise RuntimeError("Unsupported evidence packet schema.")
 		if type(value.get("complete")) is not bool:
 			raise RuntimeError("Evidence packet completeness must be Boolean.")
-		if not isinstance(value.get("budgets"), dict):
-			raise RuntimeError("Evidence packet budgets must be an object.")
+		if not isinstance(value.get("collection_limits"), dict):
+			raise RuntimeError("Evidence packet collection_limits must be an object.")
 		if not isinstance(value.get("mirrors"), list):
 			raise RuntimeError("Evidence packet mirrors must be a list.")
 		if not isinstance(value.get("activity"), list):
@@ -399,7 +480,7 @@ class EvidencePacket:
 			str(value["report_date"]),
 			str(value["timezone"]),
 			value["complete"],
-			dict(value["budgets"]),
+			dict(value["collection_limits"]),
 			list(value["mirrors"]),
 			activity,
 			items,
@@ -407,6 +488,282 @@ class EvidencePacket:
 		if packet.packet_id != value.get("packet_id"):
 			raise RuntimeError("Evidence packet identity does not match its content.")
 		return packet
+
+
+@dataclasses.dataclass(frozen=True)
+class RepositoryCard:
+	"""Compact immutable activity context retained for every active repository."""
+
+	repository: str
+	repository_url: str
+	commit_count: int
+	commit_shas: tuple[str, ...]
+	commit_subjects: tuple[str, ...]
+
+	#============================================
+	def to_dict(self) -> dict:
+		"""Serialize one compact repository card."""
+		value = dataclasses.asdict(self)
+		value["commit_shas"] = list(self.commit_shas)
+		value["commit_subjects"] = list(self.commit_subjects)
+		return value
+
+	#============================================
+	@classmethod
+	def from_dict(cls, value: dict) -> "RepositoryCard":
+		"""Deserialize and validate one repository card."""
+		required = (
+			"repository",
+			"repository_url",
+			"commit_count",
+			"commit_shas",
+			"commit_subjects",
+		)
+		for key in required:
+			if key not in value:
+				raise RuntimeError(f"Repository card is missing {key}.")
+		if type(value["commit_count"]) is not int:
+			raise RuntimeError("Repository card commit count must be an integer.")
+		if not isinstance(value["commit_shas"], list):
+			raise RuntimeError("Repository card commit IDs must be a list.")
+		if not isinstance(value["commit_subjects"], list):
+			raise RuntimeError("Repository card commit subjects must be a list.")
+		card = cls(
+			repository=str(value["repository"]),
+			repository_url=str(value["repository_url"]),
+			commit_count=value["commit_count"],
+			commit_shas=tuple(str(item) for item in value["commit_shas"]),
+			commit_subjects=tuple(str(item) for item in value["commit_subjects"]),
+		)
+		if not card.repository or card.commit_count <= 0:
+			raise RuntimeError("Repository card requires active repository identity.")
+		if card.commit_count < len(card.commit_shas):
+			raise RuntimeError("Repository card includes more commit IDs than recorded activity.")
+		if len(card.commit_shas) != len(card.commit_subjects):
+			raise RuntimeError("Repository card commit IDs and subjects do not align.")
+		return card
+
+
+@dataclasses.dataclass(frozen=True)
+class EvidenceExcerpt:
+	"""One exact immutable slice of an authoritative evidence item."""
+
+	excerpt_id: str
+	evidence_id: str
+	repository: str
+	kind: str
+	authority_level: str
+	authority_rank: int
+	commit: str
+	path: str
+	start: int
+	end: int
+	source_content_hash: str
+	content_hash: str
+	content: str
+
+	#============================================
+	def identity_dict(self) -> dict:
+		"""Return the exact slice fields that define excerpt identity."""
+		value = dataclasses.asdict(self)
+		value.pop("excerpt_id")
+		return value
+
+	#============================================
+	def to_dict(self) -> dict:
+		"""Serialize one exact evidence slice."""
+		value = dataclasses.asdict(self)
+		return value
+
+	#============================================
+	@classmethod
+	def create(
+		cls,
+		item: EvidenceItem,
+		start: int,
+		end: int,
+	) -> "EvidenceExcerpt":
+		"""Create one identity-bound exact source slice."""
+		if start < 0 or end <= start or end > len(item.content):
+			raise RuntimeError("Evidence excerpt offsets are outside the source item.")
+		content = item.content[start:end]
+		excerpt = cls(
+			excerpt_id="",
+			evidence_id=item.evidence_id,
+			repository=item.repository,
+			kind=item.kind,
+			authority_level=item.authority_level,
+			authority_rank=item.authority_rank,
+			commit=item.commit,
+			path=item.path,
+			start=start,
+			end=end,
+			source_content_hash=item.content_hash,
+			content_hash=daily_blog.io_utils.sha256_text(content),
+			content=content,
+		)
+		excerpt_id = "ex-" + daily_blog.io_utils.hash_value(excerpt.identity_dict())[:16]
+		return dataclasses.replace(excerpt, excerpt_id=excerpt_id)
+
+	#============================================
+	@classmethod
+	def from_dict(cls, value: dict) -> "EvidenceExcerpt":
+		"""Deserialize and validate one exact evidence slice."""
+		field_names = {field.name for field in dataclasses.fields(cls)}
+		for key in field_names:
+			if key not in value:
+				raise RuntimeError(f"Evidence excerpt is missing {key}.")
+		if type(value["authority_rank"]) is not int:
+			raise RuntimeError("Evidence excerpt authority rank must be an integer.")
+		if type(value["start"]) is not int or type(value["end"]) is not int:
+			raise RuntimeError("Evidence excerpt offsets must be integers.")
+		excerpt = cls(**{key: value[key] for key in field_names})
+		if excerpt.kind not in AUTHORITY_ORDER:
+			raise RuntimeError("Evidence excerpt kind is unsupported.")
+		if excerpt.authority_level != AUTHORITY_LEVELS[excerpt.kind]:
+			raise RuntimeError("Evidence excerpt authority level does not match its kind.")
+		if excerpt.authority_rank != AUTHORITY_ORDER[excerpt.kind]:
+			raise RuntimeError("Evidence excerpt authority rank does not match its kind.")
+		if excerpt.start < 0 or excerpt.end <= excerpt.start:
+			raise RuntimeError("Evidence excerpt offsets are invalid.")
+		if excerpt.end - excerpt.start != len(excerpt.content):
+			raise RuntimeError("Evidence excerpt offsets do not match its content length.")
+		if excerpt.content_hash != daily_blog.io_utils.sha256_text(excerpt.content):
+			raise RuntimeError("Evidence excerpt content hash does not match its content.")
+		expected_id = "ex-" + daily_blog.io_utils.hash_value(excerpt.identity_dict())[:16]
+		if excerpt.excerpt_id != expected_id:
+			raise RuntimeError("Evidence excerpt identity does not match its exact slice.")
+		return excerpt
+
+
+@dataclasses.dataclass(frozen=True)
+class EditorialProjection:
+	"""Versioned immutable context projection derived from one evidence packet."""
+
+	packet_id: str
+	report_date: str
+	timezone: str
+	projection_limits: FrozenMapping
+	repositories: tuple[RepositoryCard, ...]
+	excerpts: tuple[EvidenceExcerpt, ...]
+	projection_id: str
+	schema_version: str = PROJECTION_SCHEMA_VERSION
+
+	#============================================
+	def content_dict(self) -> dict:
+		"""Return projection content whose canonical hash defines its identity."""
+		value = {
+			"schema_version": self.schema_version,
+			"packet_id": self.packet_id,
+			"report_date": self.report_date,
+			"timezone": self.timezone,
+			"projection_limits": self.projection_limits.to_dict(),
+			"repositories": [card.to_dict() for card in self.repositories],
+			"excerpts": [excerpt.to_dict() for excerpt in self.excerpts],
+		}
+		return value
+
+	#============================================
+	def to_dict(self) -> dict:
+		"""Serialize the complete projection including its immutable identity."""
+		value = self.content_dict()
+		value["projection_id"] = self.projection_id
+		return value
+
+	#============================================
+	def render_context(self, evidence_ids: set[str] | None = None) -> str:
+		"""Render bounded JSON while retaining every repository card."""
+		excerpts = self.excerpts
+		if evidence_ids is not None:
+			excerpts = tuple(
+				excerpt for excerpt in excerpts if excerpt.evidence_id in evidence_ids
+			)
+		value = {
+			"schema_version": self.schema_version,
+			"projection_id": self.projection_id,
+			"packet_id": self.packet_id,
+			"report_date": self.report_date,
+			"timezone": self.timezone,
+			"authority_order": list(AUTHORITY_ORDER),
+			"repositories": [card.to_dict() for card in self.repositories],
+			"excerpts": [excerpt.to_dict() for excerpt in excerpts],
+		}
+		text = daily_blog.io_utils.canonical_json_bytes(value).decode("utf-8")
+		limit = self.projection_limits["context_chars"]
+		if type(limit) is not int:
+			raise RuntimeError("Editorial projection context limit must be an integer.")
+		if len(text) > limit:
+			raise RuntimeError(
+				f"Editorial projection context requires {len(text)} characters "
+				+ f"and exceeds its {limit} limit."
+			)
+		return text
+
+	#============================================
+	@classmethod
+	def create(
+		cls,
+		packet_id: str,
+		report_date: str,
+		timezone_name: str,
+		projection_limits: Mapping[str, object],
+		repositories: list[RepositoryCard],
+		excerpts: list[EvidenceExcerpt],
+	) -> "EditorialProjection":
+		"""Create one immutable projection and compute its canonical identity."""
+		projection = cls(
+			packet_id=packet_id,
+			report_date=report_date,
+			timezone=timezone_name,
+			projection_limits=FrozenMapping.create(projection_limits),
+			repositories=tuple(repositories),
+			excerpts=tuple(excerpts),
+			projection_id="",
+		)
+		projection_id = daily_blog.io_utils.hash_value(projection.content_dict())
+		return dataclasses.replace(projection, projection_id=projection_id)
+
+	#============================================
+	@classmethod
+	def from_dict(cls, value: dict) -> "EditorialProjection":
+		"""Deserialize and verify one immutable projection."""
+		if value.get("schema_version") != PROJECTION_SCHEMA_VERSION:
+			raise RuntimeError("Unsupported editorial projection schema.")
+		if not isinstance(value.get("projection_limits"), dict):
+			raise RuntimeError("Editorial projection limits must be an object.")
+		if set(value["projection_limits"]) != {
+			"commit_subject_chars",
+			"context_chars",
+			"excerpt_chars",
+		}:
+			raise RuntimeError("Editorial projection limits use unsupported fields.")
+		if any(
+			type(limit) is not int or limit <= 0
+			for limit in value["projection_limits"].values()
+		):
+			raise RuntimeError("Editorial projection limits must be positive integers.")
+		if not isinstance(value.get("repositories"), list):
+			raise RuntimeError("Editorial projection repositories must be a list.")
+		if not isinstance(value.get("excerpts"), list) or not value["excerpts"]:
+			raise RuntimeError("Editorial projection requires exact excerpts.")
+		cards = [RepositoryCard.from_dict(item) for item in value["repositories"]]
+		excerpts = [EvidenceExcerpt.from_dict(item) for item in value["excerpts"]]
+		if len({card.repository for card in cards}) != len(cards):
+			raise RuntimeError("Editorial projection contains duplicate repository cards.")
+		if len({excerpt.excerpt_id for excerpt in excerpts}) != len(excerpts):
+			raise RuntimeError("Editorial projection contains duplicate exact excerpts.")
+		projection = cls.create(
+			str(value["packet_id"]),
+			str(value["report_date"]),
+			str(value["timezone"]),
+			dict(value["projection_limits"]),
+			cards,
+			excerpts,
+		)
+		if projection.projection_id != value.get("projection_id"):
+			raise RuntimeError("Editorial projection identity does not match its content.")
+		projection.render_context()
+		return projection
 
 
 @dataclasses.dataclass
@@ -438,6 +795,7 @@ class RunRecord:
 	current_phase: str
 	phases: dict[str, PhaseRecord]
 	evidence_packet: dict
+	editorial_projection: dict
 	publication_bundle: dict
 	failure: dict
 	started_at: str
@@ -458,6 +816,7 @@ class RunRecord:
 			current_phase="",
 			phases=phases,
 			evidence_packet={},
+			editorial_projection={},
 			publication_bundle={},
 			failure={},
 			started_at=now,
@@ -557,8 +916,12 @@ class RunRecord:
 		if self.state == "completed":
 			if any(phase.status != "completed" for phase in self.phases.values()):
 				raise RuntimeError("Completed run contains an unfinished phase.")
-			if not self.evidence_packet or not self.publication_bundle:
-				raise RuntimeError("Completed run requires evidence and bundle references.")
+			if (
+				not self.evidence_packet
+				or not self.editorial_projection
+				or not self.publication_bundle
+			):
+				raise RuntimeError("Completed run requires evidence, projection, and bundle references.")
 		seen_open_phase = False
 		for name in LEGAL_PHASES:
 			status = self.phases[name].status
@@ -589,6 +952,7 @@ class RunRecord:
 			current_phase=str(value["current_phase"]),
 			phases=phases,
 			evidence_packet=dict(value["evidence_packet"]),
+			editorial_projection=dict(value["editorial_projection"]),
 			publication_bundle=dict(value["publication_bundle"]),
 			failure=dict(value["failure"]),
 			started_at=str(value["started_at"]),

@@ -42,7 +42,6 @@ def main() -> None:
 	)
 	print(f"Daily publication bundle: {bundle_path}")
 	print(f"Bundle ID: {bundle['bundle_id']}")
-	print(f"Publication quality: {bundle['publication_quality']}")
 
 
 if __name__ == "__main__":

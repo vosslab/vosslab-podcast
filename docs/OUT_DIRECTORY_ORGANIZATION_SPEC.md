@@ -36,13 +36,19 @@ A new top-level `out/` namespace requires a documented update to this specificat
 
 - `out/<user>/daily_blog/YYYY-MM-DD/RUN_ID/bundle.json`
 - `out/<user>/daily_blog/YYYY-MM-DD/RUN_ID/evidence.json`
+- `out/<user>/daily_blog/YYYY-MM-DD/RUN_ID/editorial_projection.json`
 - `out/<user>/daily_blog/YYYY-MM-DD/RUN_ID/post.md`
 - `out/<user>/daily_blog/YYYY-MM-DD/RUN_ID/assets/`
 - `out/<user>/daily_blog/YYYY-MM-DD/latest.json`
 - `out/<user>/daily_blog_runs/YYYY-MM-DD/RUN_ID/run_state.json`
+- `out/<user>/daily_blog_runs/YYYY-MM-DD/RUN_ID/events.jsonl`
+- `out/<user>/daily_blog_runs/YYYY-MM-DD/RUN_ID/editorial_projection.json`
 - `out/<user>/daily_blog_runs/YYYY-MM-DD/RUN_ID/*.json`
+- `out/<user>/daily_blog_schedule.json`
+- `out/<user>/daily_blog_schedule.lock`
 - `out/<user>/daily_blog_cache/activity_location/INPUT_HASH/`
 - `out/<user>/daily_blog_cache/evidence_assembly/INPUT_HASH/`
+- `out/<user>/daily_blog_cache/editorial_projection/INPUT_HASH/`
 - `out/<user>/daily_blog_shadow/YYYY-MM-DD/SHADOW_ID/scorecard.json`
 - `out/<user>/daily_blog_shadow/YYYY-MM-DD/SHADOW_ID/generated_post.md`
 - `out/<user>/daily_blog_shadow/YYYY-MM-DD/SHADOW_ID/reference_post.md`
@@ -51,21 +57,26 @@ A new top-level `out/` namespace requires a documented update to this specificat
 - `out/<user>/daily_blog_shadow_locks/YYYY-MM-DD.lock`
 
 `automation/publish_daily_blog.py --date YYYY-MM-DD` creates one immutable run ID. The typed
-`run_state.json` records all eight legal phases, their status, input and output hashes, reuse state,
+`run_state.json` records all nine legal phases, their status, input and output hashes, reuse state,
 timestamps, evidence packet reference, bundle reference, and bounded failure details. Phase-specific
-JSON artifacts remain beside it for inspection.
+JSON artifacts and the append-only `events.jsonl` operational timeline remain beside it for
+inspection. The schedule cursor advances atomically only after a matching publication v2 publisher
+record exists, stores that record's bundle ID, and revalidates the exact receipt before each backlog
+scan.
 
-Every complete bundle contains the current schema version, report identity, generator revision,
-prompt and rubric versions, authority-ranked evidence, exact selected post, asset bytes, candidate
-validation summaries, and structured referee result. `latest.json` points to the newest complete
-bundle for one date without changing prior run directories.
+Every complete bundle is an approved final publication. It contains the current schema version,
+report identity, generator revision, prompt and rubric versions, authority-ranked evidence, bounded
+editorial projection, exact selected post, asset bytes, candidate validation summaries, and
+structured referee result. `latest.json` points to the newest complete bundle for one date without
+changing prior run directories.
 
 Phase caches use canonical input hashes and store hash-verified envelopes. Matching repository refs,
-date, identity, budgets, and contract versions can reuse activity, evidence, valid author,
-candidate-validation, and final-referee artifacts while a new run record still owns the current
-execution. Evidence assets are stored beside their cached packet and verified against their asset
-manifest. Provisional editorial results remain retryable. Complete bundles retain the producing run
-directory and can be referenced by later runs only after full artifact revalidation.
+date, identity, collection limits, projection limits, prompt limits, and contract versions can reuse
+activity, evidence, editorial projection, valid author, candidate-validation, and approved-referee
+artifacts while a new run record still owns the current execution. Evidence assets are stored beside
+their cached packet and verified against their asset manifest. Blocked editorial results remain
+retryable. Complete bundles retain the producing run directory and can be referenced by later runs
+only after full artifact revalidation.
 
 `automation/evaluate_daily_blog_shadow.py` writes an immutable non-publishing comparison under the
 shadow namespace. Each completed evaluation retains the generated and reference posts, evidence,

@@ -15,13 +15,18 @@ import daily_blog.io_utils
 import podlib.prompt_loader
 
 
-AUTHOR_TEMPLATE_NAME = "daily_blog_author_v2.txt"
-REFEREE_TEMPLATE_NAME = "daily_blog_referee_v2.txt"
-REPAIR_TEMPLATE_NAME = "daily_blog_referee_repair_v2.txt"
-RUBRIC_NAME = "daily_blog_rubric_v2.md"
+AUTHOR_TEMPLATE_NAME = "daily_blog_author_v3.txt"
+REFEREE_TEMPLATE_NAME = "daily_blog_referee_v3.txt"
+REPAIR_TEMPLATE_NAME = "daily_blog_referee_repair_v3.txt"
+RUBRIC_NAME = "daily_blog_rubric_v3.md"
 MAX_FAILURE_CHARS = 1000
 MAX_REFEREE_RESPONSE_CHARS = 4000
+MAX_REFEREE_REASON_CHARS = 500
 GENERATOR_RUN_RE = re.compile(r"^generator_run:\s*(\S+)\s*$", re.MULTILINE)
+
+
+class EditorialBlockedError(RuntimeError):
+	"""Editorial approval did not produce one final publishable candidate."""
 
 
 @dataclasses.dataclass(frozen=True)
@@ -29,6 +34,7 @@ class CandidateResult:
 	"""One isolated author result plus deterministic validation."""
 
 	private_route: str
+	projection_id: str
 	post: str
 	post_hash: str
 	valid: bool
@@ -39,6 +45,7 @@ class CandidateResult:
 		"""Return a bundle-safe summary that preserves author anonymity."""
 		value = {
 			"candidate_id": candidate_id,
+			"projection_id": self.projection_id,
 			"post_hash": self.post_hash,
 			"valid": self.valid,
 			"issues": list(self.issues),
@@ -50,6 +57,7 @@ class CandidateResult:
 		"""Serialize the private validated candidate for hash-addressed reuse."""
 		return {
 			"private_route": self.private_route,
+			"projection_id": self.projection_id,
 			"post": self.post,
 			"post_hash": self.post_hash,
 			"valid": self.valid,
@@ -62,6 +70,7 @@ class CandidateResult:
 		"""Restore and verify one private cached candidate."""
 		candidate = cls(
 			private_route=str(value["private_route"]),
+			projection_id=str(value["projection_id"]),
 			post=str(value["post"]),
 			post_hash=str(value["post_hash"]),
 			valid=value["valid"],
@@ -69,6 +78,8 @@ class CandidateResult:
 		)
 		if type(candidate.valid) is not bool:
 			raise RuntimeError("Cached candidate validity must be Boolean.")
+		if len(candidate.projection_id) != 64:
+			raise RuntimeError("Cached candidate projection identity is invalid.")
 		if candidate.post_hash != daily_blog.io_utils.sha256_text(candidate.post):
 			raise RuntimeError("Cached candidate hash does not match its post.")
 		if candidate.valid == bool(candidate.issues):
@@ -84,7 +95,7 @@ class EditorialDecision:
 	reason: str
 	evidence_quality: str
 	confidence: float
-	publication_quality: str
+	projection_id: str
 	post: str
 	anonymous_mapping: dict[str, int]
 
@@ -96,7 +107,7 @@ class EditorialDecision:
 			"reason": self.reason,
 			"evidence_quality": self.evidence_quality,
 			"confidence": self.confidence,
-			"publication_quality": self.publication_quality,
+			"projection_id": self.projection_id,
 			"post": self.post,
 			"anonymous_mapping": dict(self.anonymous_mapping),
 		}
@@ -111,14 +122,14 @@ class EditorialDecision:
 			reason=str(value["reason"]),
 			evidence_quality=str(value["evidence_quality"]),
 			confidence=float(value["confidence"]),
-			publication_quality=str(value["publication_quality"]),
+			projection_id=str(value["projection_id"]),
 			post=str(value["post"]),
 			anonymous_mapping=mapping,
 		)
-		if decision.winner not in {"A", "B", "NONE"}:
+		if decision.winner not in {"A", "B"}:
 			raise RuntimeError("Cached referee winner is unsupported.")
-		if decision.publication_quality not in {"final", "provisional"}:
-			raise RuntimeError("Cached publication quality is unsupported.")
+		if len(decision.projection_id) != 64:
+			raise RuntimeError("Cached referee projection identity is invalid.")
 		return decision
 
 
@@ -142,11 +153,19 @@ def validate_raw_candidates(value: object) -> list[dict]:
 	for item in value:
 		if not isinstance(item, dict):
 			raise RuntimeError("Cached author candidate must be an object.")
-		for key in ("private_route", "post", "post_hash", "generation_error"):
+		for key in (
+			"private_route",
+			"projection_id",
+			"post",
+			"post_hash",
+			"generation_error",
+		):
 			if not isinstance(item.get(key), str):
 				raise RuntimeError(f"Cached author candidate field must be text: {key}")
 		if item["post_hash"] != daily_blog.io_utils.sha256_text(item["post"]):
 			raise RuntimeError("Cached author candidate hash does not match its post.")
+		if len(item["projection_id"]) != 64:
+			raise RuntimeError("Cached author candidate projection identity is invalid.")
 		validated.append(dict(item))
 	return validated
 
@@ -180,6 +199,7 @@ def rebind_candidates(
 		bound.append(
 			CandidateResult(
 				private_route=candidate.private_route,
+				projection_id=candidate.projection_id,
 				post=post,
 				post_hash=daily_blog.io_utils.sha256_text(post),
 				valid=candidate.valid,
@@ -192,18 +212,17 @@ def rebind_candidates(
 #============================================
 def materialize_decision(
 	decision: EditorialDecision,
-	packet: daily_blog.schema.EvidencePacket,
+	projection: daily_blog.schema.EditorialProjection,
 	run_id: str,
 	candidates: list[CandidateResult],
 ) -> EditorialDecision:
 	"""Bind a reusable editorial verdict to current candidate artifacts."""
-	if decision.winner == "NONE":
-		post = daily_blog.candidates.provisional_post(packet, run_id)
-	else:
-		index = decision.anonymous_mapping.get(decision.winner)
-		if index is None or index >= len(candidates):
-			raise RuntimeError("Cached referee mapping does not identify a candidate.")
-		post = candidates[index].post
+	if decision.projection_id != projection.projection_id:
+		raise RuntimeError("Cached referee decision does not match the editorial projection.")
+	index = decision.anonymous_mapping.get(decision.winner)
+	if index is None or index >= len(candidates):
+		raise RuntimeError("Cached referee mapping does not identify a candidate.")
+	post = candidates[index].post
 	return dataclasses.replace(decision, post=post)
 
 
@@ -250,43 +269,37 @@ def validate_prompt_templates() -> dict[str, str]:
 
 
 #============================================
-def evidence_context(packet: daily_blog.schema.EvidencePacket, limit: int) -> str:
-	"""Render bounded editorial evidence while preserving complete changelog items."""
-	value = {
-		"schema_version": packet.schema_version,
-		"packet_id": packet.packet_id,
-		"report_date": packet.report_date,
-		"timezone": packet.timezone,
-		"complete": packet.complete,
-		"authority_order": list(daily_blog.schema.AUTHORITY_ORDER),
-		"active_repositories": [activity.repository for activity in packet.activity],
-		"items": [item.to_dict() for item in packet.items],
+def prompt_contract_identity() -> dict[str, object]:
+	"""Return the exact content identity that owns editorial cache reuse."""
+	templates = validate_prompt_templates()
+	return {
+		"prompt_version": daily_blog.schema.PROMPT_VERSION,
+		"rubric_version": daily_blog.schema.RUBRIC_VERSION,
+		"templates": {
+			name: daily_blog.io_utils.sha256_text(text)
+			for name, text in sorted(templates.items())
+		},
 	}
-	text = json.dumps(value, ensure_ascii=True, indent=2, sort_keys=True)
-	if len(text) > limit:
-		raise RuntimeError(
-			f"Evidence context requires {len(text)} characters and exceeds its {limit} budget."
-		)
-	return text
 
 
 #============================================
 def render_author_prompt(
-	packet: daily_blog.schema.EvidencePacket,
+	projection: daily_blog.schema.EditorialProjection,
 	run_id: str,
 	limit: int,
 ) -> str:
 	"""Render one identical author prompt for both isolated roles."""
 	templates = validate_prompt_templates()
 	prompt = templates["author"].format(
-		report_date=packet.report_date,
+		report_date=projection.report_date,
 		run_id=run_id,
 		rubric=templates["rubric"],
-		evidence_json=evidence_context(packet, limit),
+		evidence_json=projection.render_context(),
 	)
 	if len(prompt) > limit:
-		raise RuntimeError(
-			f"Author prompt requires {len(prompt)} characters and exceeds its {limit} budget."
+		raise EditorialBlockedError(
+			f"The complete author prompt requires {len(prompt)} characters "
+			+ f"and exceeds its {limit} limit."
 		)
 	return prompt
 
@@ -294,33 +307,34 @@ def render_author_prompt(
 #============================================
 def generate_candidates(
 	packet: daily_blog.schema.EvidencePacket,
+	projection: daily_blog.schema.EditorialProjection,
 	run_id: str,
 	config: daily_blog.config.DailyBlogConfig,
 	runner: object | None = None,
 ) -> list[dict]:
 	"""Run two isolated author roles over the exact same evidence prompt."""
 	if not packet.complete:
-		raise RuntimeError("Author generation requires a complete evidence packet.")
+		raise EditorialBlockedError("Author generation requires a complete evidence packet.")
+	if projection.packet_id != packet.packet_id:
+		raise EditorialBlockedError("Editorial projection does not match the evidence packet.")
 	route_runner = runner if runner is not None else daily_blog.routes.CommandRouteRunner()
-	prompt = ""
-	prompt_error = ""
 	try:
 		prompt = render_author_prompt(
-			packet,
+			projection,
 			run_id,
-			config.evidence_budgets["author_context_chars"],
+			config.prompt_limits["author_chars"],
 		)
 	except RuntimeError as error:
-		prompt_error = str(error)
+		raise EditorialBlockedError(str(error)) from error
 	results = []
 	for route in config.author_routes:
 		post = ""
-		generation_error = prompt_error
-		if not generation_error:
-			try:
-				post = route_runner.run(route, prompt, config.daily_blog_repository)
-			except RuntimeError as error:
-				generation_error = str(error)
+		generation_error = ""
+		try:
+			post = route_runner.run(route, prompt, config.daily_blog_repository)
+		except RuntimeError as error:
+			raise EditorialBlockedError(f"Author route failed: {route.name}") from error
+		post = daily_blog.candidates.resolve_slug_placeholder(post)
 		if len(post) > daily_blog.candidates.MAX_CANDIDATE_CHARS:
 			post = ""
 			generation_error = "The author response exceeded the candidate character budget."
@@ -328,6 +342,7 @@ def generate_candidates(
 		results.append(
 			{
 				"private_route": route.name,
+				"projection_id": projection.projection_id,
 				"post": post,
 				"post_hash": daily_blog.io_utils.sha256_text(post),
 				"generation_error": generation_error,
@@ -340,16 +355,25 @@ def generate_candidates(
 def validate_candidates(
 	raw_candidates: list[dict],
 	packet: daily_blog.schema.EvidencePacket,
+	projection: daily_blog.schema.EditorialProjection,
 	run_id: str,
 ) -> list[CandidateResult]:
 	"""Apply deterministic structure and provenance validation to each author result."""
 	results = []
 	for candidate in raw_candidates:
-		issues = daily_blog.candidates.validate_candidate(candidate["post"], packet, run_id)
+		issues = daily_blog.candidates.validate_candidate(
+			candidate["post"],
+			packet,
+			projection,
+			run_id,
+		)
+		if candidate["projection_id"] != projection.projection_id:
+			issues.insert(0, "Author candidate does not match the editorial projection.")
 		if candidate.get("generation_error"):
 			issues.insert(0, str(candidate["generation_error"])[:MAX_FAILURE_CHARS])
 		result = CandidateResult(
 			private_route=candidate["private_route"],
+			projection_id=candidate["projection_id"],
 			post=candidate["post"],
 			post_hash=candidate["post_hash"],
 			valid=not issues,
@@ -360,17 +384,30 @@ def validate_candidates(
 
 
 #============================================
-def _anonymous_mapping(packet_id: str, candidates: list[CandidateResult]) -> dict[str, int]:
+def _anonymous_mapping(projection_id: str, candidates: list[CandidateResult]) -> dict[str, int]:
 	"""Map valid candidates to A/B deterministically and independently of route order."""
 	valid_indexes = [index for index, candidate in enumerate(candidates) if candidate.valid]
 	if len(valid_indexes) == 2:
-		identity = packet_id + "".join(candidates[index].post_hash for index in valid_indexes)
+		identity = projection_id + "".join(
+			candidates[index].post_hash for index in valid_indexes
+		)
 		if int(daily_blog.io_utils.sha256_text(identity)[:2], 16) % 2:
 			valid_indexes.reverse()
 	mapping = {}
 	for label, index in zip(("A", "B"), valid_indexes):
 		mapping[label] = index
 	return mapping
+
+
+#============================================
+def _bounded_referee_reason(reason: str) -> str:
+	"""Bound explanatory metadata without changing the referee's control fields."""
+	normalized = reason.strip()
+	if not normalized:
+		raise RuntimeError("Referee reason must be non-empty.")
+	if len(normalized) <= MAX_REFEREE_REASON_CHARS:
+		return normalized
+	return normalized[: MAX_REFEREE_REASON_CHARS - 3].rstrip() + "..."
 
 
 #============================================
@@ -381,14 +418,21 @@ def _parse_verdict(response: str, allowed_labels: set[str]) -> dict:
 	value = json.loads(response.strip())
 	if not isinstance(value, dict):
 		raise RuntimeError("Referee verdict must be one JSON object.")
-	winner = str(value.get("winner") or "")
-	reason = str(value.get("reason") or "").strip()
-	evidence_quality = str(value.get("evidence_quality") or "")
-	confidence = value.get("confidence")
+	for key in ("winner", "reason", "evidence_quality", "confidence"):
+		if key not in value:
+			raise RuntimeError(f"Referee verdict is missing {key}.")
+	if not isinstance(value["winner"], str):
+		raise RuntimeError("Referee winner must be text.")
+	if not isinstance(value["reason"], str):
+		raise RuntimeError("Referee reason must be text.")
+	if not isinstance(value["evidence_quality"], str):
+		raise RuntimeError("Referee evidence_quality must be text.")
+	winner = value["winner"]
+	reason = _bounded_referee_reason(value["reason"])
+	evidence_quality = value["evidence_quality"]
+	confidence = value["confidence"]
 	if winner not in allowed_labels | {"NONE"}:
 		raise RuntimeError("Referee winner is unavailable or unsupported.")
-	if not reason or len(reason) > 500:
-		raise RuntimeError("Referee reason must be concise and non-empty.")
 	if evidence_quality not in {"high", "medium", "low"}:
 		raise RuntimeError("Referee evidence_quality is unsupported.")
 	if type(confidence) not in {int, float} or not 0 <= confidence <= 1:
@@ -403,27 +447,21 @@ def _parse_verdict(response: str, allowed_labels: set[str]) -> dict:
 
 
 #============================================
-def _route_failure_reason(error: Exception) -> str:
-	"""Return one publisher-compatible bounded referee route failure reason."""
-	prefix = "The referee route remained pending: "
-	available = 500 - len(prefix)
-	reason = prefix + str(error)[:available]
-	return reason
-
-
-#============================================
 def _referee_verdict(
-	packet: daily_blog.schema.EvidencePacket,
+	projection: daily_blog.schema.EditorialProjection,
 	candidates: list[CandidateResult],
 	mapping: dict[str, int],
 	config: daily_blog.config.DailyBlogConfig,
 	runner: object,
 ) -> dict:
 	"""Run the separately configured referee, including one structured repair pass."""
-	limit = config.evidence_budgets["referee_context_chars"]
+	limit = config.prompt_limits["referee_chars"]
 	try:
 		templates = validate_prompt_templates()
-		context = evidence_context(packet, limit)
+		cited_ids = set()
+		for index in mapping.values():
+			cited_ids.update(daily_blog.candidates.evidence_ids_in_post(candidates[index].post))
+		context = projection.render_context(cited_ids)
 		candidate_a = (
 			candidates[mapping["A"]].post if "A" in mapping else "Candidate A is unavailable."
 		)
@@ -437,88 +475,65 @@ def _referee_verdict(
 			candidate_b=candidate_b,
 		)
 		if len(prompt) > limit:
-			raise RuntimeError(
-				f"Referee prompt requires {len(prompt)} characters and exceeds its {limit} budget."
+			raise EditorialBlockedError(
+				f"The complete referee prompt requires {len(prompt)} characters "
+				+ f"and exceeds its {limit} limit."
 			)
 	except RuntimeError as error:
-		return {
-			"winner": "NONE",
-			"reason": _route_failure_reason(error),
-			"evidence_quality": "low",
-			"confidence": 0.0,
-		}
+		raise EditorialBlockedError(str(error)) from error
 	try:
 		response = runner.run(config.referee_route, prompt, config.daily_blog_repository)
 	except RuntimeError as error:
-		return {
-			"winner": "NONE",
-			"reason": _route_failure_reason(error),
-			"evidence_quality": "low",
-			"confidence": 0.0,
-		}
+		raise EditorialBlockedError("The referee route failed.") from error
 	try:
 		return _parse_verdict(response, set(mapping))
 	except (json.JSONDecodeError, RuntimeError):
 		repair_prompt = templates["repair"].format(
 			response=response[:MAX_REFEREE_RESPONSE_CHARS]
 		)
+		if len(repair_prompt) > limit:
+			raise EditorialBlockedError("The complete referee repair prompt exceeds its limit.")
 		try:
 			repaired = runner.run(config.referee_route, repair_prompt, config.daily_blog_repository)
-		except RuntimeError:
-			return {
-				"winner": "NONE",
-				"reason": "The referee repair route remained pending.",
-				"evidence_quality": "low",
-				"confidence": 0.0,
-			}
+		except RuntimeError as error:
+			raise EditorialBlockedError("The referee repair route failed.") from error
 		try:
 			return _parse_verdict(repaired, set(mapping))
-		except (json.JSONDecodeError, RuntimeError):
-			return {
-				"winner": "NONE",
-				"reason": "The referee result did not satisfy the structured decision contract.",
-				"evidence_quality": "low",
-				"confidence": 0.0,
-			}
+		except (json.JSONDecodeError, RuntimeError) as error:
+			raise EditorialBlockedError(
+				"The referee result did not satisfy the structured decision contract."
+			) from error
 
 
 #============================================
 def select_candidate(
 	packet: daily_blog.schema.EvidencePacket,
+	projection: daily_blog.schema.EditorialProjection,
 	run_id: str,
 	candidates: list[CandidateResult],
 	config: daily_blog.config.DailyBlogConfig,
 	runner: object | None = None,
 ) -> EditorialDecision:
 	"""Anonymize valid candidates and publish exactly the referee-approved result."""
-	mapping = _anonymous_mapping(packet.packet_id, candidates)
+	if projection.packet_id != packet.packet_id:
+		raise EditorialBlockedError("Editorial projection does not match the evidence packet.")
+	mapping = _anonymous_mapping(projection.projection_id, candidates)
 	if not mapping:
-		post = daily_blog.candidates.provisional_post(packet, run_id)
-		decision = EditorialDecision(
-			winner="NONE",
-			reason="Both author candidates failed deterministic validation.",
-			evidence_quality="low",
-			confidence=0.0,
-			publication_quality="provisional",
-			post=post,
-			anonymous_mapping={},
-		)
-		return decision
+		raise EditorialBlockedError("No author candidate passed deterministic validation.")
 	route_runner = runner if runner is not None else daily_blog.routes.CommandRouteRunner()
-	verdict = _referee_verdict(packet, candidates, mapping, config, route_runner)
+	verdict = _referee_verdict(projection, candidates, mapping, config, route_runner)
 	winner = verdict["winner"]
 	if winner == "NONE":
-		post = daily_blog.candidates.provisional_post(packet, run_id)
-		quality = "provisional"
-	else:
-		post = candidates[mapping[winner]].post
-		quality = "final"
+		raise EditorialBlockedError("The referee did not approve candidate A or B.")
+	if winner not in mapping:
+		raise EditorialBlockedError("The referee selected an unavailable candidate.")
+	post = candidates[mapping[winner]].post
 	decision = EditorialDecision(
 		winner=winner,
 		reason=verdict["reason"],
 		evidence_quality=verdict["evidence_quality"],
 		confidence=verdict["confidence"],
-		publication_quality=quality,
+		projection_id=projection.projection_id,
 		post=post,
 		anonymous_mapping=mapping,
 	)

@@ -18,9 +18,9 @@ cd /home/vosslab/nsh/vosslab-podcast
 source source_me.sh && python3 automation/publish_daily_blog.py --date 2026-08-23
 ```
 
-A successful command reports the bundle path, bundle ID, and final or provisional quality. The
-same command performs the site import. A complete evidence packet can therefore publish a
-deterministic provisional work log when both author candidates or the referee remain unapproved.
+A successful command reports the approved bundle path and bundle ID, then performs the site import.
+If authoring, validation, prompt rendering, or referee approval is blocked, the command raises
+`EditorialBlockedError` and creates or imports no bundle.
 
 ## Configuration
 
@@ -33,7 +33,11 @@ The `daily_blog` section of `settings.yaml` defines:
 - `identity_names` and `identity_emails`: exact author attribution evidence.
 - `routes.authors`: exactly two isolated author command routes.
 - `routes.referee`: a separately named referee command route.
-- `evidence_budgets`: per-source, total supporting, prompt, and screenshot limits.
+- `collection_limits`: per-source, per-item, total supporting, and screenshot limits applied while
+  retaining the authoritative evidence packet.
+- `projection_limits`: complete rendered context, exact excerpt, and repository-card subject limits.
+- `prompt_limits`: complete author and referee envelopes after templates, rubric, candidates, and
+  projection context are rendered.
 - `shadow_evaluation.external_model_data_sharing`: explicit approval for sending exact-Git evidence
   to the author routes and the historical post plus evidence to the referee route; defaults to
   `false`.
@@ -43,10 +47,16 @@ Role commands receive the complete prompt through standard input. The checked-in
 instruction contract while the active profile retains only its configured model/provider route.
 Configuration rejects profile skills, inline queries, and resumed sessions for Hermes roles.
 
-Final candidates pass objective v2 house-style gates: one compact opening paragraph, 350-650
+Final candidates pass objective v3 house-style gates: one compact opening paragraph, 350-650
 narrative words, two to four narrative H2 sections, and one final Project coverage section naming
-every active repository. The referee judges the semantic qualities that deterministic code cannot
-prove, including thematic focus, reader interest, and cross-project synthesis.
+every active repository. Front matter binds the post to `editorial_projection`, and generic
+date-derived Work log titles are invalid. The referee judges the semantic qualities that
+deterministic code cannot prove, including thematic focus, reader interest, and cross-project
+synthesis. Its winner, evidence-quality label, and confidence remain strict control fields; an
+overlong explanatory reason is bounded to operational metadata rather than becoming an outage.
+The author template's exact `thematic-lowercase-slug` sentinel is resolved mechanically from the
+single thematic H1 before candidate hashing and validation; unresolved sentinels remain invalid at
+both the producer and publisher boundaries.
 
 ## Cache checks
 
@@ -63,30 +73,44 @@ For a reported `RUN_ID`, inspect:
 
 ```text
 out/vosslab/daily_blog_runs/YYYY-MM-DD/RUN_ID/run_state.json
+out/vosslab/daily_blog_runs/YYYY-MM-DD/RUN_ID/events.jsonl
 out/vosslab/daily_blog_runs/YYYY-MM-DD/RUN_ID/mirror_manifest.json
 out/vosslab/daily_blog_runs/YYYY-MM-DD/RUN_ID/activity.json
 out/vosslab/daily_blog_runs/YYYY-MM-DD/RUN_ID/evidence.json
+out/vosslab/daily_blog_runs/YYYY-MM-DD/RUN_ID/editorial_projection.json
 out/vosslab/daily_blog_runs/YYYY-MM-DD/RUN_ID/candidate_validation.json
 out/vosslab/daily_blog_runs/YYYY-MM-DD/RUN_ID/referee.json
 ```
 
-The authoritative state has eight ordered phases:
+The authoritative run v2 state has nine ordered phases:
 
 1. `mirror_refresh`
 2. `activity_location`
 3. `evidence_assembly`
-4. `author_generation`
-5. `candidate_validation`
-6. `referee_selection`
-7. `bundle_creation`
-8. `site_import`
+4. `editorial_projection`
+5. `author_generation`
+6. `candidate_validation`
+7. `referee_selection`
+8. `bundle_creation`
+9. `site_import`
 
 Every phase records its input and output hash. A new invocation always creates a new immutable run
-directory. Hash-verified cache envelopes can reuse exact activity and evidence inputs, fully valid
-candidate artifacts, and final referee decisions. Editorial failures and `NONE` decisions run again
-on the next invocation. A prior immutable bundle is reused only after all of its files and contract
+directory. Hash-verified cache envelopes can reuse exact activity, evidence, projection, fully valid
+candidate artifacts, and approved referee decisions. Blocked editorial attempts run again on the
+next invocation. A prior immutable bundle is reused only after all of its files and contract
 identities pass revalidation. The importer still executes, and an `idempotent` result records that
 the same bundle is already installed.
+
+For failures before a run enters the orchestrator, or for multi-date catch-up behavior, inspect the
+schedule-level stream:
+
+```text
+out/vosslab/daily_blog_schedule_events.jsonl
+```
+
+It records cursor reconciliation, skipped and attempted dates, publisher receipt discovery, cursor
+advancement, remaining backlog, and safe failure classes. The same structured lines are available in
+the user-service journal. Raw exception text is intentionally absent from these event objects.
 
 ## Inspecting a bundle
 
@@ -96,8 +120,10 @@ Complete bundles live at:
 out/vosslab/daily_blog/YYYY-MM-DD/RUN_ID/
 ```
 
-Verify that `latest.json` names the expected run, then inspect `bundle.json`, `evidence.json`, and
-`post.md`. Asset hashes and Git blob identities appear in the manifest and evidence packet.
+Verify that `latest.json` names the expected run, then inspect `bundle.json`, `evidence.json`,
+`editorial_projection.json`, and `post.md`. The bundle binds the selected post and referee record to
+the same projection ID. Asset hashes and Git blob identities appear in the manifest and evidence
+packet.
 
 ## Historical shadow evaluation
 
@@ -128,10 +154,11 @@ out/vosslab/daily_blog_shadow/YYYY-MM-DD/SHADOW_ID/
 ```
 
 Inspect `scorecard.json`, `generated_post.md`, `reference_post.md`, `evidence.json`,
-`candidates.json`, and `candidate_validation.json`. The scorecard combines deterministic structure,
-provenance, and changelog-use measurements with a typed 1-5 semantic assessment of factual
-grounding, thematic structure, reader interest, and house-style match. Shadow evaluation has a
-separate per-date lock and never changes `daily_blog/latest.json` or publisher content.
+`editorial_projection.json`, `candidates.json`, and `candidate_validation.json`. The scorecard
+combines deterministic structure, provenance, and changelog-use measurements with a typed 1-5
+semantic assessment of factual grounding, thematic structure, reader interest, and house-style
+match. Shadow evaluation has a separate per-date lock and never changes `daily_blog/latest.json` or
+publisher content.
 
 The scorecard reports deterministic structure and provenance measurements alongside the semantic
 scores. For the one-time August 22 and 23 cutover comparison, a human reviews the scorecard,
@@ -170,10 +197,18 @@ cp deploy/vosslab-daily-publication.timer ~/.config/systemd/user/
 systemctl --user daemon-reload
 ```
 
-The timer starts at 02:00 America/Chicago and asks the same public command to process yesterday.
+The timer starts at 02:00 America/Chicago. Its schedule command persists
+`out/vosslab/daily_blog_schedule.json` and processes up to seven missing report dates oldest-first
+through yesterday. It advances the cursor only after a matching publisher record exists, so an
+import followed by a lost cursor write reconciles without duplicate generation. Only publication v2
+records can satisfy reconciliation; a pre-cutover or malformed record stops the schedule rather than
+advancing the cursor. Schedule v2 binds the completed date to the exact publisher bundle ID and
+revalidates that receipt on every activation. A first invocation without a cursor starts with
+yesterday rather than treating the historical archive as a backlog.
+
 The `vosslab-daily-blog.service` static server remains independently enabled in the publisher
-repository. Keep the timer disabled during cutover review. After the two historical comparisons are
-approved and recorded, activate the ordinary schedule:
+repository. On August 27, 2026, the operator explicitly activated the producer timer to restore
+publication while the two historical quality comparisons remained pending:
 
 ```bash
 systemctl --user enable --now vosslab-daily-publication.timer
@@ -181,6 +216,8 @@ systemctl --user enable --now vosslab-daily-publication.timer
 
 At cutover, disable the prior Hermes publication cron, mirror timer, and editorial timer before
 enabling the producer timer. Confirm the active schedule contains exactly one publication timer.
+The historical comparisons remain useful quality evidence, but their pending state no longer
+disables the current host schedule.
 
 ## Operator checks
 
@@ -189,25 +226,46 @@ systemctl --user status vosslab-daily-publication.timer
 systemctl --user status vosslab-daily-publication.service
 systemctl --user status vosslab-daily-blog.service
 journalctl --user -u vosslab-daily-publication.service -n 100
+journalctl --user -u vosslab-daily-publication.service -g 'daily_publication\.' -n 100
 curl --fail http://aella.local:8016/blog/
 curl --fail http://aella.local:8016/status/
 ```
 
+If the expected date has no run directory, the failure occurred before orchestrator ownership. Check
+the scheduler handoff before looking for `run_state.json`:
+
+```bash
+hermes cron list
+systemctl --user list-timers --all
+systemctl --user is-enabled vosslab-daily-publication.timer
+systemctl --user is-active vosslab-daily-publication.timer
+systemctl --user cat vosslab-daily-publication.service
+```
+
+The retired Hermes publication job must not exist or be active, and the systemd timer must be the
+sole 02:00 publication owner. Compare the installed service with
+`deploy/vosslab-daily-publication.service` when its command is stale.
+
 ## Failure and recovery
 
 - A mirror refresh or exact-object failure ends the run before editorial generation.
-- Author and referee route failures become inspectable validation or `NONE` outcomes when evidence
-  is complete.
+- Author/referee route failures, prompt overflows, no valid candidates, and `NONE` verdicts fail the
+  owned editorial phase with `EditorialBlockedError`. Later bundle and import phases remain pending.
 - Bundle creation uses a staging directory and atomic promotion; an incomplete bundle never updates
   `latest.json`.
 - The publisher validates and builds a complete proposed source tree before installing anything.
 - A failed importer preserves the prior MkDocs source, publication record, immutable release, and
   served `site` pointer.
-- Reimporting the exact bundle succeeds idempotently. A final bundle can supersede a provisional
-  bundle for the same date; a different bundle cannot replace an existing final publication.
+- Reimporting the exact bundle succeeds idempotently only when the immutable archive matches every
+  input byte and `site` resolves to the expected release. Drift is reported rather than accepted as
+  success. A different approved bundle cannot replace an existing publication for the same date
+  without an explicit publisher contract change.
 
-Start recovery by reading the failed phase and message in `run_state.json`. Correct the external
+When a run directory exists, start recovery by reading the failed phase and message in
+`run_state.json`, then compare the structured `events.jsonl` timeline. Structured lifecycle events
+omit raw exception text, while ordinary service traceback lines can retain it. Correct the external
 condition, then invoke the same date command again. The new run can reuse valid matching evidence
-and approved editorial artifacts while retaining the failed run as an audit record. Provisional
-editorial outcomes remain retryable. A reused bundle keeps its original immutable directory, and
-the new run record identifies that origin explicitly.
+and approved editorial artifacts while retaining the failed run as an audit record. Blocked
+editorial outcomes remain retryable. A reused bundle keeps its original immutable directory, and the
+new run record identifies that origin explicitly. The next schedule activation reconciles a
+successful manual import from its publisher record before advancing the cursor.

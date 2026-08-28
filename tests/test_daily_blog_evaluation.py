@@ -30,7 +30,7 @@ def make_packet() -> daily_blog.schema.EvidencePacket:
 		"2026-08-23",
 		"America/Chicago",
 		True,
-		{"author_context_chars": 30000, "referee_context_chars": 50000},
+		{},
 		[],
 		[],
 		[item],
@@ -56,15 +56,25 @@ def make_config(tmp_path: pathlib.Path) -> daily_blog.config.DailyBlogConfig:
 			daily_blog.config.RoleRoute("two", ("fake",)),
 		),
 		referee_route=daily_blog.config.RoleRoute("judge", ("fake",)),
-		evidence_budgets={"author_context_chars": 30000, "referee_context_chars": 50000},
+		collection_limits={},
+		projection_limits={
+			"context_chars": 16000,
+			"excerpt_chars": 2000,
+			"commit_subject_chars": 160,
+		},
+		prompt_limits={"author_chars": 30000, "referee_chars": 50000},
 		allow_shadow_model_data_sharing=True,
 	)
 	return config
 
 
 #============================================
-def valid_post(packet: daily_blog.schema.EvidencePacket, run_id: str, title: str) -> str:
-	"""Return one full final candidate matching the v2 deterministic house shape."""
+def valid_post(
+	packet: daily_blog.schema.EvidencePacket,
+	run_id: str,
+	title: str,
+) -> str:
+	"""Return one final candidate matching the deterministic house shape."""
 	evidence_id = packet.items[0].evidence_id
 	intro = (
 		"I found that exact evidence makes a daily account more useful because each technical "
@@ -78,9 +88,9 @@ def valid_post(packet: daily_blog.schema.EvidencePacket, run_id: str, title: str
 		"---\n"
 		+ f"date: {packet.report_date}\n"
 		+ "slug: exact-evidence\n"
-		+ "publication_quality: final\n"
 		+ f"generator_run: {run_id}\n"
 		+ "evidence_manifest: evidence.json\n"
+		+ "editorial_projection: editorial_projection.json\n"
 		+ "---\n\n"
 		+ f"# {title}\n\n"
 		+ f"{intro} <!-- evidence: {evidence_id} -->\n\n"
@@ -121,9 +131,17 @@ class FakeRunner:
 				}
 			)
 		if route.name == "one":
-			return valid_post(self.packet, self._run_id(prompt), "Exact evidence tells the story")
+			return valid_post(
+				self.packet,
+				self._run_id(prompt),
+				"Exact evidence tells the story",
+			)
 		if route.name == "two":
-			return valid_post(self.packet, self._run_id(prompt), "The durable daily boundary")
+			return valid_post(
+				self.packet,
+				self._run_id(prompt),
+				"The durable daily boundary",
+			)
 		return json.dumps(
 			{
 				"winner": "A",
@@ -139,7 +157,6 @@ class FakeRunner:
 		line = next(line for line in prompt.splitlines() if line.startswith("generator_run: "))
 		return line.split(": ", 1)[1]
 
-
 #============================================
 def test_shadow_evaluation_writes_inspectable_artifacts(
 	tmp_path: pathlib.Path,
@@ -148,7 +165,11 @@ def test_shadow_evaluation_writes_inspectable_artifacts(
 	"""A shadow comparison retains its semantic result in an isolated namespace."""
 	packet = make_packet()
 	config = make_config(tmp_path)
-	reference = valid_post(packet, "historical-reference", "Making the boundary real")
+	reference = valid_post(
+		packet,
+		"historical-reference",
+		"Making the boundary real",
+	)
 	monkeypatch.setattr(
 		daily_blog.evaluation,
 		"_new_shadow_id",

@@ -8,16 +8,23 @@ import dataclasses
 from podlib import pipeline_settings
 
 
-DEFAULT_BUDGETS = {
+DEFAULT_COLLECTION_LIMITS = {
 	"changed_documentation_chars": 16000,
 	"diff_chars": 24000,
 	"readme_context_chars": 6000,
 	"commit_metadata_chars": 6000,
 	"per_item_chars": 8000,
 	"supporting_total_chars": 48000,
-	"author_context_chars": 72000,
-	"referee_context_chars": 88000,
 	"screenshot_count": 12,
+}
+DEFAULT_PROJECTION_LIMITS = {
+	"context_chars": 60000,
+	"excerpt_chars": 6000,
+	"commit_subject_chars": 480,
+}
+DEFAULT_PROMPT_LIMITS = {
+	"author_chars": 72000,
+	"referee_chars": 88000,
 }
 HERMES_INSTRUCTION_SOURCE_ARGUMENTS = {
 	"--continue",
@@ -29,6 +36,20 @@ HERMES_INSTRUCTION_SOURCE_ARGUMENTS = {
 	"-r",
 	"-s",
 	"-z",
+}
+DAILY_BLOG_SETTING_KEYS = {
+	"collection_limits",
+	"identity_emails",
+	"identity_names",
+	"mirror_cache_root",
+	"projection_limits",
+	"prompt_limits",
+	"report_timezone",
+	"repository_path",
+	"repository_urls",
+	"routes",
+	"schedule_start_date",
+	"shadow_evaluation",
 }
 
 
@@ -55,7 +76,10 @@ class DailyBlogConfig:
 	identity_emails: tuple[str, ...]
 	author_routes: tuple[RoleRoute, ...]
 	referee_route: RoleRoute
-	evidence_budgets: dict[str, int]
+	collection_limits: dict[str, int]
+	projection_limits: dict[str, int]
+	prompt_limits: dict[str, int]
+	schedule_start_date: str = ""
 	allow_shadow_model_data_sharing: bool = False
 
 
@@ -159,36 +183,52 @@ def _load_routes(settings: dict) -> tuple[tuple[RoleRoute, ...], RoleRoute]:
 
 
 #============================================
-def _load_budgets(settings: dict) -> dict[str, int]:
-	"""Load positive evidence and prompt budgets with explicit known keys."""
+def _load_limits(
+	settings: dict,
+	name: str,
+	defaults: dict[str, int],
+) -> dict[str, int]:
+	"""Load one positive daily-blog limit mapping with explicit known keys."""
 	configured = pipeline_settings.get_nested_value(
 		settings,
-		["daily_blog", "evidence_budgets"],
+		["daily_blog", name],
 		{},
 	)
 	if not isinstance(configured, dict):
-		raise RuntimeError("daily_blog.evidence_budgets must be a mapping.")
-	unknown = set(configured) - set(DEFAULT_BUDGETS)
+		raise RuntimeError(f"daily_blog.{name} must be a mapping.")
+	unknown = set(configured) - set(defaults)
 	if unknown:
 		names = ", ".join(sorted(unknown))
-		raise RuntimeError(f"Unknown daily-blog evidence budgets: {names}")
-	budgets = dict(DEFAULT_BUDGETS)
+		raise RuntimeError(f"Unknown daily_blog.{name} keys: {names}")
+	limits = dict(defaults)
 	for key, value in configured.items():
 		if type(value) is not int or value <= 0:
-			raise RuntimeError(f"daily_blog.evidence_budgets.{key} must be positive.")
-		budgets[key] = value
-	return budgets
+			raise RuntimeError(f"daily_blog.{name}.{key} must be positive.")
+		limits[key] = value
+	return limits
 
 
 #============================================
 def load_config(settings_path: str = "settings.yaml", output_root: str = "out") -> DailyBlogConfig:
 	"""Load and validate the complete daily-blog producer configuration."""
 	settings, resolved_path = pipeline_settings.load_settings(settings_path)
+	daily_blog_settings = pipeline_settings.get_nested_value(settings, ["daily_blog"], {})
+	if not isinstance(daily_blog_settings, dict):
+		raise RuntimeError("daily_blog must be a mapping.")
+	unknown_settings = set(daily_blog_settings) - DAILY_BLOG_SETTING_KEYS
+	if unknown_settings:
+		names = ", ".join(sorted(unknown_settings))
+		raise RuntimeError(f"Unknown daily_blog settings: {names}")
 	output_owner = pipeline_settings.get_github_username(settings)
 	report_timezone = pipeline_settings.get_setting_str(
 		settings,
 		["daily_blog", "report_timezone"],
 		"America/Chicago",
+	)
+	schedule_start_date = pipeline_settings.get_setting_str(
+		settings,
+		["daily_blog", "schedule_start_date"],
+		"",
 	)
 	daily_blog_repository = pipeline_settings.get_setting_str(
 		settings,
@@ -236,7 +276,22 @@ def load_config(settings_path: str = "settings.yaml", output_root: str = "out") 
 		identity_emails=identity_emails,
 		author_routes=author_routes,
 		referee_route=referee_route,
-		evidence_budgets=_load_budgets(settings),
+		collection_limits=_load_limits(
+			settings,
+			"collection_limits",
+			DEFAULT_COLLECTION_LIMITS,
+		),
+		projection_limits=_load_limits(
+			settings,
+			"projection_limits",
+			DEFAULT_PROJECTION_LIMITS,
+		),
+		prompt_limits=_load_limits(
+			settings,
+			"prompt_limits",
+			DEFAULT_PROMPT_LIMITS,
+		),
+		schedule_start_date=schedule_start_date,
 		allow_shadow_model_data_sharing=pipeline_settings.get_setting_bool(
 			settings,
 			["daily_blog", "shadow_evaluation", "external_model_data_sharing"],

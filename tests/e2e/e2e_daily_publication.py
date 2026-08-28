@@ -5,22 +5,23 @@
 import os
 import re
 import json
-import sys
 import shutil
 import pathlib
 import tempfile
 import subprocess
-import importlib.util
 
 # local repo modules
 import daily_blog.schema
 import daily_blog.config
 import daily_blog.activity
 import daily_blog.evidence
+import daily_blog.projection
+import daily_blog.publisher
 import daily_blog.bundles
 import daily_blog.editorial
 import daily_blog.candidates
 import daily_blog.orchestrator
+import daily_blog.io_utils
 
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
@@ -97,8 +98,8 @@ def make_repository(root: pathlib.Path) -> tuple[pathlib.Path, str]:
 
 
 #============================================
-def evidence_budgets() -> dict[str, int]:
-	"""Return explicit compact E2E context budgets."""
+def collection_limits() -> dict[str, int]:
+	"""Return explicit compact E2E evidence collection limits."""
 	return {
 		"changed_documentation_chars": 8000,
 		"diff_chars": 12000,
@@ -106,15 +107,30 @@ def evidence_budgets() -> dict[str, int]:
 		"commit_metadata_chars": 4000,
 		"per_item_chars": 6000,
 		"supporting_total_chars": 24000,
-		"author_context_chars": 48000,
-		"referee_context_chars": 64000,
 		"screenshot_count": 4,
 	}
 
 
 #============================================
+def projection_limits() -> dict[str, int]:
+	"""Return deterministic E2E editorial projection limits."""
+	return {
+		"context_chars": 32000,
+		"excerpt_chars": 4000,
+		"commit_subject_chars": 240,
+	}
+
+
+#============================================
+def prompt_limits() -> dict[str, int]:
+	"""Return complete author and referee prompt envelope limits."""
+	return {"author_chars": 48000, "referee_chars": 64000}
+
+
+#============================================
 def valid_post(
 	packet: daily_blog.schema.EvidencePacket,
+	projection: daily_blog.schema.EditorialProjection,
 	run_id: str,
 	title: str,
 ) -> str:
@@ -136,9 +152,9 @@ def valid_post(
 		"---\n"
 		+ f"date: {packet.report_date}\n"
 		+ "slug: durable-bundles\n"
-		+ "publication_quality: final\n"
 		+ f"generator_run: {run_id}\n"
 		+ "evidence_manifest: evidence.json\n"
+		+ "editorial_projection: editorial_projection.json\n"
 		+ "---\n\n"
 		+ f"# {title}\n\n"
 		+ f"{intro} <!-- evidence: {evidence_id} -->\n\n"
@@ -158,9 +174,14 @@ class ReuseRunner:
 	"""Return valid candidates once and expose later unintended model calls."""
 
 	#============================================
-	def __init__(self, packet: daily_blog.schema.EvidencePacket) -> None:
+	def __init__(
+		self,
+		packet: daily_blog.schema.EvidencePacket,
+		projection: daily_blog.schema.EditorialProjection,
+	) -> None:
 		"""Bind the exact packet and initialize the call count."""
 		self.packet = packet
+		self.projection = projection
 		self.calls = 0
 
 	#============================================
@@ -180,7 +201,7 @@ class ReuseRunner:
 		if match is None:
 			raise RuntimeError("Author prompt is missing its artifact identity.")
 		title = "Exact evidence wins" if route.name == "author_one" else "Ownership stays durable"
-		return valid_post(self.packet, match.group(1), title)
+		return valid_post(self.packet, self.projection, match.group(1), title)
 
 
 class IdempotentPublisher:
@@ -226,9 +247,12 @@ def verify_phase_reuse(
 			daily_blog.config.RoleRoute("author_two", ("synthetic",)),
 		),
 		referee_route=daily_blog.config.RoleRoute("referee", ("synthetic",)),
-		evidence_budgets=evidence_budgets(),
+		collection_limits=collection_limits(),
+		projection_limits=projection_limits(),
+		prompt_limits=prompt_limits(),
 	)
-	runner = ReuseRunner(packet)
+	projection = daily_blog.projection.build_projection(packet, projection_limits())
+	runner = ReuseRunner(packet, projection)
 	publisher = IdempotentPublisher()
 	first = daily_blog.orchestrator.DailyPublicationOrchestrator(
 		config,
@@ -256,6 +280,8 @@ def verify_phase_reuse(
 #============================================
 def initialize_publisher(root: pathlib.Path) -> None:
 	"""Create the complete minimal MkDocs source tree owned by the importer."""
+	shutil.copytree(PUBLISHER_ROOT / "scripts", root / "scripts")
+	shutil.copy2(PUBLISHER_ROOT / "source_me.sh", root / "source_me.sh")
 	(root / "docs" / "blog" / "posts").mkdir(parents=True)
 	(root / "docs" / "stylesheets").mkdir()
 	(root / "docs" / "index.md").write_text("# Daily work log\n", encoding="utf-8")
@@ -274,6 +300,12 @@ def initialize_publisher(root: pathlib.Path) -> None:
 	)
 	(root / "site").symlink_to("generated/releases/old")
 	shutil.copy2(PUBLISHER_ROOT / "mkdocs.yml", root / "mkdocs.yml")
+	subprocess.run(
+		["git", "init", "--quiet", str(root)],
+		check=True,
+		stdout=subprocess.PIPE,
+		stderr=subprocess.PIPE,
+	)
 
 
 #============================================
@@ -303,57 +335,68 @@ def main() -> None:
 			("vosslab@users.noreply.github.com",),
 		)
 		assembler = daily_blog.evidence.EvidenceAssembler(
-			"2026-08-23", "America/Chicago", evidence_budgets()
+			"2026-08-23", "America/Chicago", collection_limits()
 		)
 		packet, assets = assembler.assemble([mirror_entry], activities)
-		post = daily_blog.candidates.provisional_post(packet, "synthetic-run")
+		projection = daily_blog.projection.build_projection(packet, projection_limits())
+		post = valid_post(packet, projection, "synthetic-run", "Exact ownership survives")
 		decision = daily_blog.editorial.EditorialDecision(
-			winner="NONE",
-			reason="The synthetic E2E uses the deterministic provisional account.",
+			winner="A",
+			reason="Candidate A follows the exact evidence and complete editorial contract.",
 			evidence_quality="high",
 			confidence=1.0,
-			publication_quality="provisional",
+			projection_id=projection.projection_id,
 			post=post,
-			anonymous_mapping={},
+			anonymous_mapping={"A": 0},
 		)
-		invalid_candidate = daily_blog.editorial.CandidateResult(
+		approved_candidate = daily_blog.editorial.CandidateResult(
 			private_route="synthetic",
-			post="",
-			post_hash="0" * 64,
-			valid=False,
-			issues=("synthetic provisional path",),
+			projection_id=projection.projection_id,
+			post=post,
+			post_hash=daily_blog.io_utils.sha256_text(post),
+			valid=True,
+			issues=(),
 		)
 		writer = daily_blog.bundles.BundleWriter(
-			str(root / "output"), "vosslab", str(REPO_ROOT)
+			str(root / "output"),
+			"vosslab",
+			daily_blog.bundles.generator_revision(str(REPO_ROOT)),
 		)
 		bundle_path, bundle = writer.write(
 			"synthetic-run",
 			packet,
+			projection,
 			assets,
-			[invalid_candidate, invalid_candidate],
+			[approved_candidate, approved_candidate],
 			decision,
 		)
+		verify_phase_reuse(root, packet)
 		publisher_root = root / "publisher"
 		publisher_root.mkdir()
 		initialize_publisher(publisher_root)
-		sys.path.insert(0, str(PUBLISHER_ROOT))
-		module_path = PUBLISHER_ROOT / "scripts" / "import_publication_bundle.py"
-		specification = importlib.util.spec_from_file_location(
-			"publication_bundle_import",
-			module_path,
-		)
-		if specification is None or specification.loader is None:
-			raise RuntimeError("Sibling daily-blog importer could not be loaded.")
-		importer = importlib.util.module_from_spec(specification)
-		specification.loader.exec_module(importer)
-
-		result = importer.import_publication_bundle(
-			bundle_path,
-			str(publisher_root),
-		)
+		result = daily_blog.publisher.import_bundle(str(publisher_root), bundle_path)
 		assert result["bundle_id"] == bundle["bundle_id"]
-		assert (publisher_root / "site" / "index.html").is_file()
-		verify_phase_reuse(root, packet)
+		archive = publisher_root / "data" / "publication_bundles" / bundle["bundle_id"]
+		for name in ("bundle.json", "evidence.json", "editorial_projection.json", "post.md"):
+			assert (archive / name).read_bytes() == (pathlib.Path(bundle_path) / name).read_bytes()
+		assert (
+			publisher_root / "docs" / "blog" / "posts" / f"{bundle['report_date']}.md"
+		).read_bytes() == (pathlib.Path(bundle_path) / "post.md").read_bytes()
+		release = publisher_root / "generated" / "releases" / bundle["bundle_id"]
+		assert (publisher_root / "site").is_symlink()
+		assert (publisher_root / "site").resolve() == release.resolve()
+		assert (release / "index.html").is_file()
+		for asset in bundle["assets"]:
+			asset_name = pathlib.PurePosixPath(asset["path"]).name
+			installed = (
+				publisher_root
+				/ "docs"
+				/ "assets"
+				/ "publications"
+				/ bundle["report_date"]
+				/ asset_name
+			)
+			assert installed.is_file()
 		print("Daily publication E2E passed.")
 
 

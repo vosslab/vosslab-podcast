@@ -17,9 +17,6 @@ SKIP_DIRS = frozenset({
 	".git", ".venv", "__pycache__", ".pytest_cache", ".mypy_cache",
 	"old_shell_folder", "legacy",
 })
-SCOPE_ENV = "REPO_HYGIENE_SCOPE"
-FAST_ENV = "FAST_REPO_HYGIENE"
-SKIP_ENV = "SKIP_REPO_HYGIENE"
 
 
 #============================================
@@ -566,51 +563,6 @@ def list_tracked_files(
 
 
 #============================================
-def list_changed_files(
-	repo_root: str,
-	diff_filter: str = "ACMRTUXB",
-	error_message: str | None = None,
-) -> list[str]:
-	"""List worktree and index paths changed from the current Git baseline."""
-	if error_message is None:
-		error_message = "Failed to list changed files."
-	commands = [
-		["git", "diff", "--name-only", f"--diff-filter={diff_filter}", "-z"],
-		["git", "diff", "--name-only", "--cached", f"--diff-filter={diff_filter}", "-z"],
-	]
-	paths = []
-	for command in commands:
-		output = _run_git(repo_root, command, error_message)
-		paths.extend(_split_null(output))
-	return paths
-
-
-#============================================
-def resolve_scope() -> str:
-	"""Resolve direct hygiene-runner scope from its documented environment."""
-	scope = os.environ.get(SCOPE_ENV, "").strip().lower()
-	if not scope and os.environ.get(FAST_ENV) == "1":
-		scope = "changed"
-	if scope in {"all", "changed"}:
-		return scope
-	return "all"
-
-
-#============================================
-def collect_files(
-	repo_root: str,
-	gather_all_fn: collections.abc.Callable[[str], list],
-	gather_changed_fn: collections.abc.Callable[[str], list],
-) -> list:
-	"""Collect all or changed paths for direct observational hygiene runners."""
-	if os.environ.get(SKIP_ENV) == "1":
-		return []
-	if resolve_scope() == "changed":
-		return gather_changed_fn(repo_root)
-	return gather_all_fn(repo_root)
-
-
-#============================================
 def path_has_skip_dir(path: str) -> bool:
 	"""
 	Check whether a path matches a built-in directory or scratch exclusion.
@@ -769,14 +721,16 @@ def discover_files(
 			ext = os.path.splitext(abs_path)[1].lower()
 			if ext not in extension_set:
 				continue
-		# Step 7: Layer 2 -- repo-local hygiene excludes from conftest.
+		# Step 7: keep only real working-tree files. Git may still report a
+		# tracked path while that file is intentionally deleted before staging;
+		# callbacks must never receive paths they cannot inspect.
+		if not os.path.isfile(abs_path):
+			continue
+		# Step 8: Layer 2 -- repo-local hygiene excludes from conftest.
 		if any(fnmatch.fnmatchcase(rel, pattern) for pattern in hygiene_patterns):
 			continue
-		# Step 8: Layer 3 -- per-test selection filter on the relative path.
+		# Step 9: Layer 3 -- per-test selection filter on the relative path.
 		if extra_filter is not None and not extra_filter(rel):
-			continue
-		# Step 9: keep only real files.
-		if not os.path.isfile(abs_path):
 			continue
 		matches.append(abs_path)
 

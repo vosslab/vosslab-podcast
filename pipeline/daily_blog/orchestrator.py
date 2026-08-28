@@ -13,6 +13,7 @@ import daily_blog.locks
 import daily_blog.mirrors
 import daily_blog.activity
 import daily_blog.evidence
+import daily_blog.projection
 import daily_blog.bundles
 import daily_blog.editorial
 import daily_blog.publisher
@@ -100,14 +101,14 @@ def _decision_value(decision: daily_blog.editorial.EditorialDecision) -> dict:
 		"reason": decision.reason,
 		"evidence_quality": decision.evidence_quality,
 		"confidence": decision.confidence,
-		"publication_quality": decision.publication_quality,
+		"projection_id": decision.projection_id,
 		"post_hash": daily_blog.io_utils.sha256_text(decision.post),
 		"anonymous_mapping": decision.anonymous_mapping,
 	}
 
 
 class DailyPublicationOrchestrator:
-	"""Execute the eight legal phases for one immutable daily run."""
+	"""Execute the nine legal phases for one immutable daily run."""
 
 	#============================================
 	def __init__(
@@ -126,7 +127,10 @@ class DailyPublicationOrchestrator:
 		self.publisher_function = publisher_function or daily_blog.publisher.import_bundle
 		self.refresh_mirrors = refresh_mirrors
 		self.generator_root = daily_blog.io_utils.repository_root(__file__)
-		self.generator_revision = daily_blog.bundles.generator_revision(self.generator_root)
+		self.generator_revision = daily_blog.bundles.generator_revision(
+			self.generator_root,
+			config.settings_path,
+		)
 		self.run_id = new_run_id()
 		self.store = daily_blog.run_state.RunStore(
 			config.output_root,
@@ -142,13 +146,21 @@ class DailyPublicationOrchestrator:
 		)
 		self.cache = daily_blog.locks.PhaseCache(cache_root)
 		self.store.save(self.record)
+		self.store.append_event(
+			"daily_publication.run_started", {"state": self.record.state}
+		)
 
 	#============================================
 	def _start(self, phase: str, input_value: object) -> str:
 		"""Start one phase and persist its canonical input hash."""
-		input_hash = daily_blog.io_utils.hash_value(input_value)
+		source_bound_input = {
+			"generator_revision": self.generator_revision,
+			"phase_input": input_value,
+		}
+		input_hash = daily_blog.io_utils.hash_value(source_bound_input)
 		self.record.start_phase(phase, input_hash)
 		self.store.save(self.record)
+		self.store.append_event("daily_publication.phase_started", {"phase": phase})
 		return input_hash
 
 	#============================================
@@ -157,16 +169,23 @@ class DailyPublicationOrchestrator:
 		output_hash = daily_blog.io_utils.hash_value(output_value)
 		self.record.complete_phase(phase, output_hash, reused=reused)
 		self.store.save(self.record)
+		self.store.append_event(
+			"daily_publication.phase_completed", {"phase": phase, "reused": reused}
+		)
 		return output_hash
 
 	#============================================
 	def _fail_current(self, error: Exception) -> None:
-		"""Persist the current phase failure once."""
+		"""Keep raw failure text in run state and emit only its class to lifecycle logs."""
 		phase = self.record.current_phase
 		if not phase:
 			return
 		self.record.fail_phase(phase, error.__class__.__name__, str(error))
 		self.store.save(self.record)
+		self.store.append_event(
+			"daily_publication.phase_failed",
+			{"error_class": error.__class__.__name__, "phase": phase},
+		)
 
 	#============================================
 	def _mirror_phase(self) -> list[dict]:
@@ -235,7 +254,7 @@ class DailyPublicationOrchestrator:
 		activity_value = [activity.to_dict() for activity in activities]
 		phase_input = {
 			"activity": activity_value,
-			"budgets": self.config.evidence_budgets,
+			"collection_limits": self.config.collection_limits,
 			"schema": daily_blog.schema.EVIDENCE_SCHEMA_VERSION,
 			"mirrors": _stable_mirror_input(mirror_entries),
 		}
@@ -246,7 +265,7 @@ class DailyPublicationOrchestrator:
 			assembler = daily_blog.evidence.EvidenceAssembler(
 				self.report_date,
 				self.config.report_timezone,
-				self.config.evidence_budgets,
+				self.config.collection_limits,
 			)
 			packet, assets = assembler.assemble(mirror_entries, activities)
 			self.cache.store_json(
@@ -269,15 +288,59 @@ class DailyPublicationOrchestrator:
 		return packet, assets
 
 	#============================================
+	def _projection_phase(
+		self,
+		packet: daily_blog.schema.EvidencePacket,
+	) -> daily_blog.schema.EditorialProjection:
+		"""Build or restore the exact bounded editorial projection."""
+		phase_input = {
+			"packet_id": packet.packet_id,
+			"projection_policy": daily_blog.projection.PROJECTION_POLICY_VERSION,
+			"projection_limits": self.config.projection_limits,
+			"schema": daily_blog.schema.PROJECTION_SCHEMA_VERSION,
+		}
+		input_hash = self._start("editorial_projection", phase_input)
+		cached = self.cache.load_json(
+			"editorial_projection",
+			input_hash,
+			"editorial_projection.json",
+		)
+		reused = cached is not None
+		if cached is None:
+			projection = daily_blog.projection.build_projection(
+				packet,
+				self.config.projection_limits,
+			)
+			self.cache.store_json(
+				"editorial_projection",
+				input_hash,
+				"editorial_projection.json",
+				projection.to_dict(),
+			)
+		else:
+			projection = daily_blog.schema.EditorialProjection.from_dict(dict(cached))
+		if projection.packet_id != packet.packet_id:
+			raise RuntimeError("Editorial projection does not match the evidence packet.")
+		self.store.write_artifact("editorial_projection.json", projection.to_dict())
+		self.record.editorial_projection = {
+			"projection_id": projection.projection_id,
+			"artifact": "editorial_projection.json",
+		}
+		self._complete("editorial_projection", projection.to_dict(), reused=reused)
+		return projection
+
+	#============================================
 	def _author_phase(
 		self,
 		packet: daily_blog.schema.EvidencePacket,
+		projection: daily_blog.schema.EditorialProjection,
 	) -> tuple[str, str, list[dict], list[dict], bool]:
 		"""Generate or reuse complete isolated-author artifacts."""
 		phase_input = {
 			"packet_id": packet.packet_id,
-			"prompt_version": daily_blog.schema.PROMPT_VERSION,
-			"rubric_version": daily_blog.schema.RUBRIC_VERSION,
+			"projection_id": projection.projection_id,
+			"prompt_contract": daily_blog.editorial.prompt_contract_identity(),
+			"prompt_limit": self.config.prompt_limits["author_chars"],
 			"generator_revision": self.generator_revision,
 			"routes": [dataclasses.asdict(route) for route in self.config.author_routes],
 		}
@@ -288,6 +351,7 @@ class DailyPublicationOrchestrator:
 		if cached is None:
 			canonical = daily_blog.editorial.generate_candidates(
 				packet,
+				projection,
 				artifact_run_id,
 				self.config,
 				runner=self.route_runner,
@@ -306,6 +370,7 @@ class DailyPublicationOrchestrator:
 	def _validation_phase(
 		self,
 		packet: daily_blog.schema.EvidencePacket,
+		projection: daily_blog.schema.EditorialProjection,
 		author_hash: str,
 		artifact_run_id: str,
 		canonical_raw: list[dict],
@@ -314,6 +379,7 @@ class DailyPublicationOrchestrator:
 		"""Validate canonical candidates and bind their metadata to this run."""
 		phase_input = {
 			"packet_id": packet.packet_id,
+			"projection_id": projection.projection_id,
 			"candidate_hashes": [item["post_hash"] for item in canonical_raw],
 			"generator_revision": self.generator_revision,
 		}
@@ -324,7 +390,10 @@ class DailyPublicationOrchestrator:
 		reused = cached is not None
 		if cached is None:
 			canonical = daily_blog.editorial.validate_candidates(
-				canonical_raw, packet, artifact_run_id
+				canonical_raw,
+				packet,
+				projection,
+				artifact_run_id,
 			)
 		else:
 			canonical = [
@@ -358,6 +427,7 @@ class DailyPublicationOrchestrator:
 	def _referee_phase(
 		self,
 		packet: daily_blog.schema.EvidencePacket,
+		projection: daily_blog.schema.EditorialProjection,
 		artifact_run_id: str,
 		canonical_candidates: list[daily_blog.editorial.CandidateResult],
 		current_candidates: list[daily_blog.editorial.CandidateResult],
@@ -365,10 +435,11 @@ class DailyPublicationOrchestrator:
 		"""Select canonical editorial content and bind it to this run."""
 		phase_input = {
 			"packet_id": packet.packet_id,
+			"projection_id": projection.projection_id,
 			"candidates": [candidate.to_cache_dict() for candidate in canonical_candidates],
 			"route": dataclasses.asdict(self.config.referee_route),
-			"prompt_version": daily_blog.schema.PROMPT_VERSION,
-			"rubric_version": daily_blog.schema.RUBRIC_VERSION,
+			"prompt_contract": daily_blog.editorial.prompt_contract_identity(),
+			"prompt_limit": self.config.prompt_limits["referee_chars"],
 			"generator_revision": self.generator_revision,
 		}
 		input_hash = self._start("referee_selection", phase_input)
@@ -377,22 +448,25 @@ class DailyPublicationOrchestrator:
 		if cached is None:
 			canonical = daily_blog.editorial.select_candidate(
 				packet,
+				projection,
 				artifact_run_id,
 				canonical_candidates,
 				self.config,
 				runner=self.route_runner,
 			)
-			if canonical.winner in {"A", "B"}:
-				self.cache.store_json(
-					"referee_selection",
-					input_hash,
-					"decision.json",
-					canonical.to_cache_dict(),
-				)
+			self.cache.store_json(
+				"referee_selection",
+				input_hash,
+				"decision.json",
+				canonical.to_cache_dict(),
+			)
 		else:
 			canonical = daily_blog.editorial.EditorialDecision.from_cache_dict(dict(cached))
 		current = daily_blog.editorial.materialize_decision(
-			canonical, packet, self.run_id, current_candidates
+			canonical,
+			projection,
+			self.run_id,
+			current_candidates,
 		)
 		value = _decision_value(current)
 		self.store.write_artifact("referee.json", value)
@@ -403,6 +477,7 @@ class DailyPublicationOrchestrator:
 	def _bundle_phase(
 		self,
 		packet: daily_blog.schema.EvidencePacket,
+		projection: daily_blog.schema.EditorialProjection,
 		assets: dict[str, bytes],
 		canonical_candidates: list[daily_blog.editorial.CandidateResult],
 		current_candidates: list[daily_blog.editorial.CandidateResult],
@@ -412,6 +487,7 @@ class DailyPublicationOrchestrator:
 		"""Create or reuse one verified immutable publication bundle."""
 		phase_input = {
 			"packet_id": packet.packet_id,
+			"projection_id": projection.projection_id,
 			"candidates": [candidate.to_cache_dict() for candidate in canonical_candidates],
 			"decision": canonical_decision.to_cache_dict(),
 			"asset_hashes": {
@@ -428,11 +504,12 @@ class DailyPublicationOrchestrator:
 			writer = daily_blog.bundles.BundleWriter(
 				self.config.output_root,
 				self.config.output_owner,
-				self.generator_root,
+				self.generator_revision,
 			)
 			bundle_path, bundle = writer.write(
 				self.run_id,
 				packet,
+				projection,
 				assets,
 				current_candidates,
 				current_decision,
@@ -454,6 +531,7 @@ class DailyPublicationOrchestrator:
 				dict(cached),
 				date_root,
 				packet,
+				projection,
 				assets,
 				self.generator_revision,
 			)
@@ -475,26 +553,31 @@ class DailyPublicationOrchestrator:
 			"publisher_repository": self.config.daily_blog_repository,
 		}
 		self._start("site_import", phase_input)
-		result = self.publisher_function(self.config.daily_blog_repository, bundle_path)
-		if not isinstance(result, dict):
-			raise RuntimeError("Site importer result must be an object.")
-		reused = result.get("status") == "idempotent"
+		publisher_result = self.publisher_function(self.config.daily_blog_repository, bundle_path)
+		result = daily_blog.schema.validate_site_import_result(
+			publisher_result,
+			bundle["bundle_id"],
+			self.report_date,
+		)
+		reused = result["status"] == "idempotent"
 		self.store.write_artifact("site_import.json", result)
 		self._complete("site_import", result, reused=reused)
 		return result
 
 	#============================================
 	def run(self) -> tuple[str, dict]:
-		"""Sequence the eight typed phases and persist any terminal failure."""
+		"""Sequence the nine typed phases and persist any terminal failure."""
 		try:
 			mirrors = self._mirror_phase()
 			activities = self._activity_phase(mirrors)
 			packet, assets = self._evidence_phase(mirrors, activities)
+			projection = self._projection_phase(packet)
 			author_hash, artifact_id, canonical_raw, _current_raw, author_reused = (
-				self._author_phase(packet)
+				self._author_phase(packet, projection)
 			)
 			canonical_candidates, current_candidates = self._validation_phase(
 				packet,
+				projection,
 				author_hash,
 				artifact_id,
 				canonical_raw,
@@ -502,21 +585,31 @@ class DailyPublicationOrchestrator:
 			)
 			canonical_decision, current_decision = self._referee_phase(
 				packet,
+				projection,
 				artifact_id,
 				canonical_candidates,
 				current_candidates,
 			)
 			bundle_path, bundle = self._bundle_phase(
 				packet,
+				projection,
 				assets,
 				canonical_candidates,
 				current_candidates,
 				canonical_decision,
 				current_decision,
 			)
-			self._site_import_phase(bundle_path, bundle)
+			site_import = self._site_import_phase(bundle_path, bundle)
 			self.record.complete()
 			self.store.save(self.record)
+			self.store.append_event(
+				"daily_publication.run_completed",
+				{
+					"bundle_id": bundle["bundle_id"],
+					"site_import_status": site_import["status"],
+					"state": self.record.state,
+				},
+			)
 			return bundle_path, bundle
 		except Exception as error:
 			self._fail_current(error)

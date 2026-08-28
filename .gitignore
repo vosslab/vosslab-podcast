@@ -5,9 +5,10 @@
 .venv_tts/
 out/
 report_*.txt
-.DS_Store
+*.py[cod]
 
 # === UNIVERSAL === [PROPAGATED - LOCAL EDITS OVERWRITTEN]
+.DS_Store
 /node_modules/
 /.env
 /report_*.txt

@@ -1,0 +1,13 @@
+# Structured referee verdict
+
+Transform the earlier response into the required verdict object.
+
+Return one JSON object with `winner`, `reason`, `evidence_quality`, and `confidence`.
+Use `A`, `B`, or `NONE` for `winner`.
+Use `high`, `medium`, or `low` for `evidence_quality`.
+Use a number from 0 through 1 for `confidence`.
+The response consists exclusively of the JSON object.
+
+## Earlier response
+
+{response}

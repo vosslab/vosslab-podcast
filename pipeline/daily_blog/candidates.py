@@ -2,6 +2,7 @@
 
 # Standard Library
 import re
+import unicodedata
 
 # PIP3 modules
 import yaml
@@ -13,6 +14,7 @@ import daily_blog.schema
 FRONT_MATTER_RE = re.compile(r"\A---\s*\n(.*?)\n---\s*\n", re.DOTALL)
 EVIDENCE_COMMENT_RE = re.compile(r"<!--\s*evidence:\s*([^>]+?)\s*-->")
 SLUG_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+SLUG_PLACEHOLDER = "thematic-lowercase-slug"
 FENCE_RE = re.compile(r"(^|\n)\s*(?:`{3,}|~{3,})")
 MAX_CANDIDATE_CHARS = 24000
 MIN_NARRATIVE_WORDS = 350
@@ -33,6 +35,40 @@ def parse_front_matter(post: str) -> tuple[dict, str]:
 		raise RuntimeError("Post front matter must be a mapping.")
 	body = post[match.end():]
 	return value, body
+
+
+#============================================
+def slug_from_title(title: str) -> str:
+	"""Return one deterministic lowercase ASCII slug for a thematic H1."""
+	decomposed = unicodedata.normalize("NFKD", title)
+	ascii_title = decomposed.encode("ascii", "ignore").decode("ascii").casefold()
+	slug = re.sub(r"[^a-z0-9]+", "-", ascii_title).strip("-")
+	return slug
+
+
+#============================================
+def resolve_slug_placeholder(post: str) -> str:
+	"""Resolve the prompt's literal slug sentinel from an otherwise parseable H1."""
+	match = FRONT_MATTER_RE.search(post)
+	if not match:
+		return post
+	placeholder_re = re.compile(
+		rf"^slug:\s*{re.escape(SLUG_PLACEHOLDER)}\s*$",
+		flags=re.MULTILINE,
+	)
+	front_matter = match.group(1)
+	if not placeholder_re.search(front_matter):
+		return post
+	body = post[match.end():]
+	h1_values = re.findall(r"^#\s+(.+?)\s*$", body, flags=re.MULTILINE)
+	if len(h1_values) != 1:
+		return post
+	slug = slug_from_title(h1_values[0])
+	if not slug:
+		return post
+	resolved_front_matter = placeholder_re.sub(f"slug: {slug}", front_matter, count=1)
+	resolved = post[:match.start(1)] + resolved_front_matter + post[match.end(1):]
+	return resolved
 
 
 #============================================
@@ -109,170 +145,106 @@ def _validate_final_house_style(body: str, packet: daily_blog.schema.EvidencePac
 
 
 #============================================
+def _generic_work_log_title(title: str, report_date: str) -> bool:
+	"""Return whether an H1 is only a generic date-derived work-log label."""
+	normalized = re.sub(r"[^a-z0-9]+", " ", title.casefold()).strip()
+	date_words = report_date.replace("-", " ")
+	generic = {
+		"work log",
+		"daily work log",
+		f"work log {date_words}",
+		f"work log for {date_words}",
+		f"daily work log {date_words}",
+		f"daily work log for {date_words}",
+		f"{date_words} work log",
+		f"{date_words} daily work log",
+	}
+	return normalized in generic
+
+
+#============================================
 def validate_candidate(
 	post: str,
 	packet: daily_blog.schema.EvidencePacket,
+	projection: daily_blog.schema.EditorialProjection,
 	run_id: str,
-	expected_quality: str = "final",
 ) -> list[str]:
 	"""Return deterministic structural and evidence-provenance issues."""
 	issues = []
+	if projection.packet_id != packet.packet_id:
+		return ["Editorial projection does not match the authoritative evidence packet."]
 	if len(post) > MAX_CANDIDATE_CHARS:
 		issues.append("Post exceeds the candidate character budget.")
 	try:
 		front_matter, body = parse_front_matter(post)
 	except RuntimeError as error:
 		return [str(error)]
-	required = ("date", "slug", "publication_quality", "generator_run", "evidence_manifest")
+	required = (
+		"date",
+		"slug",
+		"generator_run",
+		"evidence_manifest",
+		"editorial_projection",
+	)
 	for key in required:
 		if key not in front_matter:
 			issues.append(f"Front matter is missing {key}.")
 	if str(front_matter.get("date") or "") != packet.report_date:
 		issues.append("Front matter date does not match the evidence packet.")
 	slug = str(front_matter.get("slug") or "")
-	if not SLUG_RE.fullmatch(slug):
+	if slug == SLUG_PLACEHOLDER:
+		issues.append("Front matter contains an unresolved slug placeholder.")
+	elif not SLUG_RE.fullmatch(slug):
 		issues.append("Front matter slug must use lowercase ASCII words and hyphens.")
-	if front_matter.get("publication_quality") != expected_quality:
-		issues.append("Front matter publication_quality does not match the candidate role.")
 	if front_matter.get("generator_run") != run_id:
 		issues.append("Front matter generator_run does not match the active run.")
 	if front_matter.get("evidence_manifest") != "evidence.json":
 		issues.append("Front matter evidence_manifest must name evidence.json.")
-	if len(re.findall(r"^#\s+\S", body, flags=re.MULTILINE)) != 1:
+	if front_matter.get("editorial_projection") != "editorial_projection.json":
+		issues.append("Front matter editorial_projection must name editorial_projection.json.")
+	h1_values = re.findall(r"^#\s+(.+?)\s*$", body, flags=re.MULTILINE)
+	if len(h1_values) != 1:
 		issues.append("Post body must contain exactly one H1.")
+	elif _generic_work_log_title(h1_values[0], packet.report_date):
+		issues.append("Post H1 must use a specific thematic title instead of a dated Work log label.")
 	if not re.search(r"^##\s+\S", body, flags=re.MULTILINE):
 		issues.append("Post body must contain at least one meaningful H2.")
 	if body.count("<!-- more -->") != 1:
 		issues.append("Post body must contain exactly one excerpt marker.")
-	if expected_quality == "final" and body.count("<!-- more -->") == 1:
+	if body.count("<!-- more -->") == 1:
 		issues.extend(_validate_final_house_style(body, packet))
 	if FENCE_RE.search(body):
 		issues.append("Post body contains a fenced payload.")
 	if not re.search(r"\b(?:I|my)\b", body, flags=re.IGNORECASE):
 		issues.append("Post body must use first-person work-log voice.")
-	known_ids = {item.evidence_id for item in packet.items}
+	packet_ids = {item.evidence_id for item in packet.items}
+	known_ids = {excerpt.evidence_id for excerpt in projection.excerpts}
 	used_ids = evidence_ids_in_post(body)
+	if not known_ids.issubset(packet_ids):
+		issues.append("Editorial projection contains evidence outside the authoritative packet.")
 	unknown_ids = sorted(used_ids - known_ids)
 	if unknown_ids:
 		issues.append("Post cites unknown evidence IDs: " + ", ".join(unknown_ids))
 	for block in prose_blocks(body):
 		if not EVIDENCE_COMMENT_RE.search(block):
-			issues.append("Every factual prose paragraph must cite packet evidence.")
+			issues.append("Every factual prose paragraph must cite projected evidence.")
 			break
 	primary_ids = {
-		item.evidence_id for item in packet.items if item.kind == "dated_changelog"
+		excerpt.evidence_id
+		for excerpt in projection.excerpts
+		if excerpt.kind == "dated_changelog"
 	}
 	if primary_ids and not used_ids.intersection(primary_ids):
 		issues.append("Post must cite dated changelog evidence when it is available.")
 	if not primary_ids and not used_ids:
-		issues.append("Post must cite at least one packet evidence item.")
-	image_items = [item for item in packet.items if item.kind == "screenshot"]
-	used_images = [item for item in image_items if item.publish_path in body]
+		issues.append("Post must cite at least one projected evidence item.")
+	projected_ids = {excerpt.evidence_id for excerpt in projection.excerpts}
+	image_items = [
+		item
+		for item in packet.items
+		if item.kind == "screenshot" and item.evidence_id in projected_ids
+	]
 	for path in re.findall(r"!\[[^\]]*\]\(([^)]+)\)", body):
 		if path not in {item.publish_path for item in image_items}:
-			issues.append(f"Post embeds an image path outside packet evidence: {path}")
-	if used_images:
-		used_image_ids = {item.evidence_id for item in used_images}
-		if not used_ids.intersection(used_image_ids):
-			issues.append("Embedded screenshots must cite their evidence IDs.")
+			issues.append(f"Post embeds an image path outside projected evidence: {path}")
 	return issues
-
-
-#============================================
-def _compact_evidence_text(item: daily_blog.schema.EvidenceItem) -> str:
-	"""Condense one evidence item for a deterministic provisional paragraph."""
-	text = re.sub(r"^##\s+\d{4}-\d{2}-\d{2}[^\n]*\n?", "", item.content)
-	text = re.sub(r"^\s*[-*]\s+", "", text, flags=re.MULTILINE)
-	text = re.sub(r"\s+", " ", text).strip()
-	if len(text) > 900:
-		text = text[:897].rstrip() + "..."
-	return text
-
-
-#============================================
-def provisional_post(
-	packet: daily_blog.schema.EvidencePacket,
-	run_id: str,
-) -> str:
-	"""Build a deterministic evidence-first post for pending editorial approval."""
-	front_matter = (
-		"---\n"
-		+ f"date: {packet.report_date}\n"
-		+ f"slug: work-log-{packet.report_date}\n"
-		+ "publication_quality: provisional\n"
-		+ f"generator_run: {run_id}\n"
-		+ "evidence_manifest: evidence.json\n"
-		+ "---\n\n"
-	)
-	first_item = packet.items[0]
-	paragraphs = [
-		f"# Work log for {packet.report_date}",
-		(
-			"I assembled the day from exact Git objects and kept this provisional account close "
-			+ f"to the available evidence. <!-- evidence: {first_item.evidence_id} -->"
-		),
-		"<!-- more -->",
-	]
-	if not packet.activity:
-		paragraphs.extend(
-			[
-				"## Recorded activity",
-				(
-					"I found no attributed commits for this Central-calendar day in the refreshed "
-					+ f"repository caches. <!-- evidence: {first_item.evidence_id} -->"
-				),
-			]
-		)
-	else:
-		for activity in packet.activity[:3]:
-			repository_items = [
-				item for item in packet.items if item.repository == activity.repository
-			]
-			primary = next(
-				(item for item in repository_items if item.kind == "dated_changelog"),
-				repository_items[0],
-			)
-			detail = _compact_evidence_text(primary)
-			paragraphs.extend(
-				[
-					"## " + activity.repository.split("/", 1)[-1],
-					(
-						f"I recorded work in [{activity.repository}]({activity.repository_url}). "
-						+ f"{detail} <!-- evidence: {primary.evidence_id} -->"
-					),
-				]
-			)
-			screenshot = next(
-				(item for item in repository_items if item.kind == "screenshot"),
-				None,
-			)
-			if screenshot is not None:
-				paragraphs.append(
-					f"![Evidence from {activity.repository}]({screenshot.publish_path})\n"
-					+ f"<!-- evidence: {screenshot.evidence_id} -->"
-				)
-		if len(packet.activity) > 3:
-			extra_ids = []
-			extra_names = []
-			for activity in packet.activity[3:]:
-				item = next(item for item in packet.items if item.repository == activity.repository)
-				extra_ids.append(item.evidence_id)
-				extra_names.append(activity.repository)
-			paragraphs.extend(
-				[
-					"## Additional repositories",
-					(
-						"I also recorded attributed work across "
-						+ ", ".join(extra_names)
-						+ ". <!-- evidence: "
-						+ ", ".join(extra_ids)
-						+ " -->"
-					),
-				]
-			)
-	body = "\n\n".join(paragraphs).rstrip() + "\n"
-	post = front_matter + body
-	issues = validate_candidate(post, packet, run_id, expected_quality="provisional")
-	if issues:
-		raise RuntimeError("Deterministic provisional post failed validation: " + "; ".join(issues))
-	return post

@@ -441,18 +441,23 @@ class EvidenceAssembler:
 	"""Order providers by authority and budget all supporting context explicitly."""
 
 	#============================================
-	def __init__(self, report_date: str, timezone_name: str, budgets: dict[str, int]) -> None:
-		"""Configure the report identity and evidence budgets."""
+	def __init__(
+		self,
+		report_date: str,
+		timezone_name: str,
+		collection_limits: dict[str, int],
+	) -> None:
+		"""Configure the report identity and evidence collection limits."""
 		self.report_date = report_date
 		self.timezone_name = timezone_name
-		self.budgets = budgets
+		self.collection_limits = collection_limits
 
 	#============================================
 	def _budget_items(
 		self,
 		items: list[daily_blog.schema.EvidenceItem],
 	) -> list[daily_blog.schema.EvidenceItem]:
-		"""Preserve changelogs and apply per-source plus total supporting budgets."""
+		"""Preserve changelogs and apply per-source plus total collection limits."""
 		ordered = sorted(
 			items,
 			key=lambda item: (
@@ -463,14 +468,14 @@ class EvidenceAssembler:
 			),
 		)
 		remaining_by_kind = {
-			"changed_documentation": self.budgets["changed_documentation_chars"],
-			"diff": self.budgets["diff_chars"],
-			"readme_context": self.budgets["readme_context_chars"],
-			"commit_metadata": self.budgets["commit_metadata_chars"],
-			"screenshot": self.budgets["supporting_total_chars"],
+			"changed_documentation": self.collection_limits["changed_documentation_chars"],
+			"diff": self.collection_limits["diff_chars"],
+			"readme_context": self.collection_limits["readme_context_chars"],
+			"commit_metadata": self.collection_limits["commit_metadata_chars"],
+			"screenshot": self.collection_limits["supporting_total_chars"],
 		}
-		remaining_total = self.budgets["supporting_total_chars"]
-		screenshot_remaining = self.budgets["screenshot_count"]
+		remaining_total = self.collection_limits["supporting_total_chars"]
+		screenshot_remaining = self.collection_limits["screenshot_count"]
 		selected = []
 		for item in ordered:
 			if item.kind == "dated_changelog":
@@ -482,7 +487,7 @@ class EvidenceAssembler:
 				screenshot_remaining -= 1
 			kind_remaining = remaining_by_kind[item.kind]
 			limit = min(
-				self.budgets["per_item_chars"],
+				self.collection_limits["per_item_chars"],
 				kind_remaining,
 				remaining_total,
 			)
@@ -508,7 +513,12 @@ class EvidenceAssembler:
 			snapshot = GitSnapshot(activity)
 			items.extend(ChangelogEvidenceProvider(self.report_date).collect(activity, snapshot))
 			items.extend(DocumentationEvidenceProvider().collect(activity, snapshot))
-			items.extend(DiffEvidenceProvider(self.budgets["diff_chars"]).collect(activity, snapshot))
+			items.extend(
+				DiffEvidenceProvider(self.collection_limits["diff_chars"]).collect(
+					activity,
+					snapshot,
+				)
+			)
 			screenshot_items, screenshot_assets = ScreenshotEvidenceProvider(
 				self.report_date
 			).collect(activity, snapshot)
@@ -541,7 +551,7 @@ class EvidenceAssembler:
 			self.report_date,
 			self.timezone_name,
 			complete,
-			self.budgets,
+			self.collection_limits,
 			mirror_entries,
 			activities,
 			budgeted,

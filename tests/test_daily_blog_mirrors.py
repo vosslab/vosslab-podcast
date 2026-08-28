@@ -44,7 +44,9 @@ def test_per_date_lock_rejects_overlapping_publication_owner(tmp_path: pathlib.P
 			daily_blog.config.RoleRoute("two", ("fake",)),
 		),
 		referee_route=daily_blog.config.RoleRoute("judge", ("fake",)),
-		evidence_budgets={},
+		collection_limits={},
+		projection_limits={},
+		prompt_limits={},
 	)
 	lock_path = tmp_path / "out" / "vosslab" / "daily_blog_locks" / "2026-08-23.lock"
 

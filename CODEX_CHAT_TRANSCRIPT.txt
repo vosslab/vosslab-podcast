@@ -1607,3 +1607,98 @@ Next actions
 1. Keep author-role prompt differentiation deferred until prompt editing resumes.
 2. With explicit external model data-sharing approval, run the August 22 and 23 semantic shadow
    comparisons and review their immutable scorecards before enabling the producer timer.
+
+---
+Session Update: 2026-08-27 (Nightly publication repair and resilient scheduling)
+
+What changed
+- Traced the missed publication to the retired Hermes cron wrapper, which still executed the deleted
+  publisher `scripts/daily_preflight.sh` path before the new producer orchestrator could create a run.
+- Added schema-validated structured lifecycle events with independent best-effort JSONL and stdout
+  sinks. Event-sink failures no longer alter authoritative phase or publication state, and importer
+  receipts must match the expected status, report date, and bundle identity.
+- Replaced one-date persistent-timer catch-up with a locked, atomic schedule cursor that reconciles
+  publisher receipts and drains up to seven missing dates oldest-first.
+- Enabled the backlog-aware user service, initialized its cursor through August 26, removed the
+  obsolete Hermes publication job, and archived four deleted-path wrappers under
+  `~/.hermes/retired-daily-blog-20260827/`.
+- Reconciled producer, publisher, cutover, output-layout, and host service documentation with the
+  explicitly activated timer and pending quality-review status.
+- Rotated older changelog day blocks into `docs/CHANGELOG-2026-08a.md` after the active file crossed
+  its repository threshold.
+
+What was tested
+- Focused daily-publication and schedule pytest suite: 35 passed.
+- Changed-file typing, pyflakes, and ASCII hygiene: 83 passed.
+- Changed producer Markdown link nodes: 7 passed.
+- Producer-to-publisher direct E2E passed with first-run import and idempotent reuse lifecycle events.
+- Publisher operations/changelog links: 2 passed; strict MkDocs build completed in a temporary site.
+- Installed systemd service reconciliation exited 0, generated no duplicate date, and persisted
+  `daily_blog_schedule.json` with `last_completed_date: 2026-08-26`.
+- A broad hygiene run passed 486 checks and retained 31 established unrelated typing and vendored-link
+  failures.
+
+Next actions
+1. Observe the August 28 02:00 timer activation; it should publish August 27 and advance the cursor.
+2. Complete the August 22 and 23 semantic shadow comparisons as post-cutover quality evidence.
+
+---
+Session Update: 2026-08-27 (Clean pre-production editorial projection cutover)
+
+What changed
+- Added immutable editorial projection v1 with exact evidence slices, offsets, source/content hashes,
+  stable authority-ranked repository round robin, and compact cards for every active repository.
+- Inserted the cached `editorial_projection` phase between evidence and authoring, persisted
+  `editorial_projection.json`, and bound author artifacts, referee decisions, front matter, and
+  bundle v2 metadata to the projection contract.
+- Split evidence, projection, and complete-prompt limits into three explicit settings mappings.
+- Removed the technical fallback publication path and legacy quality classification. Editorial
+  blocking now raises `EditorialBlockedError` before bundle creation or publisher import.
+- Advanced evidence to v3, run state to v2, generator to v2, prompts/rubric to v3, and added new v3
+  prompt files while retaining the historical v2 files.
+- Updated producer README, architecture, operations, ownership, file layout, output layout, settings,
+  tests, E2E coverage, and changelog. The sibling publisher repository was not modified.
+
+What was tested
+- Supplied projection test: 5 passed after the expected initial missing-module red state.
+- Focused daily-blog, settings, and prompt-policy pytest set: 57 passed.
+- Focused changed-file typing, imports, pyflakes, whitespace, ASCII, line-size, and shebang gates:
+  209 passed.
+- Direct E2E aggregate: 13 passed, including exact Git evidence and strict bundle v2 publisher import
+  with projection/editorial/bundle reuse and idempotent reimport.
+
+Next actions
+1. Review the first model-authored pre-production post under the v3 projection-bound prompts.
+2. Observe the scheduled run and confirm blocked editorial attempts leave later phases pending.
+
+---
+Session Update: 2026-08-27 (Clean cutover and live August 26 publication)
+
+What changed
+- Completed the producer/publisher clean cutover to bundle v2, evidence v3, editorial projection v1,
+  generator v2, prompts/rubric v3, and publication records v2 without legacy compatibility paths.
+- Removed the eleven pre-bundle publisher records after the first strict import rejected their v1
+  schemas. The failed import changed neither source nor the served release.
+- Regenerated August 26 through the complete final-only editorial path and imported its immutable
+  bundle. Removed the superseded August 26 v1 archive only after the replacement release was live.
+- Preserved the tuned thematic prompt language; active v3 prompt changes are limited to projection
+  terminology and final-only A/B contract changes.
+
+Live result
+- Run: `20260827T230459Z-84dd3c1d1f`.
+- Bundle: `82a74502ba53ff9eed78985fc5579d668545b228c151d773b63c6c6a6862deee`.
+- Title: "Durable interfaces and verifiable workflows".
+- All nine producer phases completed, the publisher record is publication v2, the post validates
+  against the archived evidence/projection/bundle, and `site` resolves to the same release ID.
+- `vosslab-daily-blog.service` and `vosslab-daily-publication.timer` are active; the timer is enabled.
+- Schedule v2 now binds August 26 to the exact live bundle and the installed command reconciled it
+  with no generation and no remaining backlog.
+
+Verification
+- Producer focused daily-blog suite: 47 passed, including exact prompt-content cache identity and
+  receipt-bound schedule validation; direct
+  producer-to-publisher E2E passed with immutable phase and bundle reuse.
+- Producer full suite: 1816 passed with 33 established unrelated typing, vendored-link, and legacy
+  source-size failures.
+- Publisher importer/status suite: 23 passed; strict MkDocs build passed.
+- Publisher full suite: 1092 passed with six existing historical Markdown-link failures.

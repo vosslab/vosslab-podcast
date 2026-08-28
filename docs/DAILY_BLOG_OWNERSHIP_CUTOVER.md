@@ -11,9 +11,10 @@ publication schedule.
 source, publication records, strict staged builds, immutable releases, atomic installation, the
 served release pointer, and the static service on port 8016.
 
-The current v1 publication bundle is the only interface between the repositories. It requires the
-`daily-blog-prompts-v2` and `daily-blog-rubric-v2` editorial contracts. No collector, mirror,
-generator, model execution, layered editorial state, or publication timer remains in the publisher.
+The current v2 publication bundle is the only interface between the repositories. It requires
+evidence v3, projection v1, generator v2, and the `daily-blog-prompts-v3` plus
+`daily-blog-rubric-v3` editorial contracts. No collector, mirror, generator, model execution,
+layered editorial state, or publication timer remains in the publisher.
 
 ## Retired design
 
@@ -34,8 +35,8 @@ publication timer remains alongside `vosslab-daily-blog.service`.
 - Two author routes and one referee route receive repository-owned, versioned prompts through
   isolated standard-input sessions.
 - Measurable August house-style requirements are deterministic final-candidate gates.
-- Complete evidence can produce a deterministic provisional bundle when editorial approval is
-  unavailable.
+- Missing editorial approval blocks bundle creation and publisher import while preserving the
+  failed producer run for retry.
 - The publisher installs only a fully validated, strictly built proposal and preserves its last
   good source and served release across failure.
 - Non-publishing historical evaluation has a default-deny model data-sharing boundary and a
@@ -54,6 +55,16 @@ fixed-date `ExecCondition` was removed from the service: it was cutover scaffold
 durable publishing contract. Enable the installed timer only after both approved shadow IDs and the
 review outcome are added to this record.
 
+Later on 2026-08-27, the operator explicitly directed the repair path to work immediately and asked
+for the missing August 26 run. That instruction superseded the temporary activation gate while the
+historical comparisons remained pending quality evidence. The former Hermes cron was paused, the
+producer timer was enabled, and its persistent activation imported a legacy v1 fallback bundle
+`0fa0c52859c243890857c9e85f63c6f370e649739f47cda1ab6466f9cb49c8a6` from run
+`20260827T151213Z-ea25b1e79b`. The follow-up audit removed the obsolete Hermes cron job, archived its
+four deleted-path wrappers under `~/.hermes/retired-daily-blog-20260827/`, and replaced one-date
+timer catch-up with a durable, bounded, oldest-first cursor so a multi-day outage cannot silently
+skip older report dates.
+
 ## One-time verification record
 
 | Check | Status | Evidence |
@@ -62,8 +73,9 @@ review outcome are added to this record.
 | August 23 exact-object preflight | Complete | Four active repositories, 25 typed evidence items, and 10 assets |
 | Reference structure profile | Complete | Both posts use first person, four narrative H2s, compact openings, Project coverage, and 613/636 narrative words |
 | Synthetic producer-to-publisher flow | Complete | `tests/e2e/e2e_daily_publication.py` passed through strict MkDocs staging on 2026-08-27 |
-| August 22 semantic shadow | Pending approval | Shadow ID and human decision remain to be recorded |
-| August 23 semantic shadow | Pending approval | Shadow ID and human decision remain to be recorded |
+| August 22 semantic shadow | Pending quality review | Shadow ID and human decision remain to be recorded |
+| August 23 semantic shadow | Pending quality review | Shadow ID and human decision remain to be recorded |
+| August 26 repaired publication | Complete | Run `20260827T151213Z-ea25b1e79b`; legacy v1 fallback bundle `0fa0c52859c2` imported |
 
 These are cutover facts rather than permanent regression cases. The permanent suite covers the
 general contracts that produced them.

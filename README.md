@@ -151,9 +151,9 @@ chmod +x automation/run_local_pipeline.py automation/install_launchd_pipeline.sh
 
 ## Daily publication
 
-One date-driven command owns mirror refresh, activity location, evidence assembly, two isolated
-author sessions, deterministic validation, anonymous referee selection, immutable bundling, and
-local site import:
+One date-driven command owns mirror refresh, activity location, evidence assembly, bounded
+editorial projection, two isolated author sessions, deterministic validation, anonymous referee
+selection, immutable bundling, and local site import:
 
 ```bash
 source source_me.sh && python3 automation/publish_daily_blog.py --date 2026-08-23
@@ -164,25 +164,33 @@ Git objects, and treats matching `docs/CHANGELOG.md` date sections as the primar
 authority. Supporting documentation, diffs, README context, screenshots, and commit metadata follow
 the authority order encoded in `pipeline/daily_blog/schema.py`.
 
-Both authors receive the same bounded evidence packet through separate configured command routes.
-Each result must satisfy structure, front matter, and paragraph-level evidence references before the
-referee sees it anonymously. The referee can select `A`, `B`, or `NONE`. `NONE`, route failure, or
-candidate rejection produces a deterministic provisional work log, so complete evidence remains
-publishable without trusting unvalidated model output.
+The full evidence packet remains the authoritative audit record. A deterministic projection splits
+large sources into exact offset- and hash-bound excerpts, keeps a compact card for every active
+repository, and selects evidence by authority with fair repository round robin. Both authors receive
+that same projection through separate configured command routes. Each result must bind its front
+matter to the projection and satisfy structure plus paragraph-level evidence references before the
+referee sees it anonymously.
 
-The v2 editorial contract also validates the visible house style: one compact opening realization,
+The referee receives every repository card and only the projection excerpts cited by the valid
+candidates. It must approve candidate `A` or `B`. Missing valid candidates, a `NONE` verdict, route
+failure, or complete-prompt overflow raises `EditorialBlockedError`; the run writes no bundle and
+does not call the publisher.
+
+The v3 editorial contract also validates the visible house style: one compact opening realization,
 350-650 narrative words, two to four thematic sections, and final evidence-cited coverage for every
 active repository. Role commands are transport-only. The checked-in Hermes routes read the
 repository-owned prompt from standard input with profile rules disabled, so profile skills, memory,
 and saved sessions cannot silently add a second instruction source.
 
-The immutable producer/publisher interface contains `bundle.json`, `evidence.json`, `post.md`, and
-`assets/`. The publisher repository validates every hash and provenance reference, performs a strict
-staged MkDocs build, and switches the served release only after the complete proposal succeeds.
+The immutable producer/publisher interface contains `bundle.json`, `evidence.json`,
+`editorial_projection.json`, `post.md`, and `assets/`. Every bundle is an approved final publication
+by construction. The publisher repository validates every hash and provenance reference, performs a
+strict staged MkDocs build, and switches the served release only after the complete proposal
+succeeds.
 
 Add explicit clone sources under `daily_blog.repository_urls` when a repository has no cache yet.
-Configure attribution identities, role routes, context budgets, report timezone, mirror root, and
-publisher repository under `daily_blog` in `settings.yaml`.
+Configure attribution identities, role routes, collection limits, projection limits, complete-prompt
+limits, report timezone, mirror root, and publisher repository under `daily_blog` in `settings.yaml`.
 
 Compare the current editorial contract with a preserved historical post without importing into the
 site. First set `daily_blog.shadow_evaluation.external_model_data_sharing: true` only when the
@@ -200,10 +208,11 @@ a typed semantic scorecard below `out/<user>/daily_blog_shadow/`. It has no publ
 data-sharing setting defaults to `false`, and the evaluator reaches no model route until the setting
 is explicitly enabled.
 
-The August 22 and 23 comparisons are one-time cutover evidence, not a permanent schedule condition
-or pytest contract. Keep the timer disabled while they await review. After an operator approves the
-generated posts and scorecards and records their shadow IDs in the ownership record, enable the
-ordinary date-driven timer. The service contains no historical-date special case.
+The August 22 and 23 comparisons are one-time quality evidence, not a permanent schedule condition
+or pytest contract. On August 27, the operator explicitly activated the durable timer to restore
+publication while those comparisons remain pending. The scheduled command persists a last-success
+cursor and drains up to seven missing report dates oldest-first, while the explicit-date command
+remains available for manual repair.
 
 Operations: [docs/DAILY_BLOG_OPERATIONS.md](docs/DAILY_BLOG_OPERATIONS.md)
 

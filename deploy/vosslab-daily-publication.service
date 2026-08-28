@@ -9,8 +9,8 @@ Type=oneshot
 WorkingDirectory=/home/vosslab/nsh/vosslab-podcast
 Environment=TZ=America/Chicago
 Environment=HERMES_HOME=/home/vosslab/.hermes
-ExecStart=/bin/bash -lc 'source source_me.sh && python3 automation/publish_daily_blog.py --date "$(date --date=yesterday +%%F)"'
-TimeoutStartSec=60min
+ExecStart=/bin/bash -lc 'source source_me.sh && python3 automation/publish_scheduled_daily_blog.py'
+TimeoutStartSec=4h
 NoNewPrivileges=yes
 PrivateTmp=yes
 ProtectSystem=full

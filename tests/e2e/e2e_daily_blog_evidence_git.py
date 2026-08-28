@@ -108,8 +108,8 @@ def make_repository(
 
 
 #============================================
-def budgets() -> dict[str, int]:
-	"""Return complete explicit provider budgets."""
+def collection_limits() -> dict[str, int]:
+	"""Return complete explicit provider collection limits."""
 	return {
 		"changed_documentation_chars": 8000,
 		"diff_chars": 12000,
@@ -117,8 +117,6 @@ def budgets() -> dict[str, int]:
 		"commit_metadata_chars": 4000,
 		"per_item_chars": 6000,
 		"supporting_total_chars": 24000,
-		"author_context_chars": 48000,
-		"referee_context_chars": 64000,
 		"screenshot_count": 4,
 	}
 
@@ -193,7 +191,7 @@ def verify_secondary_evidence(root: pathlib.Path) -> None:
 	"""A complete packet remains useful when no dated changelog section exists."""
 	_repository, mirror, activity = make_repository(root, include_changelog=False)
 	assembler = daily_blog.evidence.EvidenceAssembler(
-		"2026-08-23", "America/Chicago", budgets()
+		"2026-08-23", "America/Chicago", collection_limits()
 	)
 
 	packet, assets = assembler.assemble([mirror], [activity])
@@ -245,7 +243,7 @@ def verify_non_linear_activity(root: pathlib.Path) -> None:
 		("vosslab@users.noreply.github.com",),
 	)[0]
 	packet, _assets = daily_blog.evidence.EvidenceAssembler(
-		"2026-08-23", "America/Chicago", budgets()
+		"2026-08-23", "America/Chicago", collection_limits()
 	).assemble([mirror], [activity])
 	diff_content = "\n".join(item.content for item in packet.items if item.kind == "diff")
 
