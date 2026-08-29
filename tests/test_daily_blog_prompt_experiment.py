@@ -11,10 +11,17 @@ import pytest
 
 # local repo modules
 import daily_blog.config
+import daily_blog.experiment_fixture_contract
 import daily_blog.io_utils
 import daily_blog.projection
+import daily_blog.repositories
+import daily_blog.roster_snapshots
 import daily_blog.schema
 from automation import experiment_daily_blog_prompts as experiment
+from automation import run_daily_blog_fixture_capture as fixture_capture
+
+
+TEST_ROSTER_ID = "c" * 64
 
 
 #============================================
@@ -24,7 +31,37 @@ def packet_for(date: str) -> daily_blog.schema.EvidencePacket:
 		"dated_changelog", "vosslab/project", "a" * 40, "docs/CHANGELOG.md", "b" * 40,
 		f"## {date}\n\n- Built an exact experiment fixture.\n", "test",
 	)
-	return daily_blog.schema.EvidencePacket.create(date, "America/Chicago", True, {}, [], [], [item])
+	mirror = {
+		"default_revision": "d" * 40,
+		"ref_fingerprint": daily_blog.io_utils.hash_value(["d" * 40]),
+		"repository": "vosslab/project",
+		"repository_url": "https://github.com/vosslab/project",
+		"roster_id": TEST_ROSTER_ID,
+	}
+	return daily_blog.schema.EvidencePacket.create(
+		date, "America/Chicago", True, {}, [mirror], [], [item],
+	)
+
+
+#============================================
+def test_capture_scorecards_require_exact_selected_post_passages() -> None:
+	"""The sealed capture rejects referee grounding invented outside the selected post."""
+	post = "# A maker note\n\nI built the artifact.\n"
+	fields = (
+		experiment.daily_blog.rubric_calibration.CALIBRATION_CONTRACT.expected_criteria
+	)
+	scorecard = {
+		"status": "scored",
+		"scores": {field: 3 for field, _title, _weight in fields},
+		"passages": {field: "I built the artifact." for field, _title, _weight in fields},
+		"reasons": {field: "The passage shows maker work." for field, _title, _weight in fields},
+		"weighted_score": 3.0,
+		"overall_reason": "The exact passage supports the score.",
+	}
+
+	assert experiment.daily_blog.experiment_capture_artifacts._valid_scorecard(scorecard, post)
+	scorecard["passages"][fields[0][0]] = "This passage is absent."
+	assert not experiment.daily_blog.experiment_capture_artifacts._valid_scorecard(scorecard, post)
 
 
 #============================================
@@ -61,30 +98,44 @@ def fixture(root: pathlib.Path, date: str, publisher_bundle: bool = False) -> pa
 		(root / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
 	else:
 		identity = {
-			"schema_version": experiment.FIXTURE_SCHEMA,
-			"report_date": date,
+			"config_identity": {
+				"fields": list(daily_blog.experiment_fixture_contract.CONFIG_IDENTITY_FIELDS),
+				"sha256": daily_blog.io_utils.hash_value({}),
+			},
+			"evidence_count": len(packet.items),
 			"evidence_packet_id": packet.packet_id,
-			"projection_id": projection.projection_id,
-			"repository_roster_snapshot": {"roster_id": "synthetic-roster"},
 			"files": {
 				"evidence.json": {
-					"path": "evidence.json",
-					"packet_id": packet.packet_id,
 					"bytes": evidence.stat().st_size,
 					"sha256": experiment._sha256(evidence),
 				},
 				"editorial_projection.json": {
-					"path": "editorial_projection.json",
-					"projection_id": projection.projection_id,
 					"bytes": context.stat().st_size,
 					"sha256": experiment._sha256(context),
 				},
 			},
+			"mirrors": daily_blog.experiment_fixture_contract.fixture_mirror_identities(
+				[mirror.to_dict() for mirror in packet.mirrors]
+			),
+			"projection_id": projection.projection_id,
+			"projection_rendered_chars": len(projection.render_context()),
+			"report_date": date,
+			"repository_count": len(projection.repositories),
+			"repository_roster_snapshot": {
+				"captured_utc": "2026-08-28T00:00:00Z",
+				"repository_count": len(packet.mirrors),
+				"roster_id": TEST_ROSTER_ID,
+				"schema_version": daily_blog.roster_snapshots.ROSTER_SNAPSHOT_SCHEMA_VERSION,
+				"source": {
+					"fresh": True,
+					"kind": "github_owner_repositories",
+					"policy": daily_blog.repositories.REPOSITORY_POLICY_VERSION,
+				},
+			},
+			"schema_version": experiment.FIXTURE_SCHEMA,
+			"source_repository": "vosslab-daily-blog",
 		}
-		manifest = {
-			**identity,
-			"fixture_id": daily_blog.io_utils.hash_value(identity),
-		}
+		manifest = daily_blog.experiment_fixture_contract.seal_fixture_manifest(identity)
 		(root / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
 	for artifact in root.iterdir():
 		artifact.chmod(0o600)
@@ -339,13 +390,21 @@ def persist_failed_capture(
 			experiment.DEFAULT_ARMS,
 			experiment.daily_blog.rubric_calibration.MIN_REPETITIONS,
 			[
-				{"name": "one", "executable": "hermes"},
-				{"name": "two", "executable": "hermes"},
-				{"name": "judge", "executable": "hermes"},
+				experiment._route_metadata(daily_blog.config.RoleRoute(
+					"one", daily_blog.config.HERMES_EDITORIAL_ROUTE,
+				)),
+				experiment._route_metadata(daily_blog.config.RoleRoute(
+					"two", daily_blog.config.HERMES_EDITORIAL_ROUTE,
+				)),
+				experiment._route_metadata(daily_blog.config.RoleRoute(
+					"judge", daily_blog.config.HERMES_EDITORIAL_ROUTE,
+				)),
 			],
 			records,
 			comparisons,
 			errors,
+			experiment.daily_blog.experiment_capture_artifacts.EXTERNAL_HERMES,
+			None,
 		)
 		assert code == 1
 		return output
@@ -372,6 +431,27 @@ def test_persisted_capture_rejects_unbalanced_or_noncanonical_comparisons(
 	"""The disk loader enforces both orders and canonicalizes positional winners."""
 	path = persist_failed_capture(tmp_path, monkeypatch, case)
 	with pytest.raises(RuntimeError, match=message):
+		experiment.daily_blog.experiment_capture_artifacts.load_capture(str(path))
+
+
+#============================================
+@pytest.mark.parametrize(
+	("artifact_name", "ambiguous_json"),
+	(
+		("manifest.json", b'{"schema_version":"one","schema_version":"two"}'),
+		("report.json", b'{"schema_version":NaN}'),
+	),
+)
+def test_capture_loader_rejects_ambiguous_sealed_json(
+	tmp_path: pathlib.Path,
+	monkeypatch: pytest.MonkeyPatch,
+	artifact_name: str,
+	ambiguous_json: bytes,
+) -> None:
+	"""Capture artifact loading rejects duplicate names and non-finite JSON values."""
+	path = persist_failed_capture(tmp_path, monkeypatch, "missing_ba")
+	(path / artifact_name).write_bytes(ambiguous_json)
+	with pytest.raises(RuntimeError, match="Experiment capture (manifest|report) is invalid"):
 		experiment.daily_blog.experiment_capture_artifacts.load_capture(str(path))
 
 
@@ -537,20 +617,111 @@ def test_rejects_unsafe_arms_hashless_manifest_and_relative_paths(tmp_path: path
 
 
 #============================================
-@pytest.mark.parametrize("repetitions", (True, 1, 6))
-def test_experiment_rejects_unbounded_repetition_counts_before_input_access(
+def test_fixture_capture_rejects_self_asserted_shim_mode_before_input_access(
 	tmp_path: pathlib.Path,
-	repetitions: object,
 ) -> None:
-	"""Direct callers cannot turn a prose experiment into unbounded route work."""
-	with pytest.raises(RuntimeError, match="repetitions"):
+	"""A caller cannot claim no-egress provenance with only a PATH-shaped runner."""
+	with pytest.raises(RuntimeError, match="attested shim installation"):
 		experiment.run_experiment(
 			config(tmp_path),
 			"/unread/busy",
 			"/unread/quiet",
-			repetitions=repetitions,
-			runner=object(),
+			execution_mode=(
+				experiment.daily_blog.experiment_capture_artifacts.FIXTURE_HERMES_SHIM
+			),
 		)
+
+
+#============================================
+def test_fixture_capture_requires_the_sealed_hermes_route_before_input_access(
+	tmp_path: pathlib.Path,
+) -> None:
+	"""An attested fixture shim still rejects direct or alternate route configuration."""
+	installation = experiment.daily_blog.fixture_hermes.install_fixture_hermes(
+		str(tmp_path), {"fixture prompt": "fixture response"},
+	)
+	with pytest.raises(RuntimeError, match="sealed Hermes editorial route"):
+		experiment.run_experiment(
+			config(tmp_path),
+			"/unread/busy",
+			"/unread/quiet",
+			runner=installation.create_route_runner(),
+			execution_mode=(
+				experiment.daily_blog.experiment_capture_artifacts.FIXTURE_HERMES_SHIM
+			),
+			fixture_installation=installation,
+		)
+
+
+#============================================
+def test_fixture_capture_rejects_a_tampered_attested_shim_before_input_access(
+	tmp_path: pathlib.Path,
+) -> None:
+	"""Fixture provenance is revalidated before any sealed evidence path is consumed."""
+	installation = experiment.daily_blog.fixture_hermes.install_fixture_hermes(
+		str(tmp_path), {"fixture prompt": "fixture response"},
+	)
+	runner = installation.create_route_runner()
+	pathlib.Path(installation.executable).write_text("tampered", encoding="utf-8")
+	sealed = config(tmp_path)
+	object.__setattr__(
+		sealed,
+		"author_routes",
+		(
+			daily_blog.config.RoleRoute("one", daily_blog.config.HERMES_EDITORIAL_ROUTE),
+			daily_blog.config.RoleRoute("two", daily_blog.config.HERMES_EDITORIAL_ROUTE),
+		),
+	)
+	object.__setattr__(
+		sealed,
+		"referee_route",
+		daily_blog.config.RoleRoute("judge", daily_blog.config.HERMES_EDITORIAL_ROUTE),
+	)
+	with pytest.raises(RuntimeError, match="installation identity"):
+		experiment.run_experiment(
+			sealed,
+			"/unread/busy",
+			"/unread/quiet",
+			runner=runner,
+			execution_mode=(
+				experiment.daily_blog.experiment_capture_artifacts.FIXTURE_HERMES_SHIM
+			),
+			fixture_installation=installation,
+		)
+
+
+#============================================
+def test_fixture_capture_cli_redacts_private_failure(
+	monkeypatch: pytest.MonkeyPatch,
+	capsys: pytest.CaptureFixture[str],
+) -> None:
+	"""The autonomous fixture command exposes one stable error without artifact details."""
+	secret = "/private/fixture-hermes/responses.json"
+	monkeypatch.setattr(fixture_capture.daily_blog.config, "load_config", lambda _path: object())
+	monkeypatch.setattr(
+		fixture_capture,
+		"run_fixture_capture",
+		lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError(secret)),
+	)
+	assert fixture_capture.main([]) == 2
+	message = capsys.readouterr().err
+	assert message == "Fixture prompt capture blocked; inspect the private artifact or configuration.\n"
+	assert secret not in message
+
+
+#============================================
+def test_fixture_referee_selects_the_same_stronger_post_in_either_display_order() -> None:
+	"""Counterbalanced display order cannot change the semantic fixture winner."""
+	weaker = "I thought I was tuning a small binning rule."
+	stronger = "The part I want to remember is the small reversal that started the investigation."
+	forward = fixture_capture._referee_response(
+		f"## Candidate A\n\n{weaker}\n\n## Candidate B\n\n{stronger}"
+	)
+	reverse = fixture_capture._referee_response(
+		f"## Candidate A\n\n{stronger}\n\n## Candidate B\n\n{weaker}"
+	)
+	assert json.loads(forward)["winner"] == "B"
+	assert json.loads(reverse)["winner"] == "A"
 
 
 #============================================

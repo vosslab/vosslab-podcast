@@ -9,6 +9,7 @@ import json
 import uuid
 import pathlib
 import dataclasses
+import tempfile
 
 # local repo modules
 import daily_blog.candidates
@@ -17,6 +18,37 @@ import daily_blog.evaluation
 import daily_blog.io_utils
 import daily_blog.private_artifacts
 import daily_blog.rubric_calibration
+import daily_blog.routes
+import daily_blog.fixture_hermes
+
+
+CALIBRATION_PROVENANCE = {
+	"external_hermes": True,
+	"fixture_hermes_shim": False,
+}
+
+
+#============================================
+def strict_json_loads(value: str | bytes) -> object:
+	"""Parse a JSON document without duplicate names or non-finite constants."""
+	def unique_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
+		result = {}
+		for key, item in pairs:
+			if key in result:
+				raise ValueError("Duplicate JSON member.")
+			result[key] = item
+		return result
+	return json.loads(
+		value,
+		object_pairs_hook=unique_object,
+		parse_constant=_reject_json_constant,
+	)
+
+
+#============================================
+def _reject_json_constant(_value: str) -> None:
+	"""Reject JSON extensions such as NaN at every calibration boundary."""
+	raise ValueError("Non-finite JSON constant.")
 
 
 #============================================
@@ -148,8 +180,8 @@ def _read_private_json(directory_fd: int, name: str) -> dict:
 	except (OSError, RuntimeError) as error:
 		raise RuntimeError("Private rubric calibration artifact is unavailable.") from error
 	try:
-		value = json.loads(contents)
-	except (UnicodeDecodeError, json.JSONDecodeError) as error:
+		value = strict_json_loads(contents)
+	except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as error:
 		raise RuntimeError("Private rubric calibration artifact JSON is invalid.") from error
 	if not isinstance(value, dict):
 		raise RuntimeError("Private rubric calibration artifact must be an object.")
@@ -179,18 +211,21 @@ def _live_calibration_artifact_name(
 
 #============================================
 def _validated_reference_scores(report: dict) -> tuple[tuple[str, float], ...]:
-	"""Return exact stable positive-reference scores from one passing aggregate."""
+	"""Return positive-reference means from one passing grounded aggregate."""
 	aggregate = report.get("aggregate")
 	required = {
-		"band_four_unclaimed", "complete", "dates", "stable", "status", "targets_met",
+		"band_four_unclaimed", "band_separation", "band_separation_met", "complete", "dates",
+		"passage_grounded", "qualitative_consistency", "status", "targets_met",
 	}
 	if not isinstance(aggregate, dict) or set(aggregate) != required:
 		raise RuntimeError("Live calibration aggregate fields are invalid.")
 	if (
 		aggregate["status"] != "pass"
 		or aggregate["complete"] is not True
-		or aggregate["stable"] is not True
+		or aggregate["passage_grounded"] is not True
+		or aggregate["qualitative_consistency"] is not True
 		or aggregate["targets_met"] is not True
+		or aggregate["band_separation_met"] is not True
 		or aggregate["band_four_unclaimed"] is not True
 	):
 		raise RuntimeError("Live calibration has not passed its historical targets.")
@@ -205,18 +240,33 @@ def _validated_reference_scores(report: dict) -> tuple[tuple[str, float], ...]:
 		if not isinstance(entry, dict):
 			raise RuntimeError("Live calibration positive-reference aggregate is invalid.")
 		score = entry.get("mean_weighted_score")
-		if type(score) not in {int, float} or not 1 <= score <= 4:
+		if not isinstance(score, (int, float)) or isinstance(score, bool):
+			raise RuntimeError("Live calibration positive-reference score is invalid.")
+		if not 1 <= score <= 4:
 			raise RuntimeError("Live calibration positive-reference score is invalid.")
 		values.append((report_date, float(score)))
 	return tuple(values)
 
 
 #============================================
-def load_live_calibration_evidence(
+def _calibration_mode(value: object, *, expected: str | None = None) -> tuple[str, bool]:
+	"""Validate one declared route provenance without inferring it from a name."""
+	if value not in CALIBRATION_PROVENANCE:
+		raise RuntimeError("Calibration route provenance is invalid.")
+	mode = str(value)
+	if expected is not None and mode != expected:
+		raise RuntimeError("Calibration artifact has the wrong route provenance.")
+	return mode, CALIBRATION_PROVENANCE[mode]
+
+
+#============================================
+def load_calibration_evidence(
 	config: daily_blog.config.DailyBlogConfig,
 	path_value: str,
+	*,
+	expected_mode: str | None = None,
 ) -> daily_blog.rubric_calibration.CalibrationEvidence:
-	"""Load one passing, current, descriptor-pinned historical calibration artifact."""
+	"""Load one passing, current, descriptor-pinned calibration with known provenance."""
 	root, calibration_id = _live_calibration_artifact_name(config, path_value)
 	root_fd = _open_physical_directory(root, create=False, private_leaf=True)
 	try:
@@ -229,11 +279,13 @@ def load_live_calibration_evidence(
 	finally:
 		os.close(root_fd)
 	manifest_keys = {
-		"calibration_id", "mode", "post_hashes", "report_sha256", "rubric_sha256", "schema_version",
+		"calibration_id", "fixture", "mode", "post_hashes", "report_sha256", "rubric_sha256",
+		"schema_version",
 	}
 	report_keys = {
 		"aggregate", "calibration_id", "criteria", "external_route_used", "mode",
-		"non_publishing", "preparation_id", "records", "repetitions", "route", "schema_version",
+		"fixture", "non_publishing", "preparation_id", "records", "repetitions", "route",
+		"schema_version",
 		"target_contract",
 	}
 	if set(manifest) != manifest_keys or set(report) != report_keys:
@@ -243,16 +295,50 @@ def load_live_calibration_evidence(
 		or report["schema_version"] != daily_blog.rubric_calibration.CALIBRATION_SCHEMA_VERSION
 		or manifest["calibration_id"] != calibration_id
 		or report["calibration_id"] != calibration_id
-		or manifest["mode"] != "live"
-		or report["mode"] != "live"
 		or report["non_publishing"] is not True
-		or report["external_route_used"] is not True
 	):
-		raise RuntimeError("Live calibration artifact identity is invalid.")
+		raise RuntimeError("Calibration artifact identity is invalid.")
+	if manifest["fixture"] != report["fixture"]:
+		raise RuntimeError("Calibration artifact fixture identity is inconsistent.")
+	manifest_mode, manifest_external = _calibration_mode(manifest["mode"], expected=expected_mode)
+	report_mode, report_external = _calibration_mode(report["mode"], expected=expected_mode)
+	if (
+		manifest_mode != report_mode
+		or manifest_external != report_external
+		or report["external_route_used"] is not report_external
+	):
+		raise RuntimeError("Calibration artifact route provenance is inconsistent.")
+	route = report["route"]
+	if (
+		not isinstance(route, dict)
+		or set(route) != {"name", "command"}
+		or route["name"] != config.referee_route.name
+		or route["command"] != list(config.referee_route.command)
+	):
+		raise RuntimeError("Calibration artifact route identity is inconsistent.")
 	rubric, _template, criteria = daily_blog.rubric_calibration.calibration_resources()
 	posts = load_historical_posts(config.daily_blog_repository)
+	if report_mode == daily_blog.fixture_hermes.FIXTURE_HERMES_SHIM:
+		if config.referee_route.command != daily_blog.config.HERMES_EDITORIAL_ROUTE:
+			raise RuntimeError("Fixture calibration route identity is invalid.")
+		expected_fixture = _fixture_identity(_fixture_prompt_responses(posts, config, criteria))
+		if report["fixture"] != expected_fixture:
+			raise RuntimeError("Calibration fixture shim identity changed.")
+	elif report["fixture"] is not None:
+		raise RuntimeError("External calibration must not claim fixture provenance.")
+	procedure = daily_blog.rubric_calibration.procedure_from_target_contract(
+		report["target_contract"]
+	)
+	if report["repetitions"] != procedure.repetitions:
+		raise RuntimeError("Live calibration repetition declaration is inconsistent.")
+	recomputed_aggregate = daily_blog.rubric_calibration.aggregate_calibration(
+		report["records"],
+		criteria,
+		posts,
+		procedure,
+	)
 	preparation_id = daily_blog.io_utils.hash_value(
-		daily_blog.rubric_calibration._preparation_identity(posts, rubric)
+		daily_blog.rubric_calibration._preparation_identity(posts, rubric, procedure)
 	)
 	report_sha256 = daily_blog.io_utils.sha256_text(daily_blog.io_utils.stable_json_text(report))
 	post_hashes = {post.report_date: post.sha256 for post in posts}
@@ -262,7 +348,8 @@ def load_live_calibration_evidence(
 		or manifest["post_hashes"] != post_hashes
 		or report["preparation_id"] != preparation_id
 		or report["criteria"] != [dataclasses.asdict(criterion) for criterion in criteria]
-		or report["target_contract"] != daily_blog.rubric_calibration.target_contract()
+		or report["target_contract"] != daily_blog.rubric_calibration.target_contract(procedure)
+		or report["aggregate"] != recomputed_aggregate
 	):
 		raise RuntimeError("Live calibration artifact does not match current inputs.")
 	reference_scores = _validated_reference_scores(report)
@@ -274,6 +361,220 @@ def load_live_calibration_evidence(
 		reference_scores,
 		max(score for _date, score in reference_scores),
 	)
+
+
+#============================================
+def load_live_calibration_evidence(
+	config: daily_blog.config.DailyBlogConfig,
+	path_value: str,
+) -> daily_blog.rubric_calibration.CalibrationEvidence:
+	"""Load external-Hermes corroboration without accepting fixture evidence as live."""
+	return load_calibration_evidence(
+		config,
+		path_value,
+		expected_mode="external_hermes",
+	)
+
+
+#============================================
+def load_fixture_calibration_evidence(
+	config: daily_blog.config.DailyBlogConfig,
+	path_value: str,
+) -> daily_blog.rubric_calibration.CalibrationEvidence:
+	"""Load the autonomous fixture-Hermes acceptance evidence by exact provenance."""
+	return load_calibration_evidence(
+		config,
+		path_value,
+		expected_mode="fixture_hermes_shim",
+	)
+
+
+#============================================
+def _fixture_grounding_passage(post: daily_blog.rubric_calibration.HistoricalPost) -> str:
+	"""Choose one bounded exact body line to make every fixture scorecard grounded."""
+	_front_matter, body = daily_blog.candidates.parse_front_matter(post.text)
+	for line in body.splitlines():
+		passage = line.strip()
+		if passage and not passage.startswith(("#", "```", "---")):
+			return passage[:daily_blog.rubric_calibration.MAX_PASSAGE_CHARS]
+	raise RuntimeError("Historical calibration post has no fixture grounding passage.")
+
+
+#============================================
+def _fixture_score(report_date: str) -> tuple[int, str]:
+	"""Give the fixed historical roles stable diagnostic score bands and reasons."""
+	if report_date in {"2026-08-22", "2026-08-23"}:
+		return 3, "This positive voice reference is passable maker writing."
+	if report_date in {"2026-08-24", "2026-08-25"}:
+		return 2, "This historical post exposes the documented maker-voice failure."
+	if report_date == "2026-08-26":
+		return 1, "This historical post exposes the evidence and discovery failure."
+	raise RuntimeError("Fixture calibration date is outside the fixed historical set.")
+
+
+#============================================
+def _fixture_scorecard_response(
+	post: daily_blog.rubric_calibration.HistoricalPost,
+	criteria: tuple[daily_blog.rubric_calibration.RubricCriterion, ...],
+) -> str:
+	"""Build one bounded exact-passage response for the configured referee prompt."""
+	score, reason = _fixture_score(post.report_date)
+	passage = _fixture_grounding_passage(post)
+	return daily_blog.io_utils.stable_json_text(
+		{
+			"scores": {
+				criterion.field: {
+					"score": score,
+					"passage": passage,
+					"reason": reason,
+				}
+				for criterion in criteria
+			},
+			"overall_reason": reason,
+		}
+	)
+
+
+#============================================
+def _fixture_prompt_responses(
+	posts: tuple[daily_blog.rubric_calibration.HistoricalPost, ...],
+	config: daily_blog.config.DailyBlogConfig,
+	criteria: tuple[daily_blog.rubric_calibration.RubricCriterion, ...],
+) -> dict[str, str]:
+	"""Map each exact configured referee prompt to its deterministic scorecard."""
+	responses = {}
+	for post in posts:
+		prompt, rendered_criteria = daily_blog.rubric_calibration.render_calibration_prompt(
+			post.text,
+			config.prompt_limits["referee_chars"],
+		)
+		if rendered_criteria != criteria:
+			raise RuntimeError("Fixture calibration criterion rendering drifted.")
+		responses[prompt] = _fixture_scorecard_response(post, criteria)
+	return responses
+
+
+#============================================
+def _fixture_identity(responses: dict[str, str]) -> dict[str, object]:
+	"""Bind a fixture artifact to its schema, sealed route, and complete response map."""
+	registered = daily_blog.fixture_hermes._registered_responses(responses)
+	mapping_sha256 = daily_blog.io_utils.sha256_bytes(
+		daily_blog.fixture_hermes._mapping_bytes(registered)
+	)
+	response_map_id = daily_blog.fixture_hermes._response_map_id(registered)
+	identity: dict[str, object] = {
+		"schema_version": daily_blog.fixture_hermes.FIXTURE_SCHEMA_VERSION,
+		"mapping_sha256": mapping_sha256,
+		"response_map_id": response_map_id,
+		"allowed_route": list(daily_blog.config.HERMES_EDITORIAL_ROUTE),
+	}
+	identity["identity"] = daily_blog.io_utils.hash_value(identity)
+	return identity
+
+
+#============================================
+def _fixture_runner_matches_identity(
+	runner: daily_blog.routes.CommandRouteRunner,
+	fixture: dict[str, object],
+) -> bool:
+	"""Return whether an installation-attested runner matches the sealed fixture identity."""
+	provenance = runner.fixture_provenance
+	return (
+		provenance is not None
+		and provenance.schema_version == fixture["schema_version"]
+		and provenance.execution_mode == daily_blog.fixture_hermes.FIXTURE_HERMES_SHIM
+		and provenance.external_route_used is False
+		and provenance.mapping_sha256 == fixture["mapping_sha256"]
+		and provenance.response_map_id == fixture["response_map_id"]
+		and list(provenance.allowed_route) == fixture["allowed_route"]
+	)
+
+
+#============================================
+def run_fixture_calibration(
+	config: daily_blog.config.DailyBlogConfig,
+	*,
+	repetitions: int | None = None,
+	maximum_criterion_score_span: int | None = None,
+	minimum_positive_negative_mean_separation: float | None = None,
+) -> tuple[int, str, dict]:
+	"""Run mandatory offline calibration through a fresh exact-route fixture process.
+
+	The temporary shim owns no account or network capability.  The configured referee
+	route remains the sealed Hermes command, and ``CommandRouteRunner`` starts one real
+	child process for each scorecard so this verifies the production route boundary.
+	"""
+	if config.referee_route.command != daily_blog.config.HERMES_EDITORIAL_ROUTE:
+		raise RuntimeError("Fixture calibration requires the sealed Hermes referee route.")
+	if repetitions is None:
+		repetitions = daily_blog.rubric_calibration.DEFAULT_REPETITIONS
+	if maximum_criterion_score_span is None:
+		maximum_criterion_score_span = (
+			daily_blog.rubric_calibration.DEFAULT_MAXIMUM_CRITERION_SCORE_SPAN
+		)
+	if minimum_positive_negative_mean_separation is None:
+		minimum_positive_negative_mean_separation = (
+			daily_blog.rubric_calibration.DEFAULT_MINIMUM_AGGREGATE_BAND_SEPARATION
+		)
+	procedure = daily_blog.rubric_calibration.calibration_procedure(
+		repetitions=repetitions,
+		maximum_criterion_score_span=maximum_criterion_score_span,
+		minimum_positive_negative_mean_separation=(
+			minimum_positive_negative_mean_separation
+		),
+	)
+	posts = load_historical_posts(config.daily_blog_repository)
+	rubric, _template, criteria = daily_blog.rubric_calibration.calibration_resources()
+	preparation_identity = daily_blog.rubric_calibration._preparation_identity(
+		posts,
+		rubric,
+		procedure,
+	)
+	responses = _fixture_prompt_responses(posts, config, criteria)
+	fixture = _fixture_identity(responses)
+	calibration_id = "rubric-calibration-fixture-" + daily_blog.io_utils.hash_value(
+		{"fixture": fixture, "preparation": preparation_identity}
+	)[:24]
+	with tempfile.TemporaryDirectory(prefix="daily_blog_fixture_hermes_") as temporary_root:
+		installation = daily_blog.fixture_hermes.install_fixture_hermes(
+			temporary_root,
+			responses,
+		)
+		runner = installation.create_route_runner()
+		if not _fixture_runner_matches_identity(runner, fixture):
+			raise RuntimeError("Fixture calibration runner identity is invalid.")
+		records = daily_blog.rubric_calibration._score_records(
+			posts,
+			config,
+			runner,
+			procedure.repetitions,
+		)
+	aggregate = daily_blog.rubric_calibration.aggregate_calibration(
+		records,
+		criteria,
+		posts,
+		procedure,
+	)
+	report = daily_blog.rubric_calibration._calibration_report(
+		config,
+		calibration_id,
+		procedure,
+		preparation_identity,
+		criteria,
+		records,
+		aggregate,
+		mode=daily_blog.fixture_hermes.FIXTURE_HERMES_SHIM,
+		external_route_used=daily_blog.fixture_hermes.FIXTURE_EXTERNAL_ROUTE_USED,
+		fixture=fixture,
+	)
+	manifest = daily_blog.rubric_calibration._calibration_manifest(
+		calibration_id,
+		preparation_identity,
+		posts,
+		report,
+	)
+	path = install_calibration_artifacts(config, calibration_id, manifest, report)
+	return (0 if aggregate["status"] == "pass" else 1), path, report
 
 
 #============================================

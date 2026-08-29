@@ -60,7 +60,21 @@ origin belongs there too. Rules: [REPO_STYLE.md](REPO_STYLE.md).
 - On 2026-08-27, I explicitly approved the exact experimental v4 maker brief and central question
   recorded in `docs/active_plans/reports/prompt_experiment_status.md`.
 - That approval covers those exact words only; it is not a blanket approval for later prompt rewrites.
-- For `better_prompt_plan.md`, I overrode the ordinary exact-text review rule so agents can complete
-  v4 evidence work only after an approved fresh capture, passing live calibration, and route-free attestation.
-- Those gates do not activate v4. Activation remains a separately reviewed producer/publisher cutover;
-  authorization to send project or historical context through an external model route remains separate.
+- Keep the approved v4 maker brief and central question unchanged while agents complete the
+  fixture-backed calibration, capture, attestation, review, activation, and publication path.
+- Use sealed August fixtures, deterministic role fakes, synthetic transitions, disposable roots, and
+  artifact-based fresh-subagent review as the complete unattended acceptance path. Live external model
+  calls are optional one-time corroboration and never a milestone dependency.
+- Activation remains a separately reviewed producer/publisher cutover after F4's fixture-backed
+  artifact evidence accepts the unchanged central question.
+
+## Plans and tests
+
+- Ground plan requirements and gates in user-visible behavior, repository policy, empirical evidence,
+  or a demonstrated failure mode. Do not require byte, pixel, or arbitrary performance equivalence
+  merely because a plan improves an existing system.
+- Apply the repository and pytest rules before adding tests. If a proposed test forces an unrequested
+  production workaround, first treat the test as defective and fix or remove it.
+- Separate one-time implementation evidence from permanent pytest coverage. Keep permanent tests
+  offline, deterministic, behavior-focused, and self-contained; avoid extraneous fixtures and remove
+  marginal tests when their maintenance cost is not justified.

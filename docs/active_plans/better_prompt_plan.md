@@ -98,20 +98,21 @@ The five flatteners, in order of force:
 
 ## Autonomy
 
-Automation owns deterministic validation, sealed private artifacts, and the route-free
-attestation. External data egress remains an explicit operator boundary. Two approvals remain
-required: approval to send the fixed public historical-post payload to the referee route for live
-calibration, and separate approval to use the configured author/referee route with the Aug. 23
-and Aug. 26 project-context payloads for fresh capture. Neither approval activates v4, publishes
-content, imports a bundle, or changes the schedule.
+Automation owns deterministic validation, sealed private artifacts, route-free attestation, and the
+complete acceptance path. It runs the existing calibration, capture, author, referee, and review
+machinery against the sealed August fixtures through deterministic role fakes, synthetic transitions,
+disposable roots, and debug harnesses. A live route check may corroborate the result with redacted
+diagnostics, but model egress, external approval, and installed host state are never dependencies.
 
-The permanent offline tests protect deterministic contracts: prompt-resource identity, rendering,
-candidate-validation boundaries, artifact integrity, and route-free attestation. They keep prose
-reviewable and attributable, but they do not freeze a maker voice into assertions. Voice quality is
-reviewed from generated posts and scorecards captured over sealed evidence. The later attestation
-joins that capture to passing live calibration evidence. Only that deterministic join can become
-activation-ready; a separately reviewed activation change remains responsible for advancing the
-active producer/publisher contract.
+The permanent offline tests protect deterministic contracts: route handling and redaction, strict
+parsing, prompt-resource identity, candidate passage grounding, artifact integrity, deterministic
+attestation, and F4-before-activation sequencing. They keep prose reviewable and attributable, but
+they do not freeze a maker voice or one-time evidence settings into assertions. Voice quality is
+reviewed from generated complete posts and scorecards captured over sealed evidence. The later
+attestation joins that capture to passing fixture-backed calibration evidence and becomes review-ready. F4 is
+accepted only after every configured independent artifact-only review passes both complete selected
+posts; a later separately reviewed activation change remains responsible for advancing the active
+producer/publisher contract.
 
 ## What the prompt-engineering literature says about this exact failure
 
@@ -450,8 +451,8 @@ unless you consciously shuffle them." The *count* is left open here and decided 
 in milestone 15.
 
 Verification: the resource is pure ASCII and remains separate from evidence comments and coverage
-headings. Its wording stays subject to human review and fresh capture; pytest records the resource
-contract rather than freezing its prose.
+headings. Its approved wording remains unchanged for this plan; any later editorial revision is
+outside plan completion. Pytest records the resource contract rather than freezing its prose.
 
 ### Milestone 7: redesign the citation rule in the producer
 
@@ -519,7 +520,7 @@ lands stays a guardrail against runaway or stub output rather than a target.
 Verification: focused permanent tests cover registered selection, provenance, ASCII, excerpt
 limits, and the distinction between voice resources and candidate inputs. Raw August 22 and August
 23 posts remain corpus evidence rather than valid candidates because they are not bound to current
-evidence or projection identities. Generated prose is assessed in the approval-gated capture, not
+evidence or projection identities. Generated prose is assessed in the fixture-backed capture, not
 made to satisfy adapted test inputs.
 
 ### Milestone 11: write the v4 rubric
@@ -627,7 +628,7 @@ templates, `pipeline/daily_blog/rubric_calibration.py`,
 `automation/calibrate_daily_blog_rubric.py`, focused tests, and
 `docs/active_plans/reports/rubric_calibration.md`. Shared prompt-resource and private-artifact
 primitives remain neutral infrastructure; calibration owns its resource allowlist, score schema,
-fixed historical inputs, approval boundary, and non-publishing report.
+fixed historical inputs, optional-live-route boundary, and non-publishing report.
 
 A rubric that has never been applied is a guess. Before it goes anywhere near production, it is
 run over the five historical posts through the referee route and the scores checked against the
@@ -639,24 +640,31 @@ targets the reference terminology fixes:
 - `2026-08-26.md` is measured to locate where v3 actually lands.
 - The 4 band stays unclaimed until a post earns it.
 
-Scoring the same post repeatedly also gives the two-reviewers test: a criterion whose score moves
-between identical runs is underspecified and gets sharper descriptors.
+Repeated scores of the same post are bounded diagnostic evidence, not an expectation that a
+stochastic referee repeat itself byte-for-byte. Every criterion cites an exact post passage and
+explains the score. The sealed artifact records the procedure's repetition count, permitted
+per-criterion score span, and positive/negative mean-separation threshold. Those values define the
+one-time experiment rather than permanent pipeline behavior.
 
-Note this milestone sends historical published posts to a model route, which is what
-`shadow_evaluation.external_model_data_sharing` gates. The posts here are already public on the
-blog, so this is a narrower case than the flag's original concern, and the milestone records
-which route saw what rather than quietly flipping the flag.
+The mandatory calibration uses deterministic referee responses over the fixed historical posts. It
+preserves the same parsing, exact-passage grounding, score-band, and sealed-artifact contracts as the
+configured route. A live route may be used later as optional corroboration, with redacted records;
+it does not alter the fixture-backed acceptance result.
 
 Verification: route-free preparation proves fixed input/resource identities and private artifact
-behavior. The approved live command then records every configured repetition, and the calibration
-report shows the targets met and per-criterion score stability across repeated runs.
+behavior. The planned fixture-backed procedure records three repetitions per post, one adjacent-level
+tolerance, and the target-derived 0.25 separation threshold. The calibration report shows exact
+passage grounding, per-criterion spans, qualitative consistency, historical target bands, and
+aggregate positive/negative separation. These current values remain configurable and are not
+asserted by permanent pytest coverage.
 
 Current status: the fail-closed calibration harness, fixed five-post loader, structured 1-through-4
 score parser, private artifact contract, and route-free preparation report are complete. Preparation
-identity `63fcad727dcca58c10410986abe4d6da4803e9bf557c1d8cee43fabc7dd76bb1` binds the versioned
+identity `0df85dd7fdd48428353d0e6bde893acfaa21d4b23f66ffd267565a36c2ce6169` binds the versioned
 calibration contract, historical post hashes, rubric, prompts, and target bands. The current
-data-sharing configuration remains
-`false`, so repeated live referee scorecards and proof that the targets are met remain pending.
+data-sharing configuration remains `false`. The remaining work is to record the deterministic
+fixture-backed scorecards and acceptance artifact; live referee scorecards remain optional
+corroboration.
 
 ### Milestone 13: rewrite the referee prompt
 
@@ -701,8 +709,8 @@ word band or section count in the rubric, and for keeping them as shape gates in
 
 Verification: focused permanent tests confirm that the referee template loads, keeps both
 candidate slots and its output contract, and that `parse_referee_verdict` accepts and rejects the
-defined result shapes. Repeated-route score stability is evidence from approved live calibration,
-not a claim made by a stub or a fixed pytest pair.
+defined result shapes. Historical calibration consistency is grounded in the artifact-recorded
+scorecards, exact passages, and configured tolerance, not a claim made by a stub or fixed pair.
 
 ### Milestone 15: measure whether v4 actually writes better
 
@@ -754,18 +762,26 @@ historical calibration evidence. It writes one immutable private capture under
 `out/vosslab/daily_blog_experiments/`; it does not activate v4, import a bundle, publish a post,
 or alter the schedule.
 
-**Stage separation protects the external boundary.** Fresh capture is approved separately from
-historical calibration. It sends only the sealed Aug. 23 and Aug. 26 project-context payloads to
-the configured routes. Live calibration sends the fixed public historical-post payload to the
-referee route and requires its own durable data-sharing setting and invocation approval. A
-successful capture is evidence, never activation-ready by itself.
+**Stage separation protects the artifact boundary.** Fixture-backed capture and calibration use
+their sealed inputs separately through deterministic role fakes. Optional live corroboration keeps
+its project-context and historical payloads separate and redacted. A successful capture is evidence
+and is never sufficient for activation by itself.
 
 *Stage two, deterministic attestation*
 (`automation/attest_daily_blog_prompt_experiment.py`). This route-free command verifies and joins
-one immutable fresh capture with one passing live-calibration artifact, recomputes acceptance, and
+one immutable fixture-backed capture with one passing fixture-backed calibration artifact,
+recomputes acceptance, and
 writes a private immutable attestation. It invokes no model route and has no publisher, importer,
-or activation capability. Only a passing attestation is activation-ready; it still does not
-activate or publish.
+or activation capability. A passing attestation is ready for independent artifact review; it is not
+accepted F4 evidence and does not activate or publish.
+
+*Stage three, independent artifact review.* The configured reviewers work separately from the sealed
+capture, calibration, attestation, complete selected busy and quiet posts, and their fixed evidence.
+They do not receive the manager's summary, other reviewer work, or prompt-authorship context. Each
+reviewer answers the unchanged central question and cites an exact selected-post passage for what
+Neil made, what caught his attention or surprised him, enjoyment, learning, next steps, unfinished
+edges, technical-story support, and routine-work selectivity. F4 is accepted only when every review
+required by the artifact passes both complete posts.
 
 **What the experiment actually varies.** Following El Amri's rule of changing one variable at a
 time, harness B runs the arms Phoenix and Taylor used for exactly this question: instruction-only
@@ -788,8 +804,9 @@ v2 captures are complete: quiet `2026-08-23` is
 busy fixture contains 34 evidence items across nine active repositories and renders 59,881
 projection characters; its projection places `vosslab/cancer-clicker` at position zero with
 `created_in_report_window` true, the `new_source_repository` story signal, and citable excerpts.
-Harness B may use these sealed inputs for fresh live generation without historical calibration.
-The separate live calibration and the deterministic attestation remain pending.
+Harness B used these sealed inputs for accepted fixture-backed generation without historical
+calibration. The accepted capture, calibration, attestation, and independent review are recorded in
+[prompt_experiment_status.md](reports/prompt_experiment_status.md).
 
 **Metrics stay diagnostic and never become the quality verdict.** They are descriptive: a model
 could optimize sentence variance, paragraph size, link density, and first-person verb diversity
@@ -800,17 +817,21 @@ phrased as a target count of a structural unit will be hit exactly and never exc
 Verification and evidence, in order:
 
 1. Focused permanent offline tests pass, proving deterministic contract mechanics.
-2. Fresh real-route capture produces real v3 and v4 posts over both a busy and a quiet captured
-   date, without historical calibration.
+2. Fresh fixture-backed capture produces complete v3 and v4 posts over both a busy and a quiet
+   captured date, through the existing strict author and referee boundaries.
 3. The fresh referee scorecards show v4 beats v3 on the maker-specific criteria while
    scoring at or above the positive-passable references. Reproducing Aug 22 forever counts as a
    failure, and the acceptance check is written so it reads as one.
-4. The fresh referee returns a stable verdict across repeated runs on a fixed pair, which is the
-   automated form of the two-reviewers test.
-5. Separately approved live calibration scores the five historical posts and produces a passing
-   immutable artifact.
-6. Route-free attestation joins the verified capture and passing calibration artifact. Only a
-   passing attestation is activation-ready; neither command activates or publishes.
+4. Repeated deterministic referee outputs exercise the configured diagnostic procedure without
+   making its count, score span, or separation threshold permanent behavior.
+5. Fixture-backed calibration scores the five historical posts and produces a passing immutable
+   artifact. Aug. 22-23 are positive voice references, Aug. 24-25 are voice failures, and Aug. 26
+   is an evidence/discovery failure rather than a prose ceiling.
+6. Route-free attestation joins the verified capture and passing calibration artifact and emits the
+   immutable artifact-only review contract.
+7. Every configured independent passage-grounded review accepts both complete selected posts. Only
+   that accepted
+   F4 evidence may enter the separately reviewed activation change.
 
 ### Milestone 16: activate and record
 
@@ -824,14 +845,15 @@ v3 contracts to `docs/archive/prompt-contracts/v3/` with `git mv`, matching how 
 **Activation gates on attested generated prose, not on metrics alone.** The central requirement is
 subjective prose quality, so the thing being changed must be exercised before it goes live.
 Milestone 16 proceeds only after a deterministic attestation joins a passing fresh busy-and-quiet
-capture to passing live historical calibration. Deterministic metrics and permanent offline tests
-remain supporting evidence; the attestation is the sole activation-ready artifact. The two preceding
-commands are private, non-publishing evidence producers. A separately reviewed change advances
-the active contract and producer/publisher interface together.
+fixture-backed capture to passing fixture-backed historical calibration and the configured independent artifact-only reviews
+accept both complete selected posts. Deterministic metrics and permanent offline tests remain supporting
+evidence; neither an attestation nor a manager summary substitutes for the independent reviews. The
+preceding commands are private, non-publishing evidence producers. A separately reviewed change
+advances the active contract and producer/publisher interface together.
 
-Verification: full `pytest tests/`, the approved fresh capture, approved live calibration, and the
-route-free attestation with its exact source artifact references recorded alongside the activation
-change. One-time implementation checks remain separate from the permanent suite.
+Verification: full `pytest tests/`, the fixture-backed capture and calibration, the route-free
+attestation, disposable publisher import, strict MkDocs build, and verified page recorded alongside
+the activation change. Live checks remain optional one-time corroboration outside the permanent suite.
 
 ### Implementation status: August 28
 
@@ -854,7 +876,7 @@ cross-repository publication E2Es pass under Python 3.12.13.
 An earlier full suite reached 2,059 passed with one README/Git-aware Markdown-link failure while the
 new documentation and PNGs were untracked. The assets are now staged, the current full suite passes
 all 2,238 checks under Python 3.12.13, and the complete direct E2E aggregate passes its eight
-permanent runners. Approval-gated capture and calibration remain operational evidence, not E2E
+permanent runners. Fixture-backed capture and calibration remain operational evidence, not E2E
 runners or substitutes for them.
 
 Publication identity is now deliberately smaller than bundle content. `report_date` owns the stable
@@ -881,24 +903,19 @@ approved Aug. 23 and Aug. 26 report dates, and no longer accepts publisher bundl
 and busy v2 fixtures are complete and bind the immutable 111-repository roster snapshot
 `0f79bcfea4d3fb783258df4a37effef5996b6fdb9736ff6944fd17051570b8a1`.
 
-Milestone 15 now has a durable two-stage activation-evidence design. Stage one is a fresh real-route
-capture over those sealed inputs; it neither requires nor performs historical calibration. Stage two
-is route-free deterministic attestation, which joins one verified capture to one passing live
-historical-calibration artifact and is the sole artifact that can be activation-ready. Neither
-command activates v4, publishes content, imports a bundle, or changes the schedule.
+Milestone 15 now has a durable three-stage activation-evidence design. Stage one is a fresh
+fixture-backed capture over those sealed inputs; it neither requires nor performs historical
+calibration. Stage two is route-free deterministic attestation, which joins one verified capture to
+one passing fixture-backed historical-calibration artifact and emits the immutable artifact-review
+contract. Stage three is the configured independent passage-grounded reviews of both complete selected posts. No stage activates v4,
+publishes content, imports a bundle, or changes the schedule.
 
 The authorized Hermes no-content smoke returned OK without a content payload. The attempted full
-Aug. 23/Aug. 26 project-evidence capture stopped at the external-action gate before payload egress.
-It therefore establishes no live capture, calibration, arm winner, activation-ready attestation,
-activation, or publication.
-
-Exactly two external approvals remain: (1) historical-post sharing for the live referee
-calibration, including its durable setting and explicit invocation approval; and (2) configured
-author/referee route use with the sealed Aug. 23/Aug. 26 project-context payloads for fresh
-capture. After those produce a passing calibration artifact and a complete capture, the
-deterministic attestation can establish whether the evidence is activation-ready. V4 remains
-experimental and inactive until a separately reviewed activation change advances both producer
-and publisher contracts.
+Aug. 23/Aug. 26 project-evidence capture stopped before payload egress. It remains a redacted route
+diagnostic, not an acceptance blocker. The autonomous path creates a passing fixture-backed
+calibration artifact and a complete fixture-backed capture, then uses deterministic attestation to
+establish review readiness. The required reviews accepted both fixture posts, and the separately
+reviewed activation advanced both producer and publisher contracts. F7 suites and audits are accepted.
 
 ## Sequencing and hand-off
 
@@ -919,8 +936,8 @@ Milestones 1, 2, and 4 are prompt authoring and run in parallel once milestone 0
 Milestone 15's harness A can be built as soon as milestone 3's first half is in; the fresh
 real-route capture needs 1, 2, and 4 finished, since it exists to run those prompts. Live
 historical calibration is independent of capture. Deterministic attestation joins their completed
-artifacts, and milestone 16 is last; it gates on an activation-ready attestation rather than on
-capture alone.
+artifacts, the configured independent artifact reviews accept the complete posts, and milestone 16 is last; it
+gates on accepted F4 evidence rather than on capture or attestation alone.
 
 ## Open questions carried into execution
 

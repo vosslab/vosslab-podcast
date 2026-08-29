@@ -2,12 +2,17 @@
 
 ## Current result
 
-The maker-voice implementation is complete as experimental v4-maker policy v3 and remains
-unactivated. Production selects v3-historical policy v3 by default. The current publisher importer accepts the active
-v3 interface; it does not accept v4 bundles. This report records the current working-tree status,
-not an activation decision.
+Production selects `v4-three-examples-corpus-v2` through activation
+`daily-blog-maker-activation-6b104be9c6907eeeffcf330f6b10173857b39c6b05baa46d4cf009a67daa7547`.
+The publisher imports bundle v5. F4-F7 are accepted and the fixup is complete.
 
-The immutable v3-historical policy v3 validation digest is
+The sealed project route now includes Hermes `--quiet`. The installed CLI reserves stdout for the
+final response in that mode and writes session diagnostics to stderr, matching the producer's strict
+JSON and Markdown parsing boundary. This exact command is the complete project-facing Hermes
+integration boundary; Hermes continues to own model and account selection. Focused route,
+editorial, calibration, and hygiene checks pass.
+
+The retired v3-historical policy v3 validation digest is
 `aada487814ca0080d4a49648440ee6614e5f3a3628be6197ffafcef242969324`: it uses
 `all_packet_activity` coverage and `legacy_source` word counting as the exact historical control.
 V4-maker policy v3 is `3a4b7148579e509b6c32fa19b31d107dc4278eb5f721b2a01353a1a9a51264ee`: it uses
@@ -15,9 +20,8 @@ V4-maker policy v3 is `3a4b7148579e509b6c32fa19b31d107dc4278eb5f721b2a01353a1a9a
 candidate cap, one marker, one opening prose block, no pre-marker H2, and a 100-word opening limit.
 Policy versions 1 and 2 fail closed. The producer binds the policy to its snapshot, opaque generator identity, bundle, and
 reuse identity. The publisher independently recomputes and enforces its validation policy and the
-exact active v3 contract at import; it does not recompute producer snapshot, generator, or reuse
-identities. The importer remains v3-only until a separately reviewed activation change advances
-both contracts.
+accepted v4-maker policy v3 contract at import; it does not recompute producer snapshot, generator,
+or reuse identities. The accepted activation advances both contracts.
 
 The central review question is:
 
@@ -48,7 +52,9 @@ The v4 experiment varies an example-led design across three registered arms:
 | `v4-one-example` | August 23 |
 | `v4-three-examples-corpus-v2` | August 23, attributed Julia Evans excerpt, attributed Mitchell Hashimoto excerpt |
 
-The old synthetic quiet-day and August 22 three-shot selection has been removed. The implementation
+August 22 and 23 are positive voice references. August 24 and 25 are voice failures, while August
+26 is the evidence/discovery failure that missed the new-repository story. The old synthetic quiet-day
+and August 22 three-shot selection has been removed. The implementation
 keeps examples as a separate plain prompt resource. A registered selection
 binds ordered block IDs, bytes, and SHA-256 to an immutable prompt snapshot. The producer derives
 the generator identity from that validated snapshot through an opaque factory record. This makes a
@@ -57,9 +63,10 @@ result attributable to an exact arm without letting callers construct an arbitra
 The frozen external excerpts are below 25 words per source, carry source URL, author, retrieval,
 rights, and ASCII-normalization metadata, and are illustrative writing evidence rather than task
 instructions. The Evans quotation has 20 lexical words (21 whitespace tokens because of numeric
-`2`); the Hashimoto quotation has 18 lexical words, for 38 lexical words total. The largest rendered
-prompt is 67,572 characters, below the 72,000-character limit. The author receives evidence, examples,
-the maker brief, and the output contract. The author does
+`2`); the Hashimoto quotation has 18 lexical words, for 38 lexical words total. Production-shaped
+route-free rendering places every current prompt below 68,000 characters and the 72,000-character
+limit. The author receives evidence, examples, the maker brief, and the output contract. The author
+does
 not receive the scoring rubric. The referee receives the central question and weighted rubric before
 anonymous candidates. Deterministic rules preserve factual and publication boundaries: prose-bearing
 narrative sections carry projected evidence comments; up to three narrative prose blocks may be
@@ -81,17 +88,22 @@ line references.
 
 ## Permanent tests and one-time evidence
 
-Permanent pytest coverage stays route-free and narrow. It protects prompt-resource identity,
-rendering, candidate-validation boundaries, sealed artifact integrity, and deterministic
-attestation. These checks use compact offline inputs and are regression protection for contracts,
-not a substitute for generated prose.
+Permanent pytest coverage stays route-free and narrow. It protects the sealed Hermes command and
+redacted failure boundary, strict structured parsing, exact selected-post passage grounding, sealed
+artifact integrity, deterministic attestation, and F4-before-activation sequencing. These checks use
+compact offline inputs and are regression protection for demonstrated failure modes and repository
+contracts, not a substitute for generated prose.
 
 One-time implementation checks may prove a migration or private-artifact rebuild while work is in
 progress, but they do not belong in the permanent suite merely because they exercise a large path.
-The approval-gated capture, live calibration, and attestation are operational evidence. They use
-the real sealed inputs and, where applicable, configured model routes; only their immutable output
-artifacts establish an activation decision. Prompt prose is reviewed through its resources and
-captured outputs, not frozen by pytest snapshots or stubbed full-pipeline E2Es.
+Fixture-backed capture, calibration, attestation, repeated diagnostics, configured score-span and
+separation checks, and independent reviews are bounded evidence procedures. Their counts and
+thresholds are recorded in immutable artifacts and remain configurable rather than permanent
+behavioral assertions. Deterministic role fakes use the real sealed inputs through the existing
+strict interfaces; only their immutable output artifacts can support an activation decision. Live
+external-model checks are optional one-time corroboration. Prompt prose is reviewed through complete
+captured outputs, not frozen by pytest snapshots or stubbed full-pipeline E2Es. The holistic maker
+question above remains the authoritative editorial test.
 
 The non-publishing experiment requires two sealed content-addressed v2 inputs. Capture uses
 `vosslab.daily-blog.experiment-fixture.v2` and a first-class immutable repository-roster snapshot
@@ -107,10 +119,12 @@ quiet `2026-08-23` or busy `2026-08-26` leaf, while the current consumer may run
 a reviewed consumer-allowlist rotation before live generation.
 
 `rubric_calibration.md` records the fixed five-post calibration input, content hashes, route-free
-profiles, operational score bands, and exact stability rule. Its preparation identity is
-`63fcad727dcca58c10410986abe4d6da4803e9bf557c1d8cee43fabc7dd76bb1`; it used no model route.
-Preparation validates the fixed local inputs. A sealed experiment accepts a separate passing live
-calibration artifact produced by the approved historical-calibration command.
+profiles, operational score bands, exact passage grounding, and the current procedure's configured
+stochastic tolerance and aggregate positive/negative separation. Its preparation identity is
+`0df85dd7fdd48428353d0e6bde893acfaa21d4b23f66ffd267565a36c2ce6169`; it used no model route.
+Preparation validates the fixed local inputs. A sealed experiment accepts a passing fixture-backed
+calibration artifact produced through the existing historical-calibration machinery and deterministic
+role harness. A live calibration can corroborate, but cannot gate, that result.
 
 Fresh current v2 capture is complete for both inputs:
 
@@ -119,62 +133,46 @@ Fresh current v2 capture is complete for both inputs:
 | quiet | 2026-08-23 | `4adcb80db0cdde222fbc6a7a53ec008d1198d0cc03f9cecc16c12ddbca24522e` | `0f79bcfea4d3fb783258df4a37effef5996b6fdb9736ff6944fd17051570b8a1` | 111 |
 | busy | 2026-08-26 | `04fd7a045538662e5c6b48ad79e08dd608de1b5a10c1c8857c7b12042bad41da` | `0f79bcfea4d3fb783258df4a37effef5996b6fdb9736ff6944fd17051570b8a1` | 111 |
 
+The writer and loader now share the complete strict v2 fixture-manifest contract. This repaired a
+preproduction handoff defect in which real writer-produced manifests were richer than the loader's
+synthetic legacy-shaped test data. Both original approved fixtures now pass descriptor-pinned
+loading, full manifest and content-address verification, packet/projection/roster coherence, and
+route-free prompt rendering without recapture. The four-arm busy and quiet matrix embeds each exact
+projection and selected example bytes, stays within the author limit, keeps the normalized v4
+complete-post question unchanged, and hides the referee rubric from v4 authors. External sharing
+remains disabled and the preflight invoked no model route.
+
 ## Current operational sequence
 
-The experiment has two intentionally separate private artifacts. A capture records what the
-configured author and referee routes did with the sealed busy and quiet fixtures. It is not an
-activation decision: its v1 capture schema always records
+The experiment has two intentionally separate fixture-produced private artifacts. A capture records what the
+existing strict author and referee interfaces did with deterministic role fakes and the sealed busy
+and quiet fixtures. It is not an
+activation decision: its v3 capture schema always records
 `activation_status: pending_calibration_attestation`, including when all generations, comparisons,
 and scorecards complete. The capture command accepts no `--calibration` option.
 
-An attestation is the later deterministic join of a verified capture with a passing live
+An attestation is the later deterministic join of a verified capture with a passing fixture-backed
 calibration. It recomputes the acceptance result, invokes no route, and writes only under
 `/home/vosslab/nsh/vosslab-podcast/out/vosslab/daily_blog_experiment_attestations/`. Its exit
-status reports whether the joined evidence is activation-ready; it neither activates v4 nor changes
-the active production contract.
+status reports whether the joined evidence is ready for independent review; it neither activates v4
+nor changes the active production contract. Attestation v4 embeds an immutable review contract with
+the unchanged central question and the exact busy/quiet artifact identities. For each fixture it
+binds the selected arm's first authority-ordered complete sample, including the exact private
+artifact path and post SHA-256, without consulting a score or comparison outcome. Later repetitions
+remain diagnostic evidence. Review therefore cannot drift to a different sample after seeing its
+result.
 
-After the operator enables historical-post sharing in `settings.yaml`, explicitly approves the
-live calibration invocation, and separately approves configured-route use with project context,
-run these commands from the repository root in order.
+The accepted fixture-backed procedure ran from the repository root without human approval, external
+payload egress, or installed host state. Its deterministic role-harness configuration reused the
+strict parser, sealed artifact roots, calibration/capture/attestation machinery, and approved prompt
+package. Ordinary route-mode invocations remain optional corroboration, not F4 evidence.
 
-First, create a passing live calibration under the configured private calibration root:
-
-```bash
-source source_me.sh && python3 automation/calibrate_daily_blog_rubric.py \
-  --approve-historical-post-sharing \
-  --repetitions 3
-```
-
-The live calibration must print a passing status and creates a direct-child artifact below
-`/home/vosslab/nsh/vosslab-podcast/out/vosslab/daily_blog_rubric_calibrations/`.
-
-Second, capture the sealed non-publishing comparison. The current CLI requires absolute busy and
-quiet fixture paths and uses the registered arms with three repetitions by default:
-
-```bash
-source source_me.sh && python3 automation/experiment_daily_blog_prompts.py \
-  --busy-fixture /home/vosslab/nsh/vosslab-podcast/out/vosslab/daily_blog_experiment_fixtures_v2/2026-08-26--04fd7a045538662e5c6b48ad79e08dd608de1b5a10c1c8857c7b12042bad41da \
-  --quiet-fixture /home/vosslab/nsh/vosslab-podcast/out/vosslab/daily_blog_experiment_fixtures_v2/2026-08-23--4adcb80db0cdde222fbc6a7a53ec008d1198d0cc03f9cecc16c12ddbca24522e \
-  --repetitions 3
-```
-
-This command writes a sealed capture only below
-`/home/vosslab/nsh/vosslab-podcast/out/vosslab/daily_blog_experiments/`. Record the resulting
-`prompt-experiment-...` directory name. It does not activate v4, import a post, publish a site, or
-alter the systemd schedule.
-
-Third, attest the verified capture with the passing live calibration. Both arguments must be
-absolute, configured-root, direct-child artifacts:
-
-```bash
-source source_me.sh && python3 automation/attest_daily_blog_prompt_experiment.py \
-  --capture /home/vosslab/nsh/vosslab-podcast/out/vosslab/daily_blog_experiments/PROMPT_EXPERIMENT_ID \
-  --calibration /home/vosslab/nsh/vosslab-podcast/out/vosslab/daily_blog_rubric_calibrations/RUBRIC_CALIBRATION_ID
-```
-
-Replace the placeholders with the actual immutable directory names printed by the preceding
-successful commands. The attestation is route-free and non-publishing. A successful attestation
-only establishes evidence for the separately reviewed activation decision.
+The harness wrote passing calibration, sealed busy and quiet capture, and route-free attestation
+artifacts in their configured direct-child roots. Repetition, score-span, separation, and reviewer
+values are recorded one-time procedure settings, not permanent behavior. Fresh reviewers received
+only the sealed capture, calibration, attestation, complete selected posts, and fixed evidence. Each
+cited exact post passages against the unchanged central question, and every required review passed
+both posts before F4 acceptance.
 
 The busy manifest has 34 evidence items, nine active repositories, and a 59,881-character rendered
 projection. Its actual projection places `vosslab/cancer-clicker` at position zero with
@@ -201,25 +199,17 @@ only as a redacted route diagnostic. It recorded two fixtures, four arms, and th
 aggregates. It used a superseded arm definition, so it is not evidence about the current prose
 package, a comparison between current arms, or an activation candidate.
 
-An authorized Hermes no-content smoke returned OK. That proves only the no-content route smoke;
-it did not send a project payload or create a capture. The attempted full project-evidence capture
-was blocked at the external-action gate before payload egress. Therefore there is no current live
-capture, passing live calibration, attestation, generated-prose comparison, arm winner, activation,
-publication, or change to active v3.
+An authorized Hermes no-content smoke returned OK. It proves only the no-content route smoke and is
+optional corroboration. The attempted full project-evidence capture stopped before payload egress;
+that diagnostic does not block fixture-backed acceptance. All private route diagnostics remain
+redacted and contain no complete prompts.
 
-All private route diagnostics remain redacted and contain no complete prompts. Before an operator
-runs an unsandboxed `hermes chat` route with `--ignore-rules` and project context, the operator must
-explicitly approve that route use. That approval is separate from prompt-text approval and has not
-been inferred here.
+## Current closure work
 
-## Activation condition
-
-Activation remains empirical. Route-free rubric calibration preparation is complete, but a passing
-live calibration, a verified busy-and-quiet capture, the route-free attestation, repeated live
-historical scorecards, and a winner remain missing. First obtain the two explicit approvals,
-produce the calibration and capture, attest their deterministic acceptance result, inspect generated
-posts and referee comparisons against the central question, and record the evidence-based decision.
-Only then may a separately reviewed change advance the active contract and the producer/publisher
-interface together. Until that change, v3 remains active and the production orchestrator rejects v4
-before it takes a lock, refreshes mirrors, invokes any model route, writes a bundle, or calls the
-importer.
+F4 accepted capture `8735621297882bdd9fdac08ccf7833849c2466cb11ee0e6e8fef1fe3e17048c1`, the
+attestation ending `6cfc303e23e8af22e53c50d5c01741600938e3d14ff14e880635cf9197d0aac3`, and independent
+review evidence ending `fa097dd766ef0a9e89b87a91bb1b64758a41a1367ba5db0e2234f028a4f49265`. Both
+complete posts were passage-grounded and accepted. F5 accepted the v4 activation and bundle v5
+publisher import. F6 accepted the disposable staged schedule path. F7 accepted the producer
+2,450-pass suite, publisher 1,362-pass suite, 310 publisher hygiene checks, strict disposable MkDocs
+build, and four independent audits. Approved prompt hashes match; the fixup is complete.

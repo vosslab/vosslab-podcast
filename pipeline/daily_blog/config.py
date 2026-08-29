@@ -26,6 +26,7 @@ DEFAULT_PROMPT_LIMITS = {
 	"author_chars": 72000,
 	"referee_chars": 88000,
 }
+# ASVS 1.2.5 and 16.5.1: fixed argv plus quiet stdout separates payloads from diagnostics.
 HERMES_EDITORIAL_ROUTE = (
 	"hermes",
 	"chat",
@@ -34,6 +35,7 @@ HERMES_EDITORIAL_ROUTE = (
 	"--query-file",
 	"-",
 	"--ignore-rules",
+	"--quiet",
 )
 HERMES_MODEL_ARGUMENTS = {"--model", "-m", "model"}
 DAILY_BLOG_SETTING_KEYS = {

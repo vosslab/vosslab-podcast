@@ -1,0 +1,44 @@
+{
+  "activation_id": "daily-blog-maker-activation-6b104be9c6907eeeffcf330f6b10173857b39c6b05baa46d4cf009a67daa7547",
+  "candidate_validation": {
+    "name": "v4-maker",
+    "sha256": "3a4b7148579e509b6c32fa19b31d107dc4278eb5f721b2a01353a1a9a51264ee",
+    "version": "v3"
+  },
+  "editorial_prompt_contract": {
+    "candidate_validation": {
+      "name": "v4-maker",
+      "sha256": "3a4b7148579e509b6c32fa19b31d107dc4278eb5f721b2a01353a1a9a51264ee",
+      "version": "v3"
+    },
+    "contract_name": "v4-three-examples-corpus-v2",
+    "examples": {
+      "blocks": [
+        "aug-23",
+        "corpus-quiet-til",
+        "corpus-selectivity-ghostty"
+      ],
+      "name": "v4-three-examples-corpus-v2",
+      "sha256": "effc2bf2673c2167d4a764239100c07a0f3b1dea1b52b957ffb9bf394371cfa5"
+    },
+    "prompt_version": "daily-blog-prompts-v4",
+    "rubric_version": "daily-blog-rubric-v4",
+    "templates": {
+      "author": "539085277515db41f44376abc5b761e826eaf26ea4bee5da228086281cd2fd4b",
+      "referee": "33863d4be6f1f89200a65da46bfa9480054628d17ecb122eddb328b03607c070",
+      "repair": "ae234d9648d73c64615ffebf9c816d845237b27d35f67e24a68185ea15d6c147",
+      "rubric": "5a4562d9a995320f9b74c4dc69a58985bdc50dd37761c5c8563a0536c5ad3cad"
+    }
+  },
+  "editorial_prompt_contract_sha256": "2fdae757fad5392adc1dd50cbadf13ff535871485220f1b0b52a19ff5d98cf47",
+  "f4_evidence": {
+    "attestation_id": "prompt-experiment-attestation-6cfc303e23e8af22e53c50d5c01741600938e3d14ff14e880635cf9197d0aac3",
+    "attestation_report_sha256": "c10de02fd488473cf561687d65f1ae4bdbec2ab46066ec6bb52c454bd478f19b",
+    "f4_accepted": true,
+    "review_contract_sha256": "cf3a55fadc7247344904a1d44cffd4a0d1c461eba6e756c1b6d9e109cacd845c",
+    "review_evidence_id": "prompt-experiment-review-evidence-fa097dd766ef0a9e89b87a91bb1b64758a41a1367ba5db0e2234f028a4f49265",
+    "review_evidence_report_sha256": "e0bba9af5700bdcb362fc010f95ae0837b8101b2a8bfae733e97e58e35c52aff"
+  },
+  "schema_version": "vosslab.daily-blog.maker-activation.v1",
+  "selected_contract": "v4-three-examples-corpus-v2"
+}

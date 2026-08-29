@@ -60,7 +60,7 @@ def _current_publication_config(tmp_path: pathlib.Path) -> types.SimpleNamespace
 	)
 	producer_root = tmp_path / "producer"
 	bundle_path, bundle = daily_blog.bundles.BundleWriter(
-		str(producer_root), "vosslab", "f" * 64
+		str(producer_root), "vosslab", "f" * 64, daily_blog.contracts.V3_EDITORIAL_CONTRACT
 	).write("run-one", packet, projection, {}, [candidate], decision, roster)
 	publisher_root = tmp_path / "publisher"
 	archive = publisher_root / "data" / "publication_bundles" / report_date
@@ -137,6 +137,34 @@ def test_missing_date_passes_nonreplacement_intent_to_public_pipeline(
 	)
 
 	assert observed == [("2026-08-26", True, False), ("publisher", False)]
+
+
+#============================================
+def test_current_date_reports_already_published_before_generation(
+	monkeypatch: pytest.MonkeyPatch,
+	capsys: pytest.CaptureFixture[str],
+) -> None:
+	"""A coherent occupied date is a successful no-work publication result."""
+	config = types.SimpleNamespace(daily_blog_repository="/publisher")
+	monkeypatch.setattr(
+		automation.publish_daily_blog.daily_blog.publication_state,
+		"inspect_publication",
+		lambda _config, _date: daily_blog.publication_state.PublicationInspection("current"),
+	)
+	monkeypatch.setattr(
+		automation.publish_daily_blog.daily_blog.orchestrator,
+		"publication_date_lock",
+		lambda _config, _date: contextlib.nullcontext(),
+	)
+	monkeypatch.setattr(
+		automation.publish_daily_blog.daily_blog.orchestrator,
+		"run_daily_publication_locked",
+		lambda *_args, **_kwargs: pytest.fail("Current dates must not regenerate."),
+	)
+
+	automation.publish_daily_blog.publish_report_date(config, "2026-08-26")
+
+	assert "Publication status: already published" in capsys.readouterr().out
 
 
 #============================================

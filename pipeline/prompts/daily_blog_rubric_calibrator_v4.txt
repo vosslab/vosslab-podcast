@@ -5,8 +5,9 @@ complete rubric before the post. Score what is visible in this post on each name
 a score of 4 as the rubric's demanding upper anchor, a score of 3 as a solid but still improvable
 maker post, a score of 2 as emerging evidence, and a score of 1 as update-log behavior.
 
-Use one short, post-specific observation as evidence for every score. Keep every observation scoped
-to one criterion so each strength receives credit once.
+For every score, copy one short exact passage from the post and explain how that passage supports
+the score. Keep each passage and reason scoped to one criterion so each strength receives credit
+once. The passage is a verbatim grounding anchor; the reason is your editorial interpretation.
 
 ## Rubric
 
@@ -27,7 +28,8 @@ Return one JSON object with exactly `scores` and `overall_reason`.
 Each field contains one object with exactly:
 
 - `score`: an integer from 1 through 4
-- `evidence`: one concise observation grounded in the post under review
+- `passage`: one concise exact passage copied from the post under review
+- `reason`: one concise explanation of how that passage supports the score
 
 `overall_reason` is one concise explanation of where the post sits on the rubric. Return the JSON
 object alone.

@@ -26,7 +26,7 @@ real-route comparison and evidence-based decision remain required. See
 
 ## Make one daily post
 
-Use the repository-root command for the active v3 publication workflow. It selects exactly one
+Use the repository-root command for the active v4 publication workflow. It selects exactly one
 report date, relaunches through the repository-local Python 3.12 environment, and owns the
 date-level publication boundary.
 
@@ -38,8 +38,8 @@ date-level publication boundary.
 `--date` prefers `YYYY-MM-DD` and also accepts unambiguous `YYYY-DD-MM`; the example becomes
 `2026-08-21`. A coherent existing publication is preserved in noninteractive use; an interactive
 terminal asks before replacement. This command may refresh mirrors, invoke configured model routes,
-and import the selected v3 post. It is separate from the private v4 experiment, calibration, and
-attestation workflow.
+and import the selected v4 post. Accepted maker evidence remains separate from ordinary daily
+publication.
 
 ## Capture a sealed fixture
 
@@ -96,45 +96,37 @@ sharing nor decides whether v4 may be activated. Read
 
 ## Capture a sealed comparison
 
-This is a one-time, approval-gated evidence run rather than a permanent E2E. After explicitly
-approving the configured Hermes author and referee route use for the sealed project evidence,
-capture the reviewed busy and quiet comparison. This command deliberately has no `--calibration`
-option: it writes a sealed, private experiment capture for later deterministic evaluation.
+Run the mandatory autonomous capture through the fixture Hermes boundary. It uses the exact Hermes
+command `hermes chat --provider openai-codex --query-file - --ignore-rules --quiet` with deterministic
+captured responses, so no model egress occurs. Hermes retains model and account ownership behind that
+boundary. The command writes a private sealed capture; it does not publish.
 
 ```bash
-source source_me.sh && python3 automation/experiment_daily_blog_prompts.py \
-  --busy-fixture /home/vosslab/nsh/vosslab-podcast/out/vosslab/daily_blog_experiment_fixtures_v2/2026-08-26--04fd7a045538662e5c6b48ad79e08dd608de1b5a10c1c8857c7b12042bad41da \
-  --quiet-fixture /home/vosslab/nsh/vosslab-podcast/out/vosslab/daily_blog_experiment_fixtures_v2/2026-08-23--4adcb80db0cdde222fbc6a7a53ec008d1198d0cc03f9cecc16c12ddbca24522e
+source source_me.sh && python3 automation/run_daily_blog_fixture_capture.py
 ```
 
-The runner uses the configured author and referee routes and writes only a private capture below
-`out/vosslab/daily_blog_experiments/`. It writes no bundle, calls no publisher importer, and does
-not activate or publish v4. Record the absolute new `prompt-experiment-*` directory as
-`CAPTURE_PATH` for attestation.
+Record the absolute `prompt-experiment-*` directory printed by the command as `CAPTURE_PATH`.
+Repetitions are bounded configurable procedure inputs recorded in the artifact, not permanent test
+requirements.
 
 ## Calibrate historical scores
 
-This is a separate one-time, approval-gated evidence run. Live calibration requires both
-`daily_blog.shadow_evaluation.external_model_data_sharing: true` in `settings.yaml` and the
-`--approve-historical-post-sharing` flag for this invocation. It shares the five fixed public
-historical posts with the configured referee route and creates private score evidence.
+Run the mandatory autonomous calibration over the sealed historical corpus. It writes private,
+passage-grounded score evidence without model egress.
 
 ```bash
-source source_me.sh && python3 automation/calibrate_daily_blog_rubric.py \
-  --approve-historical-post-sharing \
-  --repetitions 3
+source source_me.sh && python3 automation/run_daily_blog_fixture_calibration.py
 ```
 
-When the command reports `pass`, record the absolute `rubric-calibration-*` directory below
-`out/vosslab/daily_blog_rubric_calibrations/` as `CALIBRATION_PATH`. A non-passing score still
-produces evidence; it is not usable for attestation or activation.
+When it reports `pass`, record the absolute `rubric-calibration-*` directory as `CALIBRATION_PATH`.
+Repetitions, score-span tolerance, and separation threshold are bounded configurable procedure inputs
+recorded in the artifact, not permanent behavior requirements.
 
 ## Attest the evidence
 
-After those approved one-time runs, join one sealed experiment capture to one passing
-live-calibration artifact without invoking a model route. Both arguments must be absolute paths
-under their configured private roots. This deterministic attestation records this particular
-evidence set; it is not a permanent E2E suite command.
+After the autonomous capture and calibration runs, join their absolute private paths without invoking
+a model route. This deterministic attestation precedes independent artifact review and sealed
+acceptance; it is not a permanent E2E suite command.
 
 ```bash
 source source_me.sh && python3 automation/attest_daily_blog_prompt_experiment.py \
@@ -144,22 +136,26 @@ source source_me.sh && python3 automation/attest_daily_blog_prompt_experiment.py
 
 The command writes a content-addressed private attestation below
 `out/vosslab/daily_blog_experiment_attestations/` and independently verifies both source
-artifacts. It is deterministic, route-free, non-publishing, and does not activate v4. An exit of
-`0` only records that the evidence meets the deterministic acceptance policy; a separate reviewed
-producer-publisher activation change and human decision remain required.
+artifacts. It is deterministic and route-free. Independent artifact reviewers then assess the sealed
+complete posts against the unchanged central question. The recorded activation is already complete;
+later runs are evidence procedures rather than a human dependency.
 
 ## Interpret evidence exits
 
-For live calibration and deterministic attestation, interpret process exits as follows:
+For fixture-backed calibration and deterministic attestation, interpret process exits as follows:
 
 | Exit | Meaning | Operator action |
 | --- | --- | --- |
-| `0` | Calibration passed, or attestation recorded an acceptance-ready result. | Preserve the private evidence; do not infer publication or activation. |
-| `1` | Calibration completed but did not pass, or attestation recorded a complete non-acceptance result. | Preserve the evidence; do not activate v4. |
-| `2` | A required approval, route, input, or private-artifact contract was blocked or failed. | Correct the reported boundary before any new approved run. |
+| `0` | Calibration passed, or attestation recorded a review-ready result. | Preserve the private evidence for independent review. |
+| `1` | Calibration completed but did not pass, or attestation recorded a complete non-acceptance result. | Preserve the evidence and diagnose the fixture contract. |
+| `2` | A fixture, input, or private-artifact contract was blocked or failed. | Correct the reported boundary before a new run. |
 
 The sealed comparison returns `2` when its fixture or private-artifact contract is blocked. Its
 successful capture is still not an activation or publication action.
+
+The ordinary `automation/experiment_daily_blog_prompts.py` and
+`automation/calibrate_daily_blog_rubric.py` commands remain optional one-time live corroboration.
+They require explicit egress consent and never gate activation or closure.
 
 ## Inspect experiment artifacts
 

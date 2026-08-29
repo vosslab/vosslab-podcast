@@ -81,13 +81,9 @@ the publication ownership boundary.
 
 ## Maker experiment access
 
-The active production interface is v3-historical policy v3. The v4-maker policy
-v3 is a private, non-publishing experiment and needs no special installation.
-Its capture command invokes configured author and referee routes, while its
-deterministic attestation command invokes no route. A live historical
-calibration is a separate opt-in operation: it requires the durable
-data-sharing setting and `--approve-historical-post-sharing` for that one
-invocation. See [`USAGE.md`](USAGE.md#maker-experiment) for the exact sequence.
+The active production interface is v4-maker policy v3 through
+`v4-three-examples-corpus-v2` and bundle v5. Fixture-backed F4 evidence and the producer/publisher
+activation are accepted. See [`USAGE.md`](USAGE.md#maker-evidence) for the current workflow.
 
 ## Verify install
 

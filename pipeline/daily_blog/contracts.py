@@ -446,8 +446,10 @@ MAKER_EXPERIMENT_EDITORIAL_CONTRACTS = types.MappingProxyType({
 	V4_THREE_EXAMPLES_CORPUS_V2_CONTRACT.name: V4_THREE_EXAMPLES_CORPUS_V2_CONTRACT,
 })
 
-# Publication ownership is deliberately separate from experiment membership.
-PRODUCTION_EDITORIAL_CONTRACT = V3_EDITORIAL_CONTRACT
+# Publication ownership is deliberately separate from experiment membership.  The
+# checked-in activation receipt independently binds this exact accepted arm before
+# an ordinary publication run can start.
+PRODUCTION_EDITORIAL_CONTRACT = V4_THREE_EXAMPLES_CORPUS_V2_CONTRACT
 PROMPT_EXPERIMENT_ARMS = tuple(MAKER_EXPERIMENT_EDITORIAL_CONTRACTS)
 PROMPT_EXPERIMENT_COMPARISON_PAIRS = tuple(
 	f"{left}:{right}"

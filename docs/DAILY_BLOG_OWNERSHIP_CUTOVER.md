@@ -12,17 +12,15 @@ one publication schedule and directly calls `./make_blog.py --yesterday`.
 source, date-owned publication records and content releases, strict staged builds, atomic
 installation, the served release pointer, and the static service on port 8016.
 
-The active v3 publication bundle is the only production interface between the repositories. It
+The active v4-maker bundle v5 is the production interface between the repositories. It
 requires the active evidence, projection, run, generator, prompt, and rubric contracts that the
 publisher independently validates. The producer starts from an immutable authoritative roster,
 then persists owner-qualified mirror and lifecycle provenance for the publisher to validate. No
 collector, mirror, generator, model execution, layered editorial state, or publication timer
 remains in the publisher.
 
-V4 maker voice is an experimental contract, not a publication interface. It stays outside the
-production orchestrator, bundle writer, publisher importer, and systemd schedule until the later
-v4 producer-and-publisher cutover described below is reviewed and implemented as one explicit
-contract change.
+The accepted maker activation selects `v4-three-examples-corpus-v2` for the production orchestrator,
+bundle writer, publisher importer, and systemd schedule.
 
 ## Retired design
 
@@ -53,43 +51,37 @@ publication timer remains alongside `vosslab-daily-blog.service`.
 - The maker experiment has the activation gates below. Its private artifacts use a separate
   content-addressed namespace and cannot publish.
 
-## Maker-quality activation gates
+## Maker-quality activation evidence
 
-V4 activation is a two-stage evidence process followed by a separately reviewed interface
-cutover. The stages have distinct owners and side effects so a model-route result cannot silently
-become a publication decision.
+F4 accepted fixture-backed capture, calibration, attestation, and independent artifact review before
+the separately reviewed producer/publisher cutover. The evidence stages have distinct owners and
+side effects so a model-route result cannot silently become a publication decision.
 
-### Stage 1: private capture and approval-gated calibration
+### Stage 1: accepted fixture-backed capture and calibration
 
 The producer owns the sealed busy-and-quiet experiment capture. It is private and non-publishing:
 it writes only the configured experiment-artifact namespace, creates no bundle, calls no publisher
-importer, and does not alter the systemd schedule. Hermes may run the two author routes and the
-anonymous referee route only after the operator approves the configured route and project-context
-sharing for that invocation.
+importer, and does not alter the systemd schedule. The accepted harness used deterministic author
+and referee role fakes through the existing strict route boundary.
 
-Historical rubric calibration is a separate private artifact. It requires both the durable
-historical-post data-sharing setting and explicit per-invocation approval before any historical
-post or exact-Git evidence goes to a live route. Route-free calibration preparation establishes
-local inputs but is not live calibration evidence. The experiment capture does not accept a
-`--calibration` argument: calibration joins the capture only in Stage 2.
+Historical rubric calibration is a separate private fixture-backed artifact. Live routes are optional
+corroboration only. The experiment capture does not accept a `--calibration` argument: calibration
+joins the capture only in Stage 2.
 
-No live capture, live historical calibration, arm winner, or v4 activation is recorded yet.
+The fixture-backed capture, calibration, winning arm, and v4 activation are accepted.
 
 ### Stage 2: deterministic route-free attestation
 
-The producer's attestation command joins one sealed private capture with one passing approved
+The producer's attestation command joins one sealed private capture with one passing fixture-backed
 historical-calibration artifact. It recomputes the acceptance result without loading or invoking a
 model route. It writes a private attestation only; it neither activates v4 nor creates a bundle,
 imports a post, publishes the site, or changes systemd.
 
-### Later v4 production cutover
+### Accepted v4 production cutover
 
-After Stage 2 attests a complete result, a human reviews the generated posts and referee evidence
-against the maker-quality question and records an activation decision. A later reviewed change then
-advances the producer's active contract and the publisher's accepted interface from v3 to v4
-together, adds the required end-to-end import evidence, and only then permits `make_blog.py` and
-its systemd schedule to use v4. An attestation is evidence for that decision, never the cutover
-itself.
+The accepted review evidence advanced the producer and publisher together to v4-maker policy v3 and
+bundle v5. `make_blog.py` and its systemd schedule now use that active contract. The attestation
+remains evidence for the recorded activation, not a substitute for it.
 
 ## Host schedule record
 

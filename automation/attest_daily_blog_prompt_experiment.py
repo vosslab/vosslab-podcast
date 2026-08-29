@@ -8,6 +8,7 @@ import sys
 # local repo modules
 import daily_blog.config
 import daily_blog.experiment_attestation
+import daily_blog.experiment_review_contract
 
 
 #============================================
@@ -18,13 +19,19 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 	parser.add_argument(
 		"--calibration",
 		required=True,
-		help="Absolute passing live calibration directory.",
+		help="Absolute passing fixture-backed calibration directory.",
 	)
 	parser.add_argument(
 		"-s",
 		"--settings-path",
 		default="settings.yaml",
 		help="Pipeline settings YAML path.",
+	)
+	parser.add_argument(
+		"--reviewer-count",
+		type=int,
+		default=daily_blog.experiment_review_contract.DEFAULT_REVIEWER_COUNT,
+		help="Bounded independent-review count recorded in the sealed review contract.",
 	)
 	return parser.parse_args(argv)
 
@@ -36,7 +43,7 @@ def main(argv: list[str] | None = None) -> int:
 	try:
 		config = daily_blog.config.load_config(args.settings_path)
 		code, path = daily_blog.experiment_attestation.create_attestation(
-			config, args.capture, args.calibration,
+			config, args.capture, args.calibration, args.reviewer_count,
 		)
 		print("Prompt experiment attestation: " + path.name)
 		return code

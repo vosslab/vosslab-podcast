@@ -2,6 +2,9 @@
 
 Status date: August 28, 2026
 
+> Historical bring-up record. F4-F6 later accepted the fixture-backed maker activation, bundle v5
+> publisher integration, disposable schedule proof, and F7 audits. The August 29 closure accepted F7.
+
 This report records the work required to turn the Vosslab daily work blog from a collection of
 partly overlapping scripts, agents, caches, and schedulers into one inspectable daily publication
 pipeline. It includes the approaches tried, what failed, why the design changed, what now works,

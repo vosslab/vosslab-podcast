@@ -5,6 +5,7 @@ import json
 import dataclasses
 import pathlib
 import copy
+import subprocess
 
 # PIP3 modules
 import pytest
@@ -229,7 +230,7 @@ def test_prompt_validation_requires_direct_outcomes(
 	monkeypatch.setattr(daily_blog.editorial, "load_prompt", templates.__getitem__)
 
 	with pytest.raises(RuntimeError, match="desired outcome"):
-		daily_blog.editorial.validate_prompt_templates()
+		daily_blog.editorial.validate_prompt_templates(contract=contract)
 
 
 #============================================
@@ -244,12 +245,12 @@ def test_route_configuration_rejects_hidden_instruction_sources(tmp_path: pathli
 		"  routes:\n"
 		"    authors:\n"
 		"      - name: one\n"
-		"        command: [hermes, chat, --skills, daily-github-blogger, --query-file, -]\n"
+		"        command: [hermes, chat, --provider, openai-codex, --skills, daily-github-blogger, --query-file, -, --ignore-rules, --quiet]\n"
 		"      - name: two\n"
-		"        command: [hermes, chat, --ignore-rules, --query-file, -]\n"
+		"        command: [hermes, chat, --provider, openai-codex, --query-file, -, --ignore-rules, --quiet]\n"
 		"    referee:\n"
 		"      name: judge\n"
-		"      command: [hermes, chat, --ignore-rules, --query-file, -]\n",
+		"      command: [hermes, chat, --provider, openai-codex, --query-file, -, --ignore-rules, --quiet]\n",
 		encoding="utf-8",
 	)
 
@@ -269,12 +270,12 @@ def test_hermes_route_requires_profile_instruction_isolation(tmp_path: pathlib.P
 		"  routes:\n"
 		"    authors:\n"
 		"      - name: one\n"
-		"        command: [hermes, chat, --query-file, -]\n"
+		"        command: [hermes, chat, --provider, openai-codex, --query-file, -, --quiet]\n"
 		"      - name: two\n"
-		"        command: [hermes, chat, --ignore-rules, --query-file, -]\n"
+		"        command: [hermes, chat, --provider, openai-codex, --query-file, -, --ignore-rules, --quiet]\n"
 		"    referee:\n"
 		"      name: judge\n"
-		"      command: [hermes, chat, --ignore-rules, --query-file, -]\n",
+		"      command: [hermes, chat, --provider, openai-codex, --query-file, -, --ignore-rules, --quiet]\n",
 		encoding="utf-8",
 	)
 
@@ -643,6 +644,64 @@ def test_command_route_sends_prompt_through_stdin(monkeypatch: pytest.MonkeyPatc
 
 	assert captured["input"] == "full prompt"
 	assert response == "response"
+
+
+#============================================
+def test_command_route_redacts_failed_process_output(
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""External stdout and stderr never enter the route failure surfaced to callers."""
+	secret = "account-label api-key private-prompt"
+
+	def fake_run(_command: tuple[str, ...], **_kwargs: object) -> object:
+		return dataclasses.make_dataclass(
+			"Result", [("returncode", int), ("stdout", str), ("stderr", str)]
+		)(2, secret, secret)
+
+	monkeypatch.setattr(daily_blog.routes.subprocess, "run", fake_run)
+	route = daily_blog.config.RoleRoute("secret-route-name", ("hermes", "chat"))
+
+	with pytest.raises(RuntimeError) as caught:
+		daily_blog.routes.CommandRouteRunner().run(route, secret, "/private/repository")
+
+	assert secret not in str(caught.value)
+	assert route.name not in str(caught.value)
+
+
+@pytest.mark.parametrize(
+	("route_error", "expected_type"),
+	(
+		(
+			subprocess.TimeoutExpired(("hermes", "chat", "private-prompt"), 1200),
+			TimeoutError,
+		),
+		(
+			OSError("credential path /private/account"),
+			OSError,
+		),
+	),
+)
+def test_command_route_redacts_process_exceptions(
+	monkeypatch: pytest.MonkeyPatch,
+	route_error: BaseException,
+	expected_type: type[BaseException],
+) -> None:
+	"""Process-start and timeout failures expose stable operational categories only."""
+	def fake_run(_command: tuple[str, ...], **_kwargs: object) -> object:
+		raise route_error
+
+	monkeypatch.setattr(daily_blog.routes.subprocess, "run", fake_run)
+	route = daily_blog.config.RoleRoute("author", ("hermes", "chat"))
+
+	with pytest.raises(expected_type) as caught:
+		daily_blog.routes.CommandRouteRunner().run(
+			route,
+			"private-prompt",
+			"/private/repository",
+		)
+
+	assert str(route_error) not in str(caught.value)
+	assert caught.value.__cause__ is None
 
 
 #============================================

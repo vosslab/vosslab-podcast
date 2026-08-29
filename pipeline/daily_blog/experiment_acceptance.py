@@ -4,7 +4,7 @@
 import daily_blog.rubric_calibration
 
 
-ACCEPTANCE_SCHEMA = "vosslab.daily-blog.prompt-experiment-acceptance.v2"
+ACCEPTANCE_SCHEMA = "vosslab.daily-blog.prompt-experiment-acceptance.v3"
 
 
 #============================================
@@ -207,7 +207,7 @@ def build_acceptance_result(
 	calibration: daily_blog.rubric_calibration.CalibrationEvidence,
 	arms: tuple[str, ...],
 ) -> dict[str, object]:
-	"""Select one activation-ready v4 arm only after every prose gate passes."""
+	"""Select one review-ready v4 arm only after every deterministic prose gate passes."""
 	v4_arms = tuple(arm for arm in arms if arm != "v3")
 	arm_results = {
 		arm: {
@@ -247,7 +247,7 @@ def build_acceptance_result(
 	result = {
 		"schema_version": ACCEPTANCE_SCHEMA,
 		"status": status,
-		"activation_ready": status == "pass",
+		"review_ready": status == "pass",
 		"selected_arm": selected_arm,
 		"baseline_arm": "v3",
 		"fixtures": ["busy", "quiet"],
@@ -257,6 +257,7 @@ def build_acceptance_result(
 			"reference_comparison": "strictly above both positive-passable references",
 			"v3_comparison": "higher weighted score with no maker criterion regression",
 			"stability": "every repeated pairwise verdict chooses v4",
+			"activation": "the configured independent artifact reviews must accept both complete posts",
 		},
 		"arms": arm_results,
 	}

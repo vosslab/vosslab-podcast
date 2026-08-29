@@ -35,7 +35,19 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 		"--repetitions",
 		type=int,
 		default=daily_blog.rubric_calibration.DEFAULT_REPETITIONS,
-		help="Repeated scorecards per historical post; accepted range is 2 through 5.",
+		help="Bounded diagnostic scorecards per historical post; recorded in the artifact.",
+	)
+	parser.add_argument(
+		"--maximum-criterion-score-span",
+		type=int,
+		default=daily_blog.rubric_calibration.DEFAULT_MAXIMUM_CRITERION_SCORE_SPAN,
+		help="Largest per-criterion run-to-run score span accepted by this evidence procedure.",
+	)
+	parser.add_argument(
+		"--minimum-band-separation",
+		type=float,
+		default=daily_blog.rubric_calibration.DEFAULT_MINIMUM_AGGREGATE_BAND_SEPARATION,
+		help="Minimum positive-reference versus negative-reference mean separation for this run.",
 	)
 	return parser.parse_args(argv)
 
@@ -49,18 +61,27 @@ def main(
 	args = parse_args(argv)
 	try:
 		config = daily_blog.config.load_config(args.settings_path)
+		procedure = daily_blog.rubric_calibration.calibration_procedure(
+			repetitions=args.repetitions,
+			maximum_criterion_score_span=args.maximum_criterion_score_span,
+			minimum_positive_negative_mean_separation=args.minimum_band_separation,
+		)
 		if args.prepare_only:
 			if args.approve_historical_post_sharing:
 				raise daily_blog.rubric_calibration.CalibrationBlockedError(
 					"Preparation mode and live sharing approval are separate operations."
 				)
-			_path, report = daily_blog.rubric_calibration.prepare_calibration(config)
+			_path, report = daily_blog.rubric_calibration.prepare_calibration(config, procedure)
 			print("Rubric calibration preparation: " + report["preparation_id"])
 			return 0
 		code, _path, report = daily_blog.rubric_calibration.run_live_calibration(
 			config,
 			operator_approved=args.approve_historical_post_sharing,
-			repetitions=args.repetitions,
+			repetitions=procedure.repetitions,
+			maximum_criterion_score_span=procedure.maximum_criterion_score_span,
+			minimum_positive_negative_mean_separation=(
+				procedure.minimum_positive_negative_mean_separation
+			),
 			runner=runner,
 		)
 		print("Rubric calibration status: " + report["aggregate"]["status"])

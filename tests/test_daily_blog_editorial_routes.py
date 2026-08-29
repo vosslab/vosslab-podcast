@@ -36,12 +36,12 @@ def test_hermes_route_requires_one_openai_codex_provider(
 		"  routes:\n"
 		"    authors:\n"
 		"      - name: one\n"
-		+ f"        command: [hermes, chat{provider_fragment}, --ignore-rules, --query-file, -]\n"
+		+ f"        command: [hermes, chat{provider_fragment}, --query-file, -, --ignore-rules, --quiet]\n"
 		"      - name: two\n"
-		"        command: [hermes, chat, --provider, openai-codex, --ignore-rules, --query-file, -]\n"
+		"        command: [hermes, chat, --provider, openai-codex, --query-file, -, --ignore-rules, --quiet]\n"
 		"    referee:\n"
 		"      name: judge\n"
-		"      command: [hermes, chat, --provider, openai-codex, --ignore-rules, --query-file, -]\n",
+		"      command: [hermes, chat, --provider, openai-codex, --query-file, -, --ignore-rules, --quiet]\n",
 		encoding="utf-8",
 	)
 
@@ -68,12 +68,12 @@ def test_hermes_route_leaves_model_selection_to_hermes(
 		"  routes:\n"
 		"    authors:\n"
 		"      - name: one\n"
-		+ f"        command: [hermes, chat, --provider, openai-codex, {model_arguments}, --ignore-rules, --query-file, -]\n"
+		+ f"        command: [hermes, chat, --provider, openai-codex, {model_arguments}, --query-file, -, --ignore-rules, --quiet]\n"
 		"      - name: two\n"
-		"        command: [hermes, chat, --provider, openai-codex, --ignore-rules, --query-file, -]\n"
+		"        command: [hermes, chat, --provider, openai-codex, --query-file, -, --ignore-rules, --quiet]\n"
 		"    referee:\n"
 		"      name: judge\n"
-		"      command: [hermes, chat, --provider, openai-codex, --ignore-rules, --query-file, -]\n",
+		"      command: [hermes, chat, --provider, openai-codex, --query-file, -, --ignore-rules, --quiet]\n",
 		encoding="utf-8",
 	)
 
@@ -86,7 +86,7 @@ def test_hermes_route_leaves_model_selection_to_hermes(
 	"modifier",
 	(
 		("--in", "/workspace"),
-		("--quiet",),
+		("--verbose",),
 		("--toolsets", "editorial"),
 		("--profile", "isolated"),
 		("--image", "reference.png"),
@@ -99,6 +99,18 @@ def test_hermes_route_leaves_model_selection_to_hermes(
 def test_hermes_route_rejects_every_extra_modifier(modifier: tuple[str, ...]) -> None:
 	"""The project has no route-level configuration beyond the sealed transport."""
 	command = (*daily_blog.config.HERMES_EDITORIAL_ROUTE, *modifier)
+
+	with pytest.raises(RuntimeError, match="sealed Hermes editorial route"):
+		daily_blog.config._validate_role_command(command, "test")
+
+
+#============================================
+def test_hermes_route_requires_quiet_programmatic_stdout() -> None:
+	"""The structured-response parser receives only the final model response on stdout."""
+	command = tuple(
+		argument for argument in daily_blog.config.HERMES_EDITORIAL_ROUTE
+		if argument != "--quiet"
+	)
 
 	with pytest.raises(RuntimeError, match="sealed Hermes editorial route"):
 		daily_blog.config._validate_role_command(command, "test")

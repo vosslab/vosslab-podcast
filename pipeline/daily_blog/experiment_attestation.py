@@ -12,16 +12,18 @@ import uuid
 import daily_blog.config
 import daily_blog.experiment_acceptance
 import daily_blog.experiment_capture_artifacts
+import daily_blog.experiment_review_contract
 import daily_blog.io_utils
 import daily_blog.private_artifacts
 import daily_blog.rubric_calibration
 
 
-ATTESTATION_SCHEMA = "vosslab.daily-blog.prompt-experiment-attestation.v2"
+ATTESTATION_SCHEMA = "vosslab.daily-blog.prompt-experiment-attestation.v4"
 ATTESTATION_ROOT_NAME = "daily_blog_experiment_attestations"
 EXPERIMENT_ROOT_NAME = "daily_blog_experiments"
 ATTESTATION_ID_RE = re.compile(r"^prompt-experiment-attestation-[0-9a-f]{64}$")
 OWNER_RE = re.compile(r"^[A-Za-z0-9-]+$")
+SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 MAX_ARTIFACT_BYTES = 4_000_000
 
 
@@ -68,7 +70,7 @@ def _capture_reference(
 	config: daily_blog.config.DailyBlogConfig,
 	path_value: str,
 ) -> tuple[str, daily_blog.experiment_capture_artifacts.ExperimentCapture]:
-	"""Load a capture only from its configured direct-child experiment root."""
+	"""Load the sealed fixture-Hermes capture required for autonomous F4."""
 	name = _artifact_name(
 		path_value,
 		_private_root(config, EXPERIMENT_ROOT_NAME),
@@ -78,7 +80,28 @@ def _capture_reference(
 	capture = daily_blog.experiment_capture_artifacts.load_capture(path_value)
 	if capture.path.name != name:
 		raise RuntimeError("Prompt experiment capture identity drifted during load.")
+	if (
+		capture.manifest["execution_mode"]
+		!= daily_blog.experiment_capture_artifacts.FIXTURE_HERMES_SHIM
+		or capture.manifest["external_route_used"] is not False
+	):
+		raise RuntimeError("Prompt experiment attestation requires fixture-backed capture evidence.")
+	_fixture_shim_identity(capture)
 	return name, capture
+
+
+#============================================
+def _fixture_shim_identity(
+	capture: daily_blog.experiment_capture_artifacts.ExperimentCapture,
+) -> str:
+	"""Return the stable digest of the capture loader's installation attestation."""
+	fixture_shim = capture.manifest.get("fixture_shim")
+	if not isinstance(fixture_shim, dict) or not fixture_shim:
+		raise RuntimeError("Prompt experiment capture fixture-shim provenance is invalid.")
+	identity = daily_blog.io_utils.hash_value(fixture_shim)
+	if not SHA256_RE.fullmatch(identity):
+		raise RuntimeError("Prompt experiment capture fixture-shim identity is invalid.")
+	return identity
 
 
 #============================================
@@ -86,16 +109,16 @@ def _calibration_reference(
 	config: daily_blog.config.DailyBlogConfig,
 	path_value: str,
 ) -> tuple[str, daily_blog.rubric_calibration.CalibrationEvidence]:
-	"""Load a passing live calibration only from its configured direct-child root."""
+	"""Load the fixture-Hermes calibration required for autonomous F4."""
 	name = _artifact_name(
 		path_value,
 		_private_root(config, daily_blog.rubric_calibration.CALIBRATION_ROOT_NAME),
 		daily_blog.rubric_calibration.CALIBRATION_ID_RE,
-		"Live calibration",
+		"Fixture calibration",
 	)
-	evidence = daily_blog.rubric_calibration.load_live_calibration_evidence(config, path_value)
+	evidence = daily_blog.rubric_calibration.load_fixture_calibration_evidence(config, path_value)
 	if evidence.calibration_id != name:
-		raise RuntimeError("Live calibration identity drifted during load.")
+		raise RuntimeError("Fixture calibration identity drifted during load.")
 	return name, evidence
 
 
@@ -123,6 +146,7 @@ def _report(
 	calibration_name: str,
 	calibration: daily_blog.rubric_calibration.CalibrationEvidence,
 	acceptance: dict[str, object],
+	reviewer_count: int,
 ) -> dict[str, object]:
 	"""Build the exact route-free attestation evidence object."""
 	return {
@@ -132,10 +156,24 @@ def _report(
 			"artifact": capture_name,
 			"capture_id": capture.manifest["capture_id"],
 			"report_sha256": capture.manifest["report_sha256"],
+			"execution_mode": capture.manifest["execution_mode"],
+			"external_route_used": capture.manifest["external_route_used"],
+			"fixture_shim_identity": _fixture_shim_identity(capture),
 		},
-		"calibration": {"artifact": calibration_name, "evidence": calibration.to_dict()},
+		"calibration": {
+			"artifact": calibration_name,
+			"mode": daily_blog.experiment_capture_artifacts.FIXTURE_HERMES_SHIM,
+			"external_route_used": False,
+			"evidence": calibration.to_dict(),
+		},
 		"acceptance_schema": daily_blog.experiment_acceptance.ACCEPTANCE_SCHEMA,
 		"acceptance": acceptance,
+		"review_contract": daily_blog.experiment_review_contract.build_review_contract(
+			acceptance,
+			capture.manifest,
+			capture.report,
+			reviewer_count,
+		),
 		"non_publishing": True,
 	}
 
@@ -150,6 +188,7 @@ def _manifest(report_bytes: bytes, report: dict[str, object]) -> dict[str, objec
 		"calibration": report["calibration"],
 		"acceptance_schema": report["acceptance_schema"],
 		"acceptance": report["acceptance"],
+		"review_contract": report["review_contract"],
 		"report_sha256": daily_blog.io_utils.sha256_bytes(report_bytes),
 		"non_publishing": True,
 	}
@@ -167,12 +206,29 @@ def _read_json(directory_fd: int, name: str) -> dict[str, object]:
 		directory_fd, name, MAX_ARTIFACT_BYTES, 0o077,
 	)
 	try:
-		value = json.loads(contents.decode("utf-8"))
+		value = _strict_json_loads(contents)
 	except (UnicodeDecodeError, ValueError) as error:
 		raise RuntimeError("Prompt experiment attestation JSON is invalid.") from error
 	if not isinstance(value, dict):
 		raise RuntimeError("Prompt experiment attestation must be a JSON object.")
 	return value
+
+
+#============================================
+def _strict_json_loads(contents: bytes) -> object:
+	"""Parse sealed JSON without ambiguous duplicate names or non-finite values."""
+	def unique_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
+		result = {}
+		for key, value in pairs:
+			if key in result:
+				raise ValueError("Duplicate JSON member.")
+			result[key] = value
+		return result
+	return json.loads(
+		contents.decode("utf-8"),
+		object_pairs_hook=unique_object,
+		parse_constant=lambda _value: (_ for _ in ()).throw(ValueError("Non-finite JSON constant.")),
+	)
 
 
 #============================================
@@ -182,11 +238,11 @@ def _validate_report_and_manifest(
 	"""Validate the complete attestation schema and its directory identity."""
 	manifest_keys = {
 		"schema_version", "experiment_id", "capture", "calibration", "acceptance_schema",
-		"acceptance", "report_sha256", "non_publishing", "attestation_id",
+		"acceptance", "review_contract", "report_sha256", "non_publishing", "attestation_id",
 	}
 	report_keys = {
 		"schema_version", "experiment_id", "capture", "calibration", "acceptance_schema",
-		"acceptance", "non_publishing",
+		"acceptance", "review_contract", "non_publishing",
 	}
 	if set(manifest) != manifest_keys or set(report) != report_keys:
 		raise RuntimeError("Prompt experiment attestation fields are invalid.")
@@ -220,9 +276,14 @@ def _source_paths(
 	"""Recover only approved direct-child source references from an attestation report."""
 	capture = report.get("capture")
 	calibration = report.get("calibration")
-	if not isinstance(capture, dict) or set(capture) != {"artifact", "capture_id", "report_sha256"}:
+	if not isinstance(capture, dict) or set(capture) != {
+		"artifact", "capture_id", "report_sha256", "execution_mode", "external_route_used",
+		"fixture_shim_identity",
+	}:
 		raise RuntimeError("Prompt experiment attestation capture reference is invalid.")
-	if not isinstance(calibration, dict) or set(calibration) != {"artifact", "evidence"}:
+	if not isinstance(calibration, dict) or set(calibration) != {
+		"artifact", "mode", "external_route_used", "evidence",
+	}:
 		raise RuntimeError("Prompt experiment attestation calibration reference is invalid.")
 	capture_name = capture.get("artifact")
 	calibration_name = calibration.get("artifact")
@@ -236,6 +297,16 @@ def _source_paths(
 		or not daily_blog.rubric_calibration.CALIBRATION_ID_RE.fullmatch(calibration_name)
 	):
 		raise RuntimeError("Prompt experiment attestation calibration artifact is invalid.")
+	if (
+		capture["execution_mode"]
+		!= daily_blog.experiment_capture_artifacts.FIXTURE_HERMES_SHIM
+		or capture["external_route_used"] is not False
+		or calibration["mode"] != daily_blog.experiment_capture_artifacts.FIXTURE_HERMES_SHIM
+		or calibration["external_route_used"] is not False
+		or not isinstance(capture["fixture_shim_identity"], str)
+		or not SHA256_RE.fullmatch(capture["fixture_shim_identity"])
+	):
+		raise RuntimeError("Prompt experiment attestation provenance is invalid.")
 	return (
 		os.path.join(_private_root(config, EXPERIMENT_ROOT_NAME), capture_name),
 		os.path.join(
@@ -298,12 +369,15 @@ def create_attestation(
 	config: daily_blog.config.DailyBlogConfig,
 	capture_path: str,
 	calibration_path: str,
+	reviewer_count: int = daily_blog.experiment_review_contract.DEFAULT_REVIEWER_COUNT,
 ) -> tuple[int, pathlib.Path]:
 	"""Create a deterministic attestation without loading or invoking any model route."""
 	capture_name, capture = _capture_reference(config, capture_path)
 	calibration_name, calibration = _calibration_reference(config, calibration_path)
 	acceptance = _acceptance(capture, calibration)
-	report = _report(capture_name, capture, calibration_name, calibration, acceptance)
+	report = _report(
+		capture_name, capture, calibration_name, calibration, acceptance, reviewer_count,
+	)
 	manifest = _manifest(_json_bytes(report), report)
 	path = _install(config, manifest, report)
 	loaded = load_attestation(config, str(path))
@@ -311,7 +385,7 @@ def create_attestation(
 	# contents equal the newly computed source-bound result; never replace it.
 	if loaded.manifest != manifest or loaded.report != report:
 		raise RuntimeError("Existing prompt experiment attestation differs from this result.")
-	return (0 if loaded.report["acceptance"]["activation_ready"] else 1), path
+	return (0 if loaded.report["acceptance"]["review_ready"] else 1), path
 
 
 #============================================
@@ -342,7 +416,7 @@ def load_attestation(
 				0o077,
 			)
 			try:
-				report = json.loads(report_bytes.decode("utf-8"))
+				report = _strict_json_loads(report_bytes)
 			except (UnicodeDecodeError, ValueError) as error:
 				raise RuntimeError("Prompt experiment attestation JSON is invalid.") from error
 			if not isinstance(report, dict):
@@ -355,13 +429,80 @@ def load_attestation(
 	capture_path, calibration_path = _source_paths(config, report)
 	capture_name, capture = _capture_reference(config, capture_path)
 	calibration_name, calibration = _calibration_reference(config, calibration_path)
+	review_contract = report.get("review_contract")
+	if not isinstance(review_contract, dict):
+		raise RuntimeError("Prompt experiment review contract is invalid.")
+	reviewer_count = review_contract.get("reviewer_count")
 	expected = _report(
 		capture_name,
 		capture,
 		calibration_name,
 		calibration,
 		_acceptance(capture, calibration),
+		reviewer_count,
 	)
 	if report != expected:
 		raise RuntimeError("Prompt experiment attestation source evidence drifted.")
 	return ExperimentAttestation(pathlib.Path(path_value), manifest, report)
+
+
+#============================================
+def _load_review_posts_from_capture(
+	capture: daily_blog.experiment_capture_artifacts.ExperimentCapture,
+	contract: dict[str, object],
+) -> dict[str, str]:
+	"""Read the two exact complete posts sealed into a ready review contract."""
+	validated = daily_blog.experiment_review_contract.validate_review_contract(contract)
+	if validated["status"] != "ready":
+		raise RuntimeError("Prompt experiment attestation is not ready for review.")
+	root_fd = daily_blog.private_artifacts.open_physical_directory(
+		str(capture.path),
+		create=False,
+		intermediate_mode=0o755,
+		leaf_mode=0o700,
+	)
+	posts = {}
+	try:
+		daily_blog.private_artifacts.require_directory(root_fd, 0o077)
+		for fixture in ("busy", "quiet"):
+			reference = validated["fixtures"][fixture]["selected_post"]
+			artifact = pathlib.PurePosixPath(reference["artifact"])
+			if len(artifact.parts) != 2 or artifact.name != "selected.md":
+				raise RuntimeError("Independent review selected-post path is invalid.")
+			# ASVS 5.3.2: the sealed contract generates one direct child and fixed filename.
+			arm_fd = daily_blog.private_artifacts.open_directory_at(root_fd, artifact.parts[0])
+			try:
+				contents = daily_blog.private_artifacts.read_regular_bytes_at(
+					arm_fd,
+					"selected.md",
+					MAX_ARTIFACT_BYTES,
+					0o077,
+				)
+			finally:
+				os.close(arm_fd)
+			try:
+				post = contents.decode("utf-8")
+			except UnicodeDecodeError as error:
+				raise RuntimeError("Independent review selected post is invalid UTF-8.") from error
+			# ASVS 11.4.3: reviewers receive only bytes matching the sealed SHA-256 identity.
+			if daily_blog.io_utils.sha256_text(post) != reference["post_sha256"]:
+				raise RuntimeError("Independent review selected-post identity is invalid.")
+			posts[fixture] = post
+	finally:
+		os.close(root_fd)
+	return posts
+
+
+#============================================
+def load_review_posts(
+	config: daily_blog.config.DailyBlogConfig,
+	attestation_path: str,
+) -> tuple[ExperimentAttestation, dict[str, str]]:
+	"""Load a verified attestation and the exact busy and quiet posts it binds."""
+	attestation = load_attestation(config, attestation_path)
+	capture_path, _calibration_path = _source_paths(config, attestation.report)
+	_capture_name, capture = _capture_reference(config, capture_path)
+	contract = attestation.report.get("review_contract")
+	if not isinstance(contract, dict):
+		raise RuntimeError("Prompt experiment review contract is invalid.")
+	return attestation, _load_review_posts_from_capture(capture, contract)

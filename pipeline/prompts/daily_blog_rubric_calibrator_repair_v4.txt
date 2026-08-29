@@ -8,8 +8,13 @@ fields:
 
 {criterion_contract}
 
-Each field contains exactly an integer `score` from 1 through 4 and one concise, post-grounded
-`evidence` string. `overall_reason` is concise and non-empty. Return the JSON object alone.
+Each field contains exactly an integer `score` from 1 through 4, one concise exact `passage` copied
+from the post, and one concise `reason` explaining how that passage supports the score.
+`overall_reason` is concise and non-empty. Return the JSON object alone.
+
+## Post under review
+
+{post}
 
 ## Earlier response
 

@@ -1,11 +1,26 @@
+## 2026-08-29
+
+### Fixes and Maintenance
+
+- Closed the maker-voice fixup with the descriptor-snapshot TOCTOU repair and removal of arbitrary
+  test gates. The final acceptance path remains fixture-backed; live model work is optional
+  corroboration and no completion step depends on human approval.
+
+### Developer Tests and Notes
+
+- F7 accepted: Python 3.12.13 producer suite 2,450 passed with 0 failures; Python 3.13.5 publisher
+  suite 1,362 passed with 0 failures; publisher hygiene 310 passed; strict disposable MkDocs build;
+  publication, 12-case crash, and schedule E2Es; and four independent requirements, security,
+  test-policy, and maintainability audits. Approved prompt hashes match.
+
 ## 2026-08-28
 
 ### Additions and New Features
 
-- Added the pre-production maker experiment's two-stage evidence boundary. Fresh capture writes a
-  sealed `vosslab.daily-blog.prompt-experiment-capture.v2` artifact, while the new
-  `vosslab.daily-blog.prompt-experiment-attestation.v2` schema, loader, and CLI join a completed
-  capture with a passing live calibration and recompute the deterministic acceptance result.
+- Added the pre-production maker experiment's three-stage evidence boundary. Fresh capture writes a
+  sealed `vosslab.daily-blog.prompt-experiment-capture.v3` artifact, attestation v4 joins a completed
+  capture with passing live calibration, and its immutable contract records a bounded configurable
+  count of independent, passage-grounded artifact reviews before F4 can be accepted.
 - Added executable repository-root `make_blog.py` as the single manual daily-blog
   command. `--yesterday` uses the configured report timezone; `--date` accepts
   canonical `YYYY-MM-DD` and the requested unambiguous `YYYY-DD-MM` form before
@@ -26,14 +41,34 @@
 - Added a fail-closed historical maker-rubric calibration command, immutable resource contract,
   fixed Aug. 22-26 loader, structured repeated scorecards, private artifacts, and a route-free
   calibration report. Preparation identity
-  `aa1ceeb9d14db2c5d68b7be9c1369cf9231709f2cc0acc7a30f50570b74a2e87` used no model route.
+  `0df85dd7fdd48428353d0e6bde893acfaa21d4b23f66ffd267565a36c2ce6169` used no model route.
 - Added a manager-ready daily-blog integration plan centered on the approved maker-voice contract,
   producer orchestration, publisher integrity, and the direct 04:00 systemd path. The plan treats
-  `hermes chat --provider openai-codex --query-file -` as the complete external model boundary;
+  `hermes chat --provider openai-codex --query-file - --ignore-rules --quiet` as the complete
+  external model boundary;
   Hermes continues to own model credentials and account selection internally.
 
 ### Behavior or Interface Changes
 
+- Activated `v4-three-examples-corpus-v2` through maker activation
+  `daily-blog-maker-activation-6b104be9c6907eeeffcf330f6b10173857b39c6b05baa46d4cf009a67daa7547`.
+  The producer now emits bundle v5 for the publisher's active v4-maker policy v3 boundary.
+- Recorded the repository's durable plan-and-test guidance: gates require a real behavioral, policy,
+  evidence, or failure-mode basis; one-time proof stays distinct from permanent offline pytest; and a
+  test that forces unrequested production behavior is presumed defective before code is distorted.
+- Advanced historical calibration to schema v2. Each run now retains exact cited passages and
+  reasons; the sealed artifact records the bounded repetition count, score-span tolerance, and
+  positive/negative separation threshold instead of requiring exact repeated-score identity or
+  making one-time settings permanent pipeline behavior.
+- Changed deterministic experiment acceptance from `activation_ready` to `review_ready`.
+  Attestation v4 embeds the unchanged central maker question, sealed fixture identities, and an
+  artifact-only contract with a bounded configurable reviewer count. It binds the exact complete
+  busy and quiet first-sample paths and SHA-256 identities without consulting experimental outcomes;
+  later repetitions remain diagnostic, and F5 remains unavailable until every required independent
+  review accepts both posts.
+- Made route failures redact external stdout, stderr, command details, paths, account labels, and
+  prompt material while preserving stable timeout, startup, nonzero-exit, and empty-response
+  categories at the strict Hermes parser boundary.
 - Made the podcast's current publication contract an explicit single registry owner and separated
   every trusted comparison arm into a non-production registry. Publication now asks that owner
   directly before any collection side effect, so a later evidence-backed maker activation has one
@@ -73,6 +108,19 @@
 
 ### Fixes and Maintenance
 
+- Repaired the sealed prompt-fixture handoff at its schema owner. The capture writer and experiment
+  consumer now share one strict v2 manifest contract instead of emitting the documented rich
+  identity while loading a stale reduced shape. The consumer also cross-checks the sealed packet,
+  projection, roster, mirror summaries, byte counts, and file hashes. Both approved busy and quiet
+  fixtures now pass route-free production loading and prompt rendering without recapture or model
+  egress.
+- Added Hermes quiet mode to the sealed author and referee route so programmatic stdout contains the
+  final model response while session diagnostics remain on stderr. The strict JSON and Markdown
+  parsers stay fail-closed instead of learning to strip CLI decoration. Process failures now expose
+  only stable error categories rather than raw external stdout, stderr, commands, paths, or prompts.
+- Corrected the maker-fixup autonomy boundary: deterministic local work remains autonomous, while
+  historical-post calibration and sealed project-evidence capture each require direct operator
+  authorization for their named payload and configured model route.
 - Replaced alternating single-order maker-post comparisons with a complete paired order matrix.
   Every generated candidate pair now reaches the anonymous referee once as A/B and once as B/A;
   capture v2 verifies both positional records and their canonical-arm mapping, while acceptance v2
@@ -181,6 +229,20 @@
 
 ### Developer Tests and Notes
 
+- Accepted F4 fixture-backed capture, calibration, route-free attestation, and independent
+  passage-grounded reviews; accepted F5 producer/publisher import and 12-case crash recovery; and
+  accepted F6 disposable-root schedule evidence. F7 full suites and independent audits later accepted
+  on August 29.
+- Focused route, editorial, capture, calibration, and attestation behavior passed 92 offline tests;
+  the post-repair fixture/capture/attestation selection passed 36 tests. Pyflakes, source-size,
+  pytest hygiene, ASCII, prompt-resource, and Markdown-link checks passed 858 tests. The complete
+  Python 3.12.13 suite passed all 2,418 tests, and all eight retained E2Es passed. Route-free
+  calibration preparation reproduced identity
+  `0df85dd7fdd48428353d0e6bde893acfaa21d4b23f66ffd267565a36c2ce6169`.
+- A sandboxed live-calibration attempt wrote an incomplete private diagnostic after Hermes could not
+  initialize its restricted state and log paths. The route contract is repaired, configuration
+  remains opt-in, and no passing calibration, capture, attestation, winner, activation, or
+  publication is claimed.
 - The August 26 intake defect is closed in the local producer and publisher contracts. Fresh
   discovery bypasses the GitHub client's 24-hour list cache, fails closed on malformed roster data,
   and persists no token or raw remote payload.

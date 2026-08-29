@@ -15,12 +15,14 @@ import daily_blog.editorial
 import daily_blog.contracts
 import daily_blog.io_utils
 import daily_blog.atomic_paths
+import daily_blog.activation
 
 
 GENERATOR_CONTRACT_VERSION = "vosslab.daily-blog.generator-source.v1"
 GENERATOR_SUPPORT_PATHS = (
 	"pipeline/podlib/pipeline_settings.py",
 	"pipeline/podlib/prompt_loader.py",
+	"daily_blog_maker_activation.json",
 )
 _GENERATOR_IDENTITY_TOKEN = object()
 _GENERATOR_IDENTITIES: weakref.WeakValueDictionary[int, "GeneratorContractIdentity"] = weakref.WeakValueDictionary()
@@ -68,9 +70,32 @@ def _validate_generator_identity(identity: GeneratorContractIdentity) -> Generat
 
 #============================================
 def _requires_generator_identity(contract: daily_blog.contracts.EditorialContract) -> bool:
-	"""Keep the raw-revision compatibility branch exclusive to active v3."""
-	required = contract is not daily_blog.contracts.V3_EDITORIAL_CONTRACT
-	return required
+	"""Keep raw revisions confined to the historical v3 artifact shape."""
+	return contract is not daily_blog.contracts.V3_EDITORIAL_CONTRACT
+
+
+#============================================
+def _activation_manifest(
+	contract: daily_blog.contracts.EditorialContract,
+	snapshot: daily_blog.editorial.PromptContractSnapshot | None,
+) -> dict[str, object] | None:
+	"""Bind production bundles to the checked-in F4-derived activation receipt."""
+	if contract is not daily_blog.contracts.active_contract():
+		return None
+	if snapshot is None:
+		raise RuntimeError("Publication bundles require the activated maker prompt snapshot.")
+	activation = daily_blog.activation.load_maker_activation()
+	prompt_identity = daily_blog.editorial.prompt_contract_identity(snapshot=snapshot)
+	if activation.contract is not contract or (
+		activation.receipt["editorial_prompt_contract"] != prompt_identity
+	):
+		raise RuntimeError("Publication bundle prompt snapshot does not match maker activation.")
+	return {
+		"activation_id": activation.activation_id,
+		"editorial_prompt_contract_sha256": activation.receipt[
+			"editorial_prompt_contract_sha256"
+		],
+	}
 
 
 #============================================
@@ -182,6 +207,7 @@ def load_reusable_bundle(
 ) -> tuple[str, dict]:
 	"""Verify and return the completed bundle at the stable date path."""
 	resolved = daily_blog.contracts.resolve_contract(contract)
+	activation_manifest = _activation_manifest(resolved, snapshot)
 	if _requires_generator_identity(resolved):
 		if not isinstance(revision, GeneratorContractIdentity):
 			raise RuntimeError("Reusable v4 bundles require their factory-issued generator identity.")
@@ -194,7 +220,7 @@ def load_reusable_bundle(
 		resolved_revision = identity.revision
 	else:
 		if not isinstance(revision, str):
-			raise RuntimeError("Reusable v3 bundles require a SHA-256 generator revision.")
+			raise RuntimeError("Reusable historical bundles require a SHA-256 generator revision.")
 		resolved_revision = revision
 	bundle_path = os.path.abspath(str(record.get("bundle_path") or ""))
 	physical_root = os.path.realpath(os.path.abspath(date_root))
@@ -256,6 +282,10 @@ def load_reusable_bundle(
 		contracts != expected_contracts
 		or bundle.get("generator", {}).get("revision") != resolved_revision
 		or bundle.get("generator", {}).get("version") != daily_blog.schema.GENERATOR_VERSION
+		or (
+			activation_manifest is not None
+			and bundle.get("maker_activation") != activation_manifest
+		)
 	):
 		raise RuntimeError("Cached publication bundle generator contracts have changed.")
 	if snapshot is not None:
@@ -347,6 +377,7 @@ class BundleWriter:
 			if identity is None or identity.contract is not self.contract or identity.snapshot is not snapshot:
 				raise RuntimeError("V4 bundle writing requires its factory-issued generator identity.")
 		self.prompt_snapshot = snapshot
+		self.activation_manifest = _activation_manifest(self.contract, snapshot)
 
 	#============================================
 	def _asset_manifest(
@@ -471,6 +502,8 @@ class BundleWriter:
 				},
 			},
 		}
+		if self.activation_manifest is not None:
+			bundle["maker_activation"] = self.activation_manifest
 		if self.prompt_contract_identity is not None:
 			bundle["editorial_prompt_contract"] = self.prompt_contract_identity
 		bundle["bundle_sha256"] = bundle_sha256(bundle)

@@ -2496,3 +2496,195 @@ What was tested
 Next actions
 1. Continue the remaining F2 integration checks from the active plan.
 2. Keep all later producer and publisher work on the direct contract owners.
+
+---
+Session Update: 2026-08-28 (Maker fixup rebaseline and quiet route contract)
+
+What changed
+- Rebaselined the maker-voice fixup against the current producer, publisher, prompt resources,
+  historical Aug. 22-26 posts, and prompt-engineering references.
+- Confirmed that experimental v4 keeps the central complete-post maker question, uses Aug. 23 as the
+  full project-owned voice example, and compares instruction-only, one-example, and three-example
+  arms without exposing the numerical referee rubric to the author.
+- Added Hermes `--quiet` to every sealed author and referee route. Quiet mode reserves stdout for the
+  final response and sends session diagnostics to stderr, preserving strict JSON and Markdown
+  parsing instead of stripping CLI decoration.
+- Corrected the fixup plan's authorization boundary. Local deterministic work remains autonomous;
+  historical-post scoring and sealed project-evidence generation require direct authorization for
+  their named configured-route payloads.
+- Added `docs/active_plans/reports/daily_blog_fixup_evidence.md` as the execution ledger. Production
+  remains on v3, external sharing remains disabled, and the pre-existing publisher worktree was not
+  edited.
+
+What was tested
+- The focused F1-F3 contract selection passed 146 tests under the repository's Python 3.12 runtime.
+- The route, editorial, calibration, and Python-hygiene selection passed 849 checks after the quiet
+  route repair.
+- The complete repository suite passed all 2,390 tests under Python 3.12.13.
+- Route-free calibration preparation reproduced identity
+  `aa1ceeb9d14db2c5d68b7be9c1369cf9231709f2cc0acc7a30f50570b74a2e87` without a model call.
+- A sandboxed live attempt produced only incomplete private diagnostics because Hermes could not
+  initialize its restricted state and log paths. It is not counted as calibration evidence.
+
+Next actions
+1. Obtain explicit approval before sending the five public historical posts to the configured
+   OpenAI Codex referee route.
+2. Obtain separate explicit approval before sending the sealed Aug. 23 and Aug. 26 project evidence
+   to the configured OpenAI Codex author and referee routes.
+3. After passing live evidence, perform route-free attestation and human review before any activation,
+   publisher import, or schedule change.
+
+---
+Session Update: 2026-08-28 (Maker evidence procedures and durable boundaries)
+
+What changed
+- Preserved the quiet, stdin-based Hermes provider route as the complete model/account integration
+  boundary and redacted subprocess stdout, stderr, command, path, account, and prompt details from
+  route failures.
+- Made live calibration repetitions, per-criterion score-span tolerance, and aggregate separation
+  threshold bounded operator inputs recorded in the sealed preparation and live artifacts. Exact
+  post-passage grounding and deterministic aggregate recomputation remain fail-closed.
+- Made the independent reviewer count a bounded attestation input. Review remains separate
+  artifact-based work over both complete selected posts, with exact-passage support and the unchanged
+  central maker question.
+- Removed new permanent assertions tied to exact repetition, threshold, reviewer-count, and internal
+  key values. Offline coverage now centers on route handling, passage grounding, artifact integrity,
+  deterministic attestation, and F4-before-activation sequencing.
+- Updated the fixup plan, prompt plan, operations, architecture, file formats, status, calibration,
+  roadmap, usage, remaining-work, evidence, and changelog documents to distinguish permanent
+  requirements from one-time evidence procedures.
+- Resealed route-free calibration preparation as
+  `0df85dd7fdd48428353d0e6bde893acfaa21d4b23f66ffd267565a36c2ce6169`; its report records
+  `external_route_used: false`.
+
+What was tested
+- Focused route, editorial, capture, calibration, and attestation behavior passed 89 offline tests.
+- Pyflakes, source-size, ASCII, and Markdown-link hygiene passed 660 checks.
+- The complete Python 3.12.13 suite passed all 2,415 tests.
+- All eight retained E2E workflows passed.
+- Diff whitespace and Python compilation passed.
+
+Next actions
+1. Obtain the named historical-post payload approval and create the sealed passing live calibration.
+2. Obtain the separate sealed project-context payload approval and create the fresh busy/quiet
+   comparison whose complete selected posts are judged against the unchanged central question.
+3. Accept F4 evidence before starting activation, publisher integration, schedule proof, or closure.
+
+---
+Session Update: 2026-08-28 (Route-free maker comparison handoff repair)
+
+What changed
+- Found a real producer/consumer defect while rendering the approved busy and quiet comparison
+  inputs: the fixture writer emitted the documented rich v2 manifest, but the loader and its
+  synthetic fixture still expected a retired reduced shape.
+- Added one shared positive fixture-manifest contract and made both writer and consumer use it. The
+  consumer now verifies the manifest content address and cross-checks packet, projection, roster,
+  mirror summaries, byte counts, rendered-context size, and file hashes.
+- Updated the offline test fixture to seal the writer-owned contract without making its exact key
+  layout a behavioral assertion.
+- Loaded both original approved fixture leaves without recapture or allowlist rotation and rendered
+  the complete four-arm busy/quiet prompt matrix. All prompts stayed below the author bound and
+  embedded their sealed projection and selected examples exactly. Each v4 prompt retained the
+  normalized central complete-post question and excluded the referee rubric.
+- Kept `external_model_data_sharing: false`; no Hermes process, model route, publisher, schedule, or
+  activation path ran.
+
+What was tested
+- The focused fixture, capture, contract-integration, and attestation selection passed 33 tests.
+- Pyflakes, source-size, function-typing, pytest-hygiene, ASCII, prompt-resource, and Markdown-link
+  checks passed 858 tests.
+- The complete Python 3.12.13 suite passed all 2,415 tests.
+- All eight retained E2E workflows passed; Python compilation and diff whitespace also passed.
+- Direct descriptor-pinned loading accepted busy fixture
+  `04fd7a045538662e5c6b48ad79e08dd608de1b5a10c1c8857c7b12042bad41da` and quiet fixture
+  `4adcb80db0cdde222fbc6a7a53ec008d1198d0cc03f9cecc16c12ddbca24522e`.
+
+Next actions
+1. Obtain the named historical-post approval and create the sealed passing live calibration.
+2. Obtain separate project-context approval and create the sealed busy/quiet comparison whose
+   complete posts are judged against the unchanged maker question.
+3. Complete route-free attestation and accept the independent artifact reviews before F5
+   activation, F6 publisher/schedule proof, or F7 closure.
+
+---
+Session Update: 2026-08-28 (Grounded review provenance and test-retention audit)
+
+What changed
+- Audited the active maker plan and changed tests against `REPO_STYLE.md`, `PYTEST_STYLE.md`,
+  `tests/TESTS_README.md`, `devel/DEVEL_README.md`, and `E2E_TESTS.md`. Recorded the human's durable
+  guidance that plan gates need a behavioral, policy, evidence, or demonstrated-failure basis and
+  that one-time proof must stay distinct from permanent pytest.
+- Removed the proposed outcome-based lowest-score choice for qualitative review. Attestation v4 now
+  binds the first authority-ordered busy and quiet sample without consulting scores or comparisons;
+  later repetitions remain diagnostic evidence.
+- Closed the sealed-post provenance gap by recording the exact `selected.md` paths and SHA-256
+  identities in the artifact-only review contract. The route-free loader reads those exact private
+  files through held descriptors, and review submissions reject caller-supplied substitute prose.
+- Kept the unchanged complete-post maker question authoritative. F4 still requires the configured
+  independent, passage-grounded artifact reviews before any F5 activation, F6 publisher/schedule
+  proof, or F7 closure.
+- Kept both named egress approvals pending. No Hermes route, publisher, scheduler, or activation path
+  ran, and no approved prompt bytes changed.
+
+What was tested
+- The focused route, editorial, capture, calibration, and attestation selection passed 92 offline
+  tests; the narrower fixture/capture/contract-integration/attestation selection passed 36.
+- Pyflakes, source-size, function-typing, pytest-hygiene, ASCII, prompt-resource, and Markdown-link
+  checks passed 858 tests.
+- The complete Python 3.12.13 suite passed all 2,418 tests, and all eight retained E2E workflows
+  passed. Python compilation and diff whitespace also passed.
+- The retained additions use inline inputs and `tmp_path`; none uses a committed test fixture,
+  custom pytest fixture, network call, subprocess CLI round-trip, arbitrary timing gate, or exact
+  one-time repetition, threshold, or reviewer-count assertion.
+
+Next actions
+1. Obtain the named historical-post payload approval and create the sealed passing live calibration.
+2. Obtain the separate sealed project-context payload approval and create the sealed busy/quiet
+   comparison whose complete posts are judged against the unchanged central maker question.
+3. Complete route-free attestation and accept the configured independent artifact reviews before F5
+   activation, F6 publisher/schedule proof, or F7 closure.
+
+---
+Session Update: 2026-08-28 (Maker activation F4-F6 accepted)
+
+What changed
+- Accepted fixture-backed F4 evidence: capture
+  `8735621297882bdd9fdac08ccf7833849c2466cb11ee0e6e8fef1fe3e17048c1`, attestation ending
+  `6cfc303e23e8af22e53c50d5c01741600938e3d14ff14e880635cf9197d0aac3`, and review evidence ending
+  `fa097dd766ef0a9e89b87a91bb1b64758a41a1367ba5db0e2234f028a4f49265`.
+- Activated `v4-three-examples-corpus-v2` with
+  `daily-blog-maker-activation-6b104be9c6907eeeffcf330f6b10173857b39c6b05baa46d4cf009a67daa7547`.
+- Accepted F5 bundle v5 publisher integration, 12-case crash recovery, and the strict built page
+  `blog/2026/08/26/letting-cancer-clicker-show-its-mutations/index.html` with 11 byte-identical assets.
+- Accepted F6 disposable-root `make_blog.py --yesterday` scheduling evidence for 04:00
+  America/Chicago. Installed state remains telemetry.
+
+What was tested
+- F4 reviews independently passage-grounded both complete selected posts. F5 and F6 evidence used
+  disposable roots and retained artifacts. Permanent coverage remains offline and deterministic;
+  the capture, calibration, reviews, crash matrix, strict build, and page inspection are one-time.
+
+Next actions
+1. Run F7 full producer and publisher suites and fresh independent audits.
+2. Reconcile any grounded findings, then record the closure evidence.
+
+---
+Session Update: 2026-08-29 (Maker-voice fixup closure)
+
+What changed
+- Closed F7 after the final descriptor-snapshot TOCTOU repair and documentation reconciliation.
+- Preserved the approved maker prompt package and the unchanged complete-post question. The mandatory
+  evidence path remains fixture-backed; live Hermes work is optional corroboration.
+
+What was tested
+- Producer Python 3.12.13: 2,450 passed, 0 failed. Publisher Python 3.13.5: 1,362 passed, 0
+  failed; publisher hygiene: 310 passed; strict disposable MkDocs build passed.
+- Publication E2E verified the busy fixture/capture, exact quiet route without egress, activation,
+  bundle v5, real importer, 11 assets, and the strict August 26 page. Crash E2E accepted all 12
+  SIGKILL cases. Schedule E2E accepted the direct 04:00 America/Chicago DEVNULL path, missing
+  import/build, coherent repeat preflight, and invalid preservation.
+- Four final independent requirements, security, test-policy, and maintainability audits accepted
+  after grounded fixes. Approved prompt hashes match.
+
+Next actions
+1. None. The daily-blog maker-voice fixup is complete.

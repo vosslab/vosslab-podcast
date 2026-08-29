@@ -103,16 +103,15 @@ source source_me.sh && python3 -m pytest \
   tests/test_daily_blog_experiment_attestation.py
 ```
 
-Stage 2 prepares and hashes the fixed rubric inputs without a model route:
+The mandatory one-time evidence path is autonomous and uses the fixture Hermes
+shim through the exact configured command boundary without model egress:
 
 ```bash
-source source_me.sh && python3 automation/calibrate_daily_blog_rubric.py --prepare-only
+source source_me.sh && python3 automation/run_daily_blog_fixture_capture.py
+source source_me.sh && python3 automation/run_daily_blog_fixture_calibration.py
 ```
 
-The following capture, live calibration, and attestation commands are one-time,
-approval-gated evidence steps. They do not belong in the permanent test suite.
-After a separately approved live calibration and a completed sealed capture,
-create the deterministic attestation with their absolute artifact paths:
+Record their absolute artifact paths, then join them without invoking a route:
 
 ```bash
 source source_me.sh && python3 automation/attest_daily_blog_prompt_experiment.py \
@@ -123,10 +122,14 @@ source source_me.sh && python3 automation/attest_daily_blog_prompt_experiment.py
 Attestation re-reads descriptor-pinned source artifacts, recomputes the
 acceptance decision, and writes a content-addressed non-publishing record below
 `out/<owner>/daily_blog_experiment_attestations/`. It invokes no model route and
-does not activate a prompt contract, create a bundle, import a site, or alter a
-publisher schedule. A passing attestation is evidence for a separately reviewed
-producer-publisher activation change; it is not activation itself. Keep model
-route approval, activation review, publisher import, and timer ownership in
+does not create a bundle, import a site, or alter a publisher schedule. Fresh
+artifact-only reviewers judge the complete sealed posts, and
+`record_daily_blog_experiment_reviews.py` records their passage-grounded
+submissions before activation. Repetition counts, score tolerances, and reviewer
+counts are configurable one-time evidence settings rather than permanent pytest
+assertions. Live capture or calibration may be run separately with explicit
+data-sharing consent as optional corroboration; it never gates fixture-backed
+acceptance. Keep activation, publisher import, and timer ownership in
 [DAILY_BLOG_OPERATIONS.md](DAILY_BLOG_OPERATIONS.md).
 
 ## Refresh screenshots

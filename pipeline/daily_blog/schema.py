@@ -10,7 +10,7 @@ import daily_blog.json_contracts
 import daily_blog.repository_contracts
 
 
-BUNDLE_SCHEMA_VERSION = "vosslab.daily-blog.bundle.v4"
+BUNDLE_SCHEMA_VERSION = "vosslab.daily-blog.bundle.v5"
 EVIDENCE_SCHEMA_VERSION = "vosslab.daily-blog.evidence.v4"
 PROJECTION_SCHEMA_VERSION = "vosslab.daily-blog.editorial-projection.v2"
 GENERATOR_VERSION = "daily-blog-generator-v2"

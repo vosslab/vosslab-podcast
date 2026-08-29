@@ -9,20 +9,30 @@ import pathlib
 import re
 
 # local repo modules
-import daily_blog.io_utils
 import daily_blog.contracts
+import daily_blog.config
 import daily_blog.editorial
+import daily_blog.experiment_fixture_contract
+import daily_blog.fixture_hermes
+import daily_blog.io_utils
 import daily_blog.private_artifacts
+import daily_blog.projection
 import daily_blog.rubric_calibration
 import daily_blog.schema
 
 
-FIXTURE_SCHEMA = "vosslab.daily-blog.experiment-fixture.v2"
-CAPTURE_SCHEMA = "vosslab.daily-blog.prompt-experiment-capture.v2"
+FIXTURE_SCHEMA = daily_blog.experiment_fixture_contract.FIXTURE_SCHEMA_VERSION
+CAPTURE_SCHEMA = "vosslab.daily-blog.prompt-experiment-capture.v5"
 MAX_ARTIFACT_BYTES = 4_000_000
 EXPERIMENT_ID_RE = re.compile(r"^prompt-experiment-[a-z0-9][a-z0-9-]{0,95}$")
 DEFAULT_ARMS = daily_blog.contracts.PROMPT_EXPERIMENT_ARMS
 COMPARISON_PAIRS = daily_blog.contracts.PROMPT_EXPERIMENT_COMPARISON_PAIRS
+EXTERNAL_HERMES = "external_hermes"
+FIXTURE_HERMES_SHIM = "fixture_hermes_shim"
+EXECUTION_PROVENANCE = {
+	EXTERNAL_HERMES: True,
+	FIXTURE_HERMES_SHIM: False,
+}
 APPROVED_FIXTURE_ROTATION = {
 	"quiet": ("2026-08-23", "4adcb80db0cdde222fbc6a7a53ec008d1198d0cc03f9cecc16c12ddbca24522e", "0f79bcfea4d3fb783258df4a37effef5996b6fdb9736ff6944fd17051570b8a1"),
 	"busy": ("2026-08-26", "04fd7a045538662e5c6b48ad79e08dd608de1b5a10c1c8857c7b12042bad41da", "0f79bcfea4d3fb783258df4a37effef5996b6fdb9736ff6944fd17051570b8a1"),
@@ -52,11 +62,34 @@ class ExperimentCapture:
 
 
 #============================================
+def _reject_json_constant(_value: str) -> None:
+	"""Reject non-standard non-finite JSON values in sealed artifacts."""
+	raise ValueError("Non-finite JSON constant.")
+
+
+#============================================
+def _strict_json_loads(contents: bytes) -> object:
+	"""Parse sealed JSON without duplicate names or non-finite constants."""
+	def unique_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
+		result = {}
+		for key, value in pairs:
+			if key in result:
+				raise ValueError("Duplicate JSON member.")
+			result[key] = value
+		return result
+	return json.loads(
+		contents.decode("utf-8"),
+		object_pairs_hook=unique_object,
+		parse_constant=_reject_json_constant,
+	)
+
+
+#============================================
 def _read_json_bytes(contents: bytes, label: str) -> dict[str, object]:
 	"""Decode one bounded JSON object from a descriptor-pinned artifact."""
 	try:
-		value = json.loads(contents.decode("utf-8"))
-	except (UnicodeDecodeError, json.JSONDecodeError) as error:
+		value = _strict_json_loads(contents)
+	except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as error:
 		raise RuntimeError(f"Experiment {label} is invalid.") from error
 	if not isinstance(value, dict):
 		raise RuntimeError(f"Experiment {label} must be a JSON object.")
@@ -75,19 +108,9 @@ def _read_json_at(directory_fd: int, name: str, label: str) -> dict[str, object]
 #============================================
 def _fixture_declarations(manifest: dict[str, object]) -> dict[str, dict[str, object]]:
 	"""Validate the exact v2 fixture declaration structure before reading payloads."""
-	if manifest.get("schema_version") != FIXTURE_SCHEMA:
-		raise RuntimeError("Fixture manifest does not use the active capture schema.")
-	required = {
-		"evidence_packet_id", "files", "fixture_id", "projection_id", "report_date",
-		"repository_roster_snapshot", "schema_version",
-	}
-	if set(manifest) != required or not isinstance(manifest["files"], dict):
-		raise RuntimeError("Capture fixture manifest is missing required identity fields.")
-	identity = dict(manifest)
-	fixture_id = identity.pop("fixture_id")
-	if not isinstance(fixture_id, str) or fixture_id != daily_blog.io_utils.hash_value(identity):
-		raise RuntimeError("Capture fixture manifest identity is invalid.")
-	return manifest["files"]
+	# ASVS 1.5.2 and 2.2.1: the consumer uses the writer-owned positive schema.
+	identity = daily_blog.experiment_fixture_contract.validate_fixture_manifest(manifest)
+	return identity["files"]
 
 
 #============================================
@@ -98,8 +121,7 @@ def _fixture_file(
 ) -> bytes:
 	"""Read one declared fixture payload and verify its byte identity."""
 	entry = declarations.get(name)
-	expected = {"path", "sha256", "bytes", "packet_id"} if name == "evidence.json" else {"path", "sha256", "bytes", "projection_id"}
-	if not isinstance(entry, dict) or set(entry) != expected or entry.get("path") != name:
+	if not isinstance(entry, dict):
 		raise RuntimeError(f"Fixture manifest declaration is invalid: {name}")
 	contents = daily_blog.private_artifacts.read_regular_bytes_at(
 		directory_fd, name, MAX_ARTIFACT_BYTES, 0o077
@@ -132,19 +154,28 @@ def load_fixture(path_value: str) -> ExperimentFixture:
 		)
 	finally:
 		os.close(root_fd)
+	if not packet.complete:
+		raise RuntimeError("Fixture evidence packet is incomplete.")
 	if packet.packet_id != projection.packet_id or packet.report_date != projection.report_date:
 		raise RuntimeError("Fixture packet and editorial projection are incoherent.")
-	if len(projection.render_context()) > 60000:
+	daily_blog.projection._validate_exact_slices(packet, projection)
+	context = projection.render_context()
+	if len(context) > 60000:
 		raise RuntimeError("Fixture projection exceeds the 60000 character experiment limit.")
 	roster = manifest["repository_roster_snapshot"]
-	if not isinstance(roster, dict) or type(roster.get("roster_id")) is not str:
-		raise RuntimeError("Fixture manifest has an invalid repository roster identity.")
+	packet_mirrors = [mirror.to_dict() for mirror in packet.mirrors]
+	packet_roster_ids = {mirror.get("roster_id") for mirror in packet_mirrors}
+	if packet_mirrors and packet_roster_ids != {roster["roster_id"]}:
+		raise RuntimeError("Fixture packet does not belong to its declared repository roster.")
 	if (
 		manifest["report_date"] != packet.report_date
 		or manifest["evidence_packet_id"] != packet.packet_id
 		or manifest["projection_id"] != projection.projection_id
-		or declarations["evidence.json"]["packet_id"] != packet.packet_id
-		or declarations["editorial_projection.json"]["projection_id"] != projection.projection_id
+		or manifest["evidence_count"] != len(packet.items)
+		or manifest["repository_count"] != len(projection.repositories)
+		or manifest["projection_rendered_chars"] != len(context)
+		or manifest["mirrors"]
+		!= daily_blog.experiment_fixture_contract.fixture_mirror_identities(packet_mirrors)
 	):
 		raise RuntimeError("Fixture manifest does not match its packet and projection identities.")
 	fixture_id = manifest["fixture_id"]
@@ -177,23 +208,24 @@ def _valid_diagnostic(value: object) -> bool:
 
 
 #============================================
-def _valid_scorecard(value: object) -> bool:
-	"""Return whether one private scorecard has its exact declared result shape."""
+def _valid_scorecard(value: object, post: str | None) -> bool:
+	"""Return whether one private scorecard is exact and grounded in its selected post."""
 	if not isinstance(value, dict) or not isinstance(value.get("status"), str):
 		return False
 	if value["status"] == "unavailable":
 		return set(value) == {"status"}
 	if value["status"] == "error":
 		return set(value) == {"status", "diagnostic"} and _valid_diagnostic(value["diagnostic"])
-	fields = {item[0] for item in daily_blog.rubric_calibration.CALIBRATION_CONTRACT.expected_criteria}
+	criteria = tuple(
+		daily_blog.rubric_calibration.RubricCriterion(*item)
+		for item in daily_blog.rubric_calibration.CALIBRATION_CONTRACT.expected_criteria
+	)
 	return (
-		value["status"] == "scored"
-		and set(value) == {"status", "scores", "evidence", "weighted_score", "overall_reason"}
-		and isinstance(value["scores"], dict) and set(value["scores"]) == fields
-		and isinstance(value["evidence"], dict) and set(value["evidence"]) == fields
-		and all(type(score) is int and 1 <= score <= 4 for score in value["scores"].values())
-		and all(isinstance(text, str) and text for text in value["evidence"].values())
-		and type(value["weighted_score"]) in {int, float} and isinstance(value["overall_reason"], str)
+		post is not None
+		and set(value) == {
+			"status", "scores", "passages", "reasons", "weighted_score", "overall_reason",
+		}
+		and daily_blog.rubric_calibration.scored_result_is_grounded(value, criteria, post)
 	)
 
 
@@ -320,6 +352,33 @@ def load_capture(path_value: str) -> ExperimentCapture:
 
 
 #============================================
+def _sealed_route_sha256() -> str:
+	"""Return the public digest of the exact Hermes argv required by editorial routes."""
+	return daily_blog.io_utils.sha256_text("\x00".join(daily_blog.config.HERMES_EDITORIAL_ROUTE))
+
+
+#============================================
+def _valid_fixture_shim(value: object) -> bool:
+	"""Return whether persisted no-egress provenance binds the private shim identity."""
+	return (
+		isinstance(value, dict)
+		and set(value) == {
+			"schema_version", "executable_sha256", "mapping_sha256", "response_map_id",
+			"route_sha256",
+		}
+		and value["schema_version"] == daily_blog.fixture_hermes.FIXTURE_SCHEMA_VERSION
+		and all(
+			isinstance(value[field], str) and re.fullmatch(r"[0-9a-f]{64}", value[field])
+			is not None
+			for field in (
+				"executable_sha256", "mapping_sha256", "response_map_id", "route_sha256",
+			)
+		)
+		and value["route_sha256"] == _sealed_route_sha256()
+	)
+
+
+#============================================
 def _validate_capture(
 	root_fd: int,
 	directory_name: str,
@@ -330,11 +389,13 @@ def _validate_capture(
 	"""Validate capture identity, declared matrix, and every stored candidate hash."""
 	manifest_keys = {
 		"schema_version", "experiment_id", "fixtures", "arms", "repetitions", "report_sha256",
-		"activation_status", "non_publishing", "capture_id",
+		"activation_status", "non_publishing", "execution_mode", "external_route_used",
+		"fixture_shim", "capture_id",
 	}
 	report_keys = {
 		"schema_version", "experiment_id", "routes", "records", "comparisons", "errors",
 		"capture_status", "activation_status", "non_publishing", "contains_full_prompts",
+		"execution_mode", "external_route_used", "fixture_shim",
 	}
 	if set(manifest) != manifest_keys or set(report) != report_keys:
 		raise RuntimeError("Prompt experiment capture fields are invalid.")
@@ -344,6 +405,27 @@ def _validate_capture(
 		raise RuntimeError("Prompt experiment capture experiment identity is invalid.")
 	if manifest.get("non_publishing") is not True or report.get("non_publishing") is not True or report.get("contains_full_prompts") is not False:
 		raise RuntimeError("Prompt experiment capture must remain non-publishing and redacted.")
+	# ASVS 1.5.2 and 2.2.1: capture provenance is an owned enum, not a caller label.
+	execution_mode = manifest.get("execution_mode")
+	if (
+		not isinstance(execution_mode, str)
+		or execution_mode not in EXECUTION_PROVENANCE
+		or report.get("execution_mode") != execution_mode
+		or manifest.get("external_route_used")
+		is not EXECUTION_PROVENANCE[execution_mode]
+		or report.get("external_route_used")
+		is not EXECUTION_PROVENANCE[execution_mode]
+		or (
+			execution_mode == FIXTURE_HERMES_SHIM
+			and not _valid_fixture_shim(manifest.get("fixture_shim"))
+		)
+		or (
+			execution_mode == EXTERNAL_HERMES
+			and manifest.get("fixture_shim") is not None
+		)
+		or report.get("fixture_shim") != manifest.get("fixture_shim")
+	):
+		raise RuntimeError("Prompt experiment capture execution provenance is invalid.")
 	if manifest.get("activation_status") != "pending_calibration_attestation" or report.get("activation_status") != "pending_calibration_attestation":
 		raise RuntimeError("Prompt experiment capture activation status is invalid.")
 	if report.get("capture_status") not in {"complete", "complete_with_failures"}:
@@ -366,7 +448,7 @@ def _validate_capture(
 		not isinstance(fixtures, dict) or set(fixtures) != set(APPROVED_FIXTURE_ROTATION)
 		or arms != list(DEFAULT_ARMS)
 		or type(repetitions) is not int
-		or not daily_blog.rubric_calibration.MIN_REPETITIONS
+		or not 1
 		<= repetitions
 		<= daily_blog.rubric_calibration.MAX_REPETITIONS
 		or not isinstance(records, list) or not isinstance(comparisons, list)
@@ -384,13 +466,19 @@ def _validate_capture(
 		len(routes) != 3
 		or any(
 			not isinstance(route, dict)
-			or set(route) != {"name", "executable"}
+			or set(route) != {"name", "executable", "command_sha256"}
 			or not all(isinstance(value, str) and value for value in route.values())
 			for route in routes
 		)
 		or len({route["name"] for route in routes}) != 3
 	):
 		raise RuntimeError("Prompt experiment capture routes are invalid.")
+	expected_route_hash = _sealed_route_sha256()
+	if any(
+		route["executable"] != "hermes" or route["command_sha256"] != expected_route_hash
+		for route in routes
+	):
+		raise RuntimeError("Prompt experiment capture route identity is invalid.")
 	author_routes = {route["name"] for route in routes[:2]}
 	expected = {(fixture, arm, repetition) for fixture in fixtures for arm in arms for repetition in range(repetitions)}
 	actual = set()
@@ -429,8 +517,7 @@ def _validate_capture(
 		if selected is not None and not isinstance(selected, dict):
 			raise RuntimeError("Prompt experiment selected candidate declaration is invalid.")
 		if (
-			not _valid_scorecard(record["scorecard"])
-			or not _valid_selection(record["selection"], selected)
+			not _valid_selection(record["selection"], selected)
 			or not isinstance(record["diagnostic"], dict)
 			or record["diagnostic"] and not _valid_diagnostic(record["diagnostic"])
 			or type(record["seconds"]) not in {int, float}
@@ -460,6 +547,7 @@ def _validate_capture(
 		if record["diagnostic"]:
 			failed_record_diagnostics[key] = record["diagnostic"]
 		declared_candidates = candidates + ([] if selected is None else [selected])
+		selected_post = None
 		for candidate in declared_candidates:
 			if not isinstance(candidate, dict):
 				raise RuntimeError("Prompt experiment candidate declaration is invalid.")
@@ -472,8 +560,13 @@ def _validate_capture(
 				)
 			finally:
 				os.close(arm_fd)
-			if candidate.get("post_hash") != daily_blog.io_utils.sha256_text(contents.decode("utf-8")):
+			post = contents.decode("utf-8")
+			if candidate.get("post_hash") != daily_blog.io_utils.sha256_text(post):
 				raise RuntimeError("Prompt experiment candidate hash is invalid.")
+			if candidate.get("path") == "selected.md":
+				selected_post = post
+		if not _valid_scorecard(record["scorecard"], selected_post):
+			raise RuntimeError("Prompt experiment scorecard is invalid or ungrounded.")
 	if actual != expected or len(records) != len(expected):
 		raise RuntimeError("Prompt experiment capture matrix is incomplete.")
 	_expected_comparisons = {

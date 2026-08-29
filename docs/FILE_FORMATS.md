@@ -110,12 +110,11 @@ evidence-quality label, confidence, projection identity, selected post, and anon
 publication bundle is written only when the selected candidate is valid and its projection identity
 matches the decision and packet-derived projection.
 
-The active production prompt contract is `v3-historical`, with prompt version
-`daily-blog-prompts-v3` and validation policy `v3-historical-policy-v3`
-(`aada487814ca0080d4a49648440ee6614e5f3a3628be6197ffafcef242969324`). The registered maker-voice
-experiment contracts use `daily-blog-prompts-v4`; their policy is `v4-maker-policy-v3`
-(`3a4b7148579e509b6c32fa19b31d107dc4278eb5f721b2a01353a1a9a51264ee`). V4 is non-publishing until
-an explicit activation decision changes the producer and publisher boundaries.
+The active production prompt contract is `v4-three-examples-corpus-v2`, with prompt version
+`daily-blog-prompts-v4` and validation policy `v4-maker-policy-v3`
+(`3a4b7148579e509b6c32fa19b31d107dc4278eb5f721b2a01353a1a9a51264ee`). Activation
+`daily-blog-maker-activation-6b104be9c6907eeeffcf330f6b10173857b39c6b05baa46d4cf009a67daa7547`
+binds both producer and publisher.
 
 ## Run state and events
 
@@ -148,7 +147,7 @@ treats a date as published.
 
 The producer writes the date-owned publication directory at
 `out/<user>/daily_blog/YYYY-MM-DD/publication/`. Its `bundle.json` has schema version
-`vosslab.daily-blog.bundle.v4` and contains:
+`vosslab.daily-blog.bundle.v5` and contains:
 
 - `report_date`, the sole publication identity.
 - `bundle_sha256`, the canonical hash of the manifest with that field omitted, used only as an
@@ -192,6 +191,8 @@ repository count, mirror summary, source repository, bounded configuration ident
 `repository_roster_snapshot` identity. That roster identity includes `captured_utc`,
 `repository_count`, `roster_id`, schema version, and acquisition source. The manifest also declares
 the byte count and SHA-256 for `evidence.json` and `editorial_projection.json`.
+The capture writer and experiment consumer use the same positive manifest contract; the consumer
+does not carry a reduced or compatibility-shaped interpretation of these fields.
 
 The capture command allows only the `2026-08-23` quiet and `2026-08-26` busy dates. That is a
 capture-date boundary, not permission for every leaf from those dates to run. The experiment
@@ -206,10 +207,10 @@ fixture ID, `<date>--<fixture_id>` leaf name, packet/projection coherence, decla
 byte counts, and the 60,000-character projection context limit. It does not accept a publisher or
 publication bundle as a fixture source.
 
-### Prompt-experiment capture v1
+### Prompt-experiment capture v3
 
 The experiment runner writes a private capture with schema
-`vosslab.daily-blog.prompt-experiment-capture.v1` only below:
+`vosslab.daily-blog.prompt-experiment-capture.v3` only below:
 
 ```
 out/<user>/daily_blog_experiments/<experiment_id>/
@@ -234,7 +235,9 @@ the exact `report.json` bytes. `capture_id` is the canonical hash of every manif
 snapshot, candidate metadata, selected candidate, scorecard, diagnostic, and elapsed time.
 Comparisons bind counterbalanced pairwise referee results to those selected candidates. The loader
 requires a complete unique record matrix, a complete unique comparison matrix, and that every
-selected candidate derives from a valid recorded candidate with a matching post hash.
+selected candidate derives from a valid recorded candidate with a matching post hash. Every scored
+candidate carries one exact selected-post passage and one reason per maker-rubric criterion; the
+loader reopens `selected.md` and rejects a scorecard whose passage is not an exact substring.
 
 The capture report deliberately has no aggregate or acceptance fields. It is the source evidence for
 later deterministic acceptance, not a decision artifact. Both capture documents must declare
@@ -247,10 +250,10 @@ Current registered arms are `v3`, `v4-instruction-only`, `v4-one-example`, and
 them, copy them into site content, or log full prompts, route arguments, credentials, or private
 artifact paths.
 
-### Prompt-experiment attestation v1
+### Prompt-experiment attestation v4
 
 An attestation is the route-free, immutable join of one verified capture and one verified passing
-live calibration. It uses schema `vosslab.daily-blog.prompt-experiment-attestation.v1` only below:
+live calibration. It uses schema `vosslab.daily-blog.prompt-experiment-attestation.v4` only below:
 
 ```
 out/<user>/daily_blog_experiment_attestations/<attestation_id>/
@@ -262,28 +265,37 @@ manifest field except `attestation_id`. Each leaf has only private mode-0600 `ma
 
 The attestation report owns the source references and recomputed acceptance result. Its exact fields
 are `schema_version`, `experiment_id`, `capture`, `calibration`, `acceptance_schema`, `acceptance`,
-and `non_publishing`. `capture` binds the direct-child capture artifact name, its `capture_id`, and
-its `report_sha256`. `calibration` binds the direct-child calibration artifact name and the complete
-bounded `CalibrationEvidence` value: `calibration_id`, `preparation_id`, `report_sha256`,
-`rubric_sha256`, positive-reference scores, and the exclusive reference floor. The attestation loader
-reopens both source artifacts, revalidates their private descriptors and identities, and recomputes
-the report; a changed capture or calibration invalidates the attestation.
+`review_contract`, and `non_publishing`. `capture` binds the direct-child capture artifact name, its
+`capture_id`, and its `report_sha256`. `calibration` binds the direct-child calibration artifact name
+and the complete bounded `CalibrationEvidence` value: `calibration_id`, `preparation_id`,
+`report_sha256`, `rubric_sha256`, positive-reference scores, and the exclusive reference floor. The
+attestation loader reopens both source artifacts, revalidates their private descriptors and
+identities, and recomputes the report; a changed capture or calibration invalidates the attestation.
 
 `acceptance` is computed from capture records and comparisons plus the bound calibration evidence.
-It is the only persisted prompt-experiment decision, including `activation_ready` and any selected
-arm. The capture report must not precompute or duplicate those aggregates. Conversely, the
-attestation never duplicates candidate metadata, selected posts, candidate Markdown, raw route
-metadata, records, or comparisons: those remain owned by the capture.
+It records `review_ready` and any selected arm; it never claims activation readiness. The capture
+report must not precompute or duplicate those aggregates. `review_contract` fixes the unchanged
+central question, selected arm, busy and quiet artifact identities, passage-grounded review
+dimensions, the configured bounded reviewer count, and artifact-only independence rules. For each
+fixture it also binds one exact `selected.md` path, repetition, and SHA-256 from the selected arm.
+The deterministic selection takes the first authority-ordered sample without consulting any score
+or comparison outcome. Later repetitions remain diagnostic evidence rather than a way to steer the
+qualitative review toward a favorable or unfavorable result. The attestation does not duplicate
+candidate Markdown: those bytes remain owned by the capture and are read through descriptor-pinned
+paths whose hashes must match the review contract.
 
 The attestation manifest repeats every report field, adds `report_sha256`, and adds
 `attestation_id`. `report_sha256` is the SHA-256 of the exact report bytes. The report and its
 manifest copy must be byte-consistent at the structured-field level, and `non_publishing` is always
-`true`. A successful attestation can return an activation-ready result, but it does not itself change
-the producer or publisher contract; activation remains an explicit separate boundary decision.
+`true`. A successful attestation is ready for its configured independent artifact-only reviews. F4
+is accepted only when every passage-grounded reviewer submission required by the contract passes
+both exact complete fixture posts. A submission binds the review-contract hash and both selected-post
+hashes; supplying different prose fails even when the caller makes its own submission hashes
+internally consistent. Activation remains a later explicit producer/publisher boundary decision.
 
 ## Rubric-calibration preparation and report
 
-Historical calibration artifacts use schema `vosslab.daily-blog.rubric-calibration.v1` below:
+Historical calibration artifacts use schema `vosslab.daily-blog.rubric-calibration.v2` below:
 
 ```
 out/<user>/daily_blog_rubric_calibrations/<calibration_id>/
@@ -292,16 +304,18 @@ out/<user>/daily_blog_rubric_calibrations/<calibration_id>/
 Every leaf contains private mode-0600 `manifest.json` and `report.json` files. Preparation leaves
 use `rubric-calibration-preparation-<identity-prefix>` and contain fixed post hashes, deterministic
 profiles, rubric criteria, target bands, and prompt identities without copying historical post text.
-Live leaves use `rubric-calibration-<timestamp>-<suffix>` and add redacted route identity,
-per-criterion scorecards, repeated-score stability, and aggregate target status.
+Live leaves use `rubric-calibration-<timestamp>-<suffix>` and add redacted route identity, the
+recorded bounded diagnostic procedure, per-post scorecards, exact cited passages and reasons,
+criterion spans, aggregate historical target status, and positive/negative mean separation.
 
 The loader accepts only the five fixed `2026-08-22` through `2026-08-26` post slots from the
 configured daily-blog repository. Live mode additionally requires durable model-data-sharing
 configuration and explicit invocation approval. Both modes are non-publishing; neither artifact
 kind is a publication bundle, prompt-experiment fixture, or activation decision. Only a passing live
 calibration can supply `CalibrationEvidence` to an attestation: its loader verifies the calibration
-report digest, preparation identity, rubric digest, fixed historical-post hashes, passing aggregate,
-and positive-reference scores before exposing the bounded evidence value. Preparation artifacts
+report digest, preparation identity, rubric digest, fixed historical-post hashes, every cited
+passage, the recomputed procedure-bound aggregate, configured consistency and separation settings,
+and positive-reference means before exposing the bounded evidence value. Preparation artifacts
 cannot satisfy this binding.
 
 ## Maintenance rules

@@ -25,6 +25,7 @@ import daily_blog.publisher
 import daily_blog.run_state
 import daily_blog.io_utils
 import daily_blog.roster_snapshots
+import daily_blog.activation
 
 
 #============================================
@@ -175,11 +176,18 @@ def _resolve_active_publication_snapshot(
 		raise RuntimeError(
 			"Non-production editorial contracts require the prompt experiment runner."
 		)
+	activation = daily_blog.activation.load_maker_activation()
 	resolved = daily_blog.editorial.resolve_run_snapshot(contract, snapshot)
 	if not daily_blog.contracts.is_production_contract(resolved.contract):
 		raise RuntimeError(
 			"Non-production editorial contracts require the prompt experiment runner."
 		)
+	if (
+		activation.contract is not resolved.contract
+		or activation.receipt["editorial_prompt_contract"]
+		!= daily_blog.editorial.prompt_contract_identity(snapshot=resolved)
+	):
+		raise RuntimeError("Production prompt snapshot does not match maker activation.")
 	return resolved
 
 
@@ -245,12 +253,13 @@ class DailyPublicationOrchestrator:
 			snapshot=self.prompt_snapshot
 		)
 		self.generator_root = daily_blog.io_utils.repository_root(__file__)
-		self.generator_revision = daily_blog.bundles.generator_revision(
+		self.generator_identity = daily_blog.bundles.generator_contract_identity(
 			self.generator_root,
 			config.settings_path,
 			self.editorial_contract,
 			self.prompt_snapshot,
 		)
+		self.generator_revision = self.generator_identity.revision
 		self.run_id = new_run_id()
 		self.store = daily_blog.run_state.RunStore(
 			config.output_root,
@@ -679,7 +688,7 @@ class DailyPublicationOrchestrator:
 			writer = daily_blog.bundles.BundleWriter(
 				self.config.output_root,
 				self.config.output_owner,
-				self.generator_revision,
+				self.generator_identity,
 				self.editorial_contract,
 				self.prompt_snapshot,
 			)
@@ -711,7 +720,7 @@ class DailyPublicationOrchestrator:
 				packet,
 				projection,
 				assets,
-				self.generator_revision,
+				self.generator_identity,
 				self.editorial_contract,
 				self.prompt_snapshot,
 				roster,

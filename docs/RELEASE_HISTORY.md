@@ -6,12 +6,12 @@
 
 - Rebuilt the daily-blog production contract around immutable evidence, editorial projection,
   candidate validation, and a date-owned publication boundary.
-- Advanced the producer/publisher interface to bundle v4. `report_date` is the sole publication
+- Advanced the producer/publisher interface to bundle v5. `report_date` is the sole publication
   identity; `bundle_sha256` verifies manifest integrity without creating a second namespace.
 - Added a two-stage, non-publishing v4 maker-voice evidence boundary. Fresh capture seals the
   approved Aug. 23 and Aug. 26 experiment evidence; a separate calibration artifact scores the
   historical Aug. 22-26 posts; deterministic attestation recomputes their joint acceptance result.
-  The active publication path remains v3-historical.
+  The accepted activation selects `v4-three-examples-corpus-v2`.
 - Separated collection, projection, and prompt envelopes so author and referee inputs are bounded,
   reproducible, and tied to immutable snapshots.
 - Made the systemd user timer the sole 04:00 America/Chicago publication owner. It runs
@@ -36,10 +36,7 @@
 ### Compatibility notes
 
 - Candidate-validation policy versions 1 and 2 are rejected without compatibility behavior. Active
-  v3-historical and experimental v4-maker use distinct immutable policy records.
-- The publication orchestrator rejects v4 before it acquires locks, refreshes mirrors, routes a
-  model, writes a bundle, or imports to the publisher. The publisher importer accepts only active
-  v3 policy v3.
+  v4-maker policy v3 uses its immutable policy record and activated prompt contract.
 
 ### Validation
 
@@ -50,8 +47,5 @@
 
 ### Current limitations
 
-- Live capture and historical calibration remain separate approval-gated Hermes actions. The
-  attempted capture stopped at the external-action gate before payload egress.
-- No live capture, calibration, generated-prose comparison, arm winner, v4 activation, or v4
-  publication exists. A passing deterministic attestation would be evidence for a separately
-  reviewed activation decision; it does not activate the path itself.
+- Fixture-backed capture, calibration, generated-post comparison, independent review, and v4
+  activation and F7 audits are accepted.

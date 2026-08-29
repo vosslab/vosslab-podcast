@@ -36,7 +36,9 @@ pipeline/daily_blog/
   experiment_acceptance.py                deterministic experiment acceptance policy
   experiment_attestation.py               stage-2 immutable attestation owner
   experiment_capture_artifacts.py         sealed fixture and capture verifier
+  experiment_fixture_contract.py          shared sealed-fixture manifest contract
   experiment_output.py                    stage-1 private output transaction
+  experiment_review_contract.py           artifact-only F4 review contract
   io_utils.py                             UTC timestamps, canonical JSON, and hash helpers
   private_artifacts.py                    descriptor-pinned private artifact I/O
   projection.py                           bounded editorial projection

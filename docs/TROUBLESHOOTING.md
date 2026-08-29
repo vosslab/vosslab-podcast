@@ -216,12 +216,9 @@ contract metadata. Inspect `bundle.json`,
 `evidence.json`, `editorial_projection.json`, and `post.md` together, as
 described in [DAILY_BLOG_OPERATIONS.md](DAILY_BLOG_OPERATIONS.md#inspecting-a-bundle).
 
-The active production importer accepts only the active v3 contract and policy
-v3. Policy versions 1 and 2 are rejected, and v4-maker is restricted to its
-explicit offline validator path while the experiment remains non-publishing.
-Resolve the source contract mismatch, then use the ordinary date-owned workflow
-to generate and validate the current artifact. Keep v4 experimentation in its
-explicit offline validator path until the activation gate selects it.
+The active production importer accepts v4-maker policy v3 and bundle v5. Policy versions 1 and 2
+are rejected. Resolve the source contract mismatch, then use the ordinary date-owned workflow to
+generate and validate the current artifact.
 
 ## Publisher import failure
 

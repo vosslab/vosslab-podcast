@@ -4,8 +4,8 @@
 
 Calibration preparation is complete and live scoring is pending. Preparation used no model route,
 made no network request, and published nothing. The content-addressed preparation identity is
-`63fcad727dcca58c10410986abe4d6da4803e9bf557c1d8cee43fabc7dd76bb1` under schema
-`vosslab.daily-blog.rubric-calibration.v1`.
+`0df85dd7fdd48428353d0e6bde893acfaa21d4b23f66ffd267565a36c2ce6169` under schema
+`vosslab.daily-blog.rubric-calibration.v2`.
 
 The central test remains:
 
@@ -13,7 +13,14 @@ The central test remains:
 > made, what interested or surprised him, why he enjoyed working on it, what he learned, and what
 > he wants to try next?
 
-No historical rubric score, stability result, v4 arm winner, or activation decision exists yet.
+No historical rubric score, consistency result, v4 arm winner, or activation decision exists yet.
+
+One sandboxed live attempt produced private diagnostic artifact
+`rubric-calibration-20260829t011223z-0aa0bca424`. Hermes could not initialize its state and log
+files in that restricted filesystem, and all 15 score records ended at structured-response parsing.
+The attempt is incomplete evidence rather than a calibration result. The project route now includes
+Hermes `--quiet`, which keeps the final model response on stdout and sends session diagnostics to
+stderr. A fresh unsandboxed calibration still requires the explicit authorization below.
 
 ## Fixed historical inputs
 
@@ -61,9 +68,10 @@ rubric or an activation gate.
 The calibrator parses the six criteria and weights from
 `pipeline/prompts/daily_blog_rubric_v4.md`, then verifies the rubric and both calibrator templates
 against one immutable calibration contract. Any heading, weight, or resource-content drift fails
-closed. Each model response contains one 1-through-4 score and one post-grounded observation for
-every criterion. The harness computes the weighted score instead of accepting a model-authored
-total.
+closed. Each model response contains one 1-through-4 score, one exact passage copied from the
+reviewed post, and one concise explanation for every criterion. The parser verifies every passage
+against the complete post. The harness computes the weighted score instead of accepting a
+model-authored total.
 
 The plan's target language is operationalized as follows:
 
@@ -71,11 +79,19 @@ The plan's target language is operationalized as follows:
 - August 24 and 25: weighted score from 1.0 through 2.25 inclusive.
 - August 26: measured as the v3 baseline without its own target band.
 - The 4 band begins at 3.5 and remains unclaimed by these historical anchors.
-- Every per-criterion score must remain identical across repeated runs of the same post.
+- The current one-time procedure requests three repetitions per historical post.
+- Its current qualitative-consistency tolerance allows one adjacent rubric-level span per
+  criterion.
+- Its current separation threshold requires the August 22/23 mean to exceed the August 24/25 mean
+  by at least 0.25, the gap implied by the positive minimum and negative maximum target bands.
 
-The strict stability rule exposes an underspecified descriptor instead of averaging disagreement
-away. A failed band or stability check sends the rubric back for revision; it does not select a
-winner or publish content.
+The repetition count and both thresholds are bounded one-time experiment settings, recorded in the
+preparation and live artifacts rather than asserted as permanent pipeline behavior. Repeated runs
+expose ordinary sampling variation without pretending the referee is deterministic. A failed
+grounding, consistency, band, or separation check sends the rubric back for revision; it does not
+select a winner or publish content. Reviewers later inspect whether each explanation actually
+follows from its exact passage; deterministic substring validation does not claim to prove that
+semantic judgment.
 
 ## Approval and reproduction
 
@@ -92,10 +108,14 @@ invocation flag below. The current configuration is `false`, so this command rem
 ```bash
 source source_me.sh && python3 automation/calibrate_daily_blog_rubric.py \
   --approve-historical-post-sharing \
-  --repetitions 3
+  --repetitions 3 \
+  --maximum-criterion-score-span 1 \
+  --minimum-band-separation 0.25
 ```
 
 The live harness is non-publishing, accepts no caller-selected post path or date, writes private
 mode-0700 artifacts, records only redacted route failures, and returns success only when all five
-posts across the configured repetition count meet the target and stability contract. August 26
-remains baseline-only; it must be complete and stable but has no target band.
+posts complete the artifact-recorded procedure with exact passage grounding, meet their target
+bands, and satisfy the recorded consistency and separation settings. August 26 remains
+baseline-only; it must be complete, passage-grounded, and qualitatively consistent but has no target
+band.

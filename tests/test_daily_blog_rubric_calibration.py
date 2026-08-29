@@ -2,7 +2,9 @@
 
 # Standard Library
 import json
+import os
 import pathlib
+import dataclasses
 
 # PIP3 modules
 import pytest
@@ -172,15 +174,87 @@ def test_calibration_artifact_unsafe_competing_target_fails_closed(
 
 
 #============================================
-def response_with_score(score: int) -> str:
-	"""Return one complete exact calibration response using one stable score."""
+def response_with_score(
+	score: int,
+	passage: str = "I built a parser today.",
+) -> str:
+	"""Return one complete passage-grounded calibration response."""
 	scores = {
-		field: {"score": score, "evidence": f"Visible evidence for {field}."}
+		field: {
+			"score": score,
+			"passage": passage,
+			"reason": f"This passage supports {field}.",
+		}
 		for field, _title, _weight in (
 			daily_blog.rubric_calibration.CALIBRATION_CONTRACT.expected_criteria
 		)
 	}
-	return json.dumps({"scores": scores, "overall_reason": "A stable maker assessment."})
+	return json.dumps({"scores": scores, "overall_reason": "A grounded maker assessment."})
+
+
+#============================================
+def historical_posts() -> tuple[daily_blog.rubric_calibration.HistoricalPost, ...]:
+	"""Return the five fixed dates with one exact grounding passage apiece."""
+	posts = []
+	for report_date in daily_blog.rubric_calibration.CALIBRATION_DATES:
+		text = (
+			f"---\ndate: {report_date}\n---\n\n# Maker note\n\n"
+			f"I built the calibration for {report_date}.\n"
+		)
+		posts.append(
+			daily_blog.rubric_calibration.HistoricalPost(
+				report_date,
+				text,
+				daily_blog.io_utils.sha256_text(text),
+				len(text.encode("utf-8")),
+				{},
+			)
+		)
+	return tuple(posts)
+
+
+#============================================
+def calibration_record(
+	post: daily_blog.rubric_calibration.HistoricalPost,
+	repetition: int,
+	score: int,
+) -> dict:
+	"""Return one complete scorecard bound to an exact post passage."""
+	fields = daily_blog.rubric_calibration.CALIBRATION_CONTRACT.expected_criteria
+	passage = f"I built the calibration for {post.report_date}."
+	return {
+		"report_date": post.report_date,
+		"post_sha256": post.sha256,
+		"repetition": repetition,
+		"status": "scored",
+		"scores": {field: score for field, _title, _weight in fields},
+		"passages": {field: passage for field, _title, _weight in fields},
+		"reasons": {
+			field: f"The exact passage supports {field}."
+			for field, _title, _weight in fields
+		},
+		"weighted_score": float(score),
+		"overall_reason": "The cited work supports the aggregate score.",
+	}
+
+
+#============================================
+def calibration_records(
+	posts: tuple[daily_blog.rubric_calibration.HistoricalPost, ...],
+	procedure: daily_blog.rubric_calibration.CalibrationProcedure,
+) -> list[dict]:
+	"""Return one complete grounded matrix for an artifact-recorded procedure."""
+	records = []
+	for post in posts:
+		if post.report_date in {"2026-08-22", "2026-08-23"}:
+			score = 3
+		elif post.report_date in {"2026-08-24", "2026-08-25"}:
+			score = 2
+		else:
+			score = 3
+		for repetition in range(procedure.repetitions):
+			records.append(calibration_record(post, repetition, score))
+	return records
 
 
 class FixedRunner:
@@ -268,6 +342,157 @@ def test_malformed_response_uses_one_bounded_repair_attempt(tmp_path: pathlib.Pa
 	)
 
 	assert result["status"] == "scored" and runner.calls == 2
+
+
+#============================================
+def test_calibration_result_rejects_a_fabricated_grounding_passage() -> None:
+	"""Every criterion anchor must occur exactly in the complete reviewed post."""
+	_rubric, _template, criteria = daily_blog.rubric_calibration.calibration_resources()
+	post = "# Maker note\n\nI built a parser today.\n"
+
+	with pytest.raises(RuntimeError, match="passage is not present"):
+		daily_blog.rubric_calibration.parse_calibration_result(
+			response_with_score(3, "I shipped a feature that is not in this post."),
+			criteria,
+			post,
+		)
+
+
+#============================================
+def test_calibration_result_rejects_ambiguous_json_members() -> None:
+	"""Model scorecards cannot use duplicate names to hide a conflicting score."""
+	_rubric, _template, criteria = daily_blog.rubric_calibration.calibration_resources()
+	post = "# Maker note\n\nI built a parser today.\n"
+
+	with pytest.raises(ValueError, match="Duplicate JSON member"):
+		daily_blog.rubric_calibration.parse_calibration_result(
+			'{"scores":{},"scores":{},"overall_reason":"grounded"}', criteria, post,
+		)
+
+
+#============================================
+def test_private_calibration_json_rejects_non_finite_constants(tmp_path: pathlib.Path) -> None:
+	"""A sealed manifest or report rejects JSON constants outside the JSON data model."""
+	directory = tmp_path / "calibration"
+	directory.mkdir(mode=0o700)
+	(directory / "report.json").write_text('{"score":NaN}', encoding="utf-8")
+	(directory / "report.json").chmod(0o600)
+	directory_fd = os.open(directory, os.O_RDONLY | os.O_DIRECTORY)
+	try:
+		with pytest.raises(RuntimeError, match="artifact JSON is invalid"):
+			daily_blog.rubric_calibration_artifacts._read_private_json(directory_fd, "report.json")
+	finally:
+		os.close(directory_fd)
+
+
+#============================================
+def test_calibration_aggregate_rejects_ungrounded_reasons() -> None:
+	"""A complete score matrix cannot pass when a cited passage is absent from its post."""
+	posts = historical_posts()
+	criteria = tuple(
+		daily_blog.rubric_calibration.RubricCriterion(*value)
+		for value in daily_blog.rubric_calibration.CALIBRATION_CONTRACT.expected_criteria
+	)
+	procedure = daily_blog.rubric_calibration.calibration_procedure()
+	records = calibration_records(posts, procedure)
+	field = criteria[0].field
+	records[0]["passages"][field] = "This sentence was never in the post."
+
+	aggregate = daily_blog.rubric_calibration.aggregate_calibration(
+		records,
+		criteria,
+		posts,
+		procedure,
+	)
+
+	assert aggregate["passage_grounded"] is False
+
+
+#============================================
+def test_fixture_scorecard_keeps_the_evidence_failure_exactly_grounded() -> None:
+	"""The autonomous Aug. 26 mapping stays a grounded discovery-failure diagnostic."""
+	post = daily_blog.rubric_calibration.HistoricalPost(
+		"2026-08-26",
+		"---\ndate: 2026-08-26\n---\n\n# Maker note\n\nI found the missing evidence today.\n",
+		"a" * 64,
+		76,
+		{},
+	)
+	criteria = tuple(
+		daily_blog.rubric_calibration.RubricCriterion(*value)
+		for value in daily_blog.rubric_calibration.CALIBRATION_CONTRACT.expected_criteria
+	)
+
+	response = daily_blog.rubric_calibration_artifacts._fixture_scorecard_response(post, criteria)
+	result = daily_blog.rubric_calibration.parse_calibration_result(response, criteria, post.text)
+
+	assert result["weighted_score"] == 1.0
+	assert "evidence and discovery failure" in result["overall_reason"]
+
+
+#============================================
+def test_fixture_evidence_recomputes_and_cannot_be_loaded_as_external(
+	tmp_path: pathlib.Path,
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""A verified fixture artifact retains its false external-route provenance."""
+	config = dataclasses.replace(
+		make_config(tmp_path, sharing=False),
+		referee_route=daily_blog.config.RoleRoute(
+			"judge", daily_blog.config.HERMES_EDITORIAL_ROUTE,
+		),
+	)
+	posts = historical_posts()
+	procedure = daily_blog.rubric_calibration.calibration_procedure()
+	rubric, _template, criteria = daily_blog.rubric_calibration.calibration_resources()
+	identity = daily_blog.rubric_calibration._preparation_identity(posts, rubric, procedure)
+	report = daily_blog.rubric_calibration._calibration_report(
+		config,
+		"rubric-calibration-fixture-test-evidence",
+		procedure,
+		identity,
+		criteria,
+		calibration_records(posts, procedure),
+		daily_blog.rubric_calibration.aggregate_calibration(
+			calibration_records(posts, procedure), criteria, posts, procedure,
+		),
+		mode="fixture_hermes_shim",
+		external_route_used=False,
+		fixture=daily_blog.rubric_calibration_artifacts._fixture_identity(
+			daily_blog.rubric_calibration_artifacts._fixture_prompt_responses(
+				posts, config, criteria,
+			)
+		),
+	)
+	manifest = daily_blog.rubric_calibration._calibration_manifest(
+		report["calibration_id"], identity, posts, report,
+	)
+	path = daily_blog.rubric_calibration_artifacts.install_calibration_artifacts(
+		config, report["calibration_id"], manifest, report,
+	)
+	monkeypatch.setattr(
+		daily_blog.rubric_calibration_artifacts,
+		"load_historical_posts",
+		lambda _repository: posts,
+	)
+
+	evidence = daily_blog.rubric_calibration.load_fixture_calibration_evidence(config, path)
+
+	assert evidence.reference_floor == 3.0
+	with pytest.raises(RuntimeError, match="wrong route provenance"):
+		daily_blog.rubric_calibration.load_live_calibration_evidence(config, path)
+
+
+#============================================
+def test_fixture_calibration_rejects_a_non_hermes_referee_route(
+	tmp_path: pathlib.Path,
+) -> None:
+	"""The fixture provenance label requires the same sealed command as production Hermes."""
+
+	with pytest.raises(RuntimeError, match="sealed Hermes referee route"):
+		daily_blog.rubric_calibration.run_fixture_calibration(
+			make_config(tmp_path, sharing=False),
+		)
 
 
 #============================================

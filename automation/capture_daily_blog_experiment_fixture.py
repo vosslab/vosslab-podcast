@@ -17,6 +17,7 @@ import uuid
 import daily_blog.activity
 import daily_blog.config
 import daily_blog.evidence
+import daily_blog.experiment_fixture_contract
 import daily_blog.io_utils
 import daily_blog.projection
 import daily_blog.private_artifacts
@@ -25,9 +26,9 @@ import daily_blog.repository_contracts
 import daily_blog.schema
 
 
-FIXTURE_SCHEMA_VERSION = "vosslab.daily-blog.experiment-fixture.v2"
-FIXTURE_ROOT_NAME = "daily_blog_experiment_fixtures_v2"
-FIXTURE_FILE_NAMES = ("evidence.json", "editorial_projection.json", "manifest.json")
+FIXTURE_SCHEMA_VERSION = daily_blog.experiment_fixture_contract.FIXTURE_SCHEMA_VERSION
+FIXTURE_ROOT_NAME = daily_blog.experiment_fixture_contract.FIXTURE_ROOT_NAME
+FIXTURE_FILE_NAMES = daily_blog.experiment_fixture_contract.FIXTURE_FILE_NAMES
 EXPERIMENT_REPORT_DATES = frozenset(("2026-08-23", "2026-08-26"))
 MAX_PROJECTION_CONTEXT_CHARS = 60000
 MAX_FIXTURE_ARTIFACT_BYTES = 4_000_000
@@ -293,23 +294,6 @@ def _safe_config_identity(config: daily_blog.config.DailyBlogConfig) -> dict:
 
 
 #============================================
-def _mirror_manifest(mirrors: list[dict]) -> list[dict]:
-	"""Keep source identity and refs, omitting local cache paths and refresh errors."""
-	result = []
-	for mirror in sorted(mirrors, key=lambda item: str(item["repository"]).casefold()):
-		result.append(
-			{
-				"default_revision": mirror.get("default_revision", ""),
-				"ref_fingerprint": mirror.get("ref_fingerprint", ""),
-				"repository": mirror.get("repository", ""),
-				"repository_url": mirror.get("repository_url", ""),
-			}
-		)
-	return result
-
-
-#============================================
-#============================================
 def _write_fixture(
 	root_fd: int,
 	destination_name: str,
@@ -372,6 +356,8 @@ def _verify_persisted_contents(
 ) -> None:
 	"""Prove hashes plus full schema coherence for already-read persisted bytes."""
 	persisted_manifest = json.loads(contents["manifest.json"].decode("utf-8"))
+	# ASVS 1.5.2, 2.2.1, and 11.4.3: parse and verify the shared sealed schema first.
+	daily_blog.experiment_fixture_contract.validate_fixture_manifest(persisted_manifest)
 	if persisted_manifest != manifest:
 		raise RuntimeError("Persisted experiment fixture manifest does not match its capture.")
 	for name in ("evidence.json", "editorial_projection.json"):
@@ -536,7 +522,7 @@ def _prepare_fixture(
 			name: {"bytes": len(contents), "sha256": daily_blog.io_utils.sha256_bytes(contents)}
 			for name, contents in files.items()
 		},
-		"mirrors": _mirror_manifest(mirrors),
+		"mirrors": daily_blog.experiment_fixture_contract.fixture_mirror_identities(mirrors),
 		"projection_rendered_chars": len(context),
 		"projection_id": projection.projection_id,
 		"report_date": report_date,
@@ -545,8 +531,8 @@ def _prepare_fixture(
 		"schema_version": FIXTURE_SCHEMA_VERSION,
 		"source_repository": os.path.basename(os.path.abspath(config.daily_blog_repository)),
 	}
-	fixture_id = daily_blog.io_utils.hash_value(manifest_identity)
-	manifest = {**manifest_identity, "fixture_id": fixture_id}
+	manifest = daily_blog.experiment_fixture_contract.seal_fixture_manifest(manifest_identity)
+	fixture_id = manifest["fixture_id"]
 	destination_name = f"{report_date}--{fixture_id}"
 	return PreparedFixture(
 		evidence,

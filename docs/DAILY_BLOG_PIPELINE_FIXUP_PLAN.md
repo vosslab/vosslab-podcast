@@ -1,7 +1,7 @@
 # Plan: Finish the daily-blog maker-voice integration
 
-Status date: August 28, 2026
-Status: ready for autonomous execution
+Status date: August 29, 2026
+Status: complete
 Plan owner: daily-blog fixup manager
 Primary repository: `/home/vosslab/nsh/vosslab-podcast`
 Guiding plan: [better_prompt_plan.md](active_plans/better_prompt_plan.md)
@@ -11,12 +11,13 @@ Guiding plan: [better_prompt_plan.md](active_plans/better_prompt_plan.md)
 The daily-blog producer already calls Hermes through the supported command boundary:
 
 ```text
-hermes chat --provider openai-codex --query-file -
+hermes chat --provider openai-codex --query-file - --ignore-rules --quiet
 ```
 
 That command is the complete project-facing model boundary. Hermes chooses the model credential and
-account internally. The podcast project supplies a self-contained prompt, consumes stdout, validates
-the result, and records a redacted failure when the command does not complete.
+account internally. The `--quiet` repair completes that integration boundary by reserving stdout for
+the final response and stderr for Hermes diagnostics. The podcast project supplies a self-contained
+prompt, validates the response, and records a redacted failure when the command does not complete.
 
 The remaining work is an integration and editorial-quality fix inside the daily-blog producer, plus
 the narrow publisher and schedule contracts required to prove delivery. It is not a Hermes account
@@ -27,6 +28,12 @@ and 23 are positive evidence that the system was once closer to that voice. The 
 work and experiment machinery already live in
 [better_prompt_plan.md](active_plans/better_prompt_plan.md); this plan consumes those results instead
 of designing another prompt experiment.
+
+F4-F6 completed through mandatory fixture-backed evidence and the producer/publisher cutover. F7
+accepted the producer Python 3.12.13 suite (2,450 passed), publisher Python 3.13.5 suite (1,362
+passed), publisher hygiene (310 passed), a strict disposable MkDocs build, and four fresh independent
+requirements, security, test-policy, and maintainability audits. Approved prompt hashes match. Live
+Hermes work remains optional one-time corroboration.
 
 ## Ultimate goal
 
@@ -42,7 +49,9 @@ The central editorial test is:
 > to try next?
 
 August 22 and 23 are qualitative references for voice, emphasis, thematic titles, and maker
-perspective. They are examples, not byte-equivalence templates.
+perspective. August 24 and 25 demonstrate the voice failure the rebuild corrects. August 26
+demonstrates an evidence/discovery failure: the important new repository story did not reach the
+post. These are examples and diagnoses, not byte-equivalence templates or score ceilings.
 
 ## Objectives
 
@@ -92,7 +101,8 @@ review. Broader publisher redesign belongs in its own plan.
 
 ### Existing external model boundary
 
-The producer invokes `hermes chat --provider openai-codex --query-file -`. Hermes owns provider
+The producer invokes
+`hermes chat --provider openai-codex --query-file - --ignore-rules --quiet`. Hermes owns provider
 authentication, model resolution, credential eligibility, account choice, quota handling, retry, and
 fallback behavior. The producer records only route-level success or a redacted route-level failure.
 
@@ -138,10 +148,10 @@ supersedes that dependency. Historical evidence remains historical; it does not 
    complete task prompt on stdin.
 5. The project chooses the `openai-codex` provider route. Hermes performs the remaining model and
    account decisions internally.
-6. The existing maker candidate becomes the sole production editorial contract only after its fresh
-   capture, live calibration, route-free attestation, and separately reviewed producer/publisher
-   cutover pass. Retired pre-production contracts are then removed from production dispatch and
-   validation.
+6. The existing maker candidate becomes the sole production editorial contract only after its sealed
+   fixture-backed calibration, capture, route-free attestation, fresh artifact-only review, and
+   separately reviewed producer/publisher cutover pass. Retired pre-production contracts are then
+   removed from production dispatch and validation.
 7. The publisher independently validates the bundle, builds the site, and changes the served release
    atomically.
 8. Model prose is replaceable. Evidence, prompt identity, validation policy, bundle digest, receipt,
@@ -208,15 +218,14 @@ Each task receives a fresh self-contained brief with its owned files, dependenci
 and required artifacts. Implementation and review use separate subagents.
 
 Captured evidence fixtures, deterministic role fakes, disposable roots, synthetic state transitions,
-and debug harnesses provide the complete unattended path. Real route and host checks run as one-time
-integration evidence through the project's existing configured interfaces. A failed external check
-records its phase, redacted result, preserved state, and the next bounded retry.
+and debug harnesses provide the complete unattended path. Real route and host checks are optional
+one-time corroboration through the project's configured interfaces. A failed external check records
+its phase, redacted result, and preserved state without blocking the fixture-backed result.
 
-The user has authorized the manager and fresh subagents to complete every technical F0-F7 action,
-including the already-defined configured-route payloads, deterministic attestation, publication,
-scheduler verification, diagnosis, repair, and review. No further confirmation is required inside
-the dependency chain. Git-history changes and replacement of a real occupied publication date remain
-outside that authorization.
+The manager may complete F0-F7 without human interaction. It uses fixture-backed calibration and
+capture artifacts for F4, synthetic date and activation transitions for F5-F6, and a disposable
+publisher root for strict-build and verified-page proof. Git history, an occupied real publication
+date, and installed host state are not milestone inputs.
 
 The manager verifies every claimed artifact from disk. A subagent summary is not completion evidence.
 
@@ -231,7 +240,7 @@ F0 scope baseline
  |              |
  +--------------+--> F3 deterministic producer acceptance
                          |
-                         +--> F4 real maker-output evidence
+                         +--> F4 fixture-backed maker-output evidence
                          |       |
                          +-------+--> F5 publisher integration
                                          |
@@ -255,10 +264,10 @@ prior verified artifact.
 
 - Record the producer and publisher revisions, current working-tree state, active and candidate
   prompt-contract identities, and tracked schedule-unit identity.
-- Record the external-data-sharing authorization, durable configuration, and per-invocation approval
-  that apply to the already-defined live calibration and fresh-capture payloads. F4 consumes those
-  exact approvals and payloads; a missing approval is reported as a security precondition rather than
-  replaced by a code or fixture workaround.
+- Record the sealed fixture identities, fixture-manifest contract, deterministic fake-role protocol,
+  disposable output roots, and synthetic transition harness that supply unattended F4-F6 evidence.
+- Record optional live-route corroboration separately. It may add redacted diagnostics but never
+  blocks, replaces, or upgrades the fixture-backed acceptance result.
 - Mark prior Hermes-infrastructure milestones as superseded and outside this plan.
 - Record unrelated working-tree changes without modifying or absorbing them.
 - Create a compact evidence index for F0-F7 with commands, exit statuses, artifact paths, and reviews.
@@ -290,8 +299,8 @@ prior verified artifact.
   identities inside that registry; F4, not registry order, selects the eventual production arm.
 - Consolidate candidate-contract ownership while leaving the currently active contract unchanged
   until F4 produces a passing attestation.
-- Preserve the approved maker prompt wording and examples exactly unless a defect is demonstrated by
-  generated-output evidence and handled through the prompt plan's review process.
+- Preserve the approved maker prompt wording and examples exactly. A later editorial revision is a
+  separate plan and does not block this plan's fixture-backed completion path.
 
 **Acceptance:**
 
@@ -353,7 +362,7 @@ prior verified artifact.
 
 **Evidence class:** permanent suite plus one-time test audit.
 
-### F4 - Complete and review the existing maker experiment
+### F4 - Complete and review the existing maker experiment from sealed fixtures
 
 **Owner:** editorial-evidence subagent, followed by independent editorial reviewers
 
@@ -363,29 +372,42 @@ prior verified artifact.
 
 - Use the existing calibration, fresh-capture, and attestation commands from
   `better_prompt_plan.md`; build no replacement experiment framework.
-- Run the approved live calibration payload and the sealed representative quiet/busy project payloads
-  through fresh role processes using the recorded F0 egress boundary.
+- Reuse the existing calibration, capture, attestation, authoring, and review machinery with the
+  sealed representative quiet and busy fixtures, deterministic role fakes, and disposable private
+  roots. The fakes return complete author and referee outputs through the same strict parser and
+  artifact path as Hermes.
 - Preserve the exact evidence inputs, prompt-contract identity, candidate outputs, paired anonymous
   referee records, calibration artifact, route-free attestation, and redacted route results.
+- Treat repeated historical calibration as a bounded, one-time diagnostic procedure. Record its
+  configured repetition count, score-span tolerance, and separation threshold in the sealed
+  artifact; require exact cited passages and reasons, aggregate positive/negative band separation,
+  and qualitative consistency rather than exact repeated-score identity.
 - Compare complete output qualitatively with the positive qualities demonstrated on August 22 and 23.
 - Record what the post says Neil made, what caught his attention, what surprised or pleased him, what
   he learned, what remains unresolved, and what he wants to try next.
+- Give the configured independent reviewers only the sealed artifacts and immutable review
+  contract. Each works without the manager summary, other reviewer work, or prompt-authorship
+  context and cites exact selected-post passages for every required dimension.
 
 **Acceptance:**
 
 - The selected post is technically grounded in the day's evidence and has a specific thematic title.
-- The fresh capture, passing live calibration, and route-free attestation satisfy the existing prompt
-  plan's integrity and acceptance contracts.
-- Independent reviewers answer the central editorial test from the complete post and cite concrete
-  passages supporting their conclusion.
+- The fixture-backed capture, calibration, and route-free attestation satisfy the existing prompt
+  plan's integrity and acceptance contracts without external egress.
+- The calibration artifact is complete for its recorded bounded procedure, grounds every criterion
+  in an exact passage, meets the historical bands, and satisfies its recorded consistency and
+  separation settings.
+- Independent artifact-based reviewers answer the central editorial test from both complete
+  selected posts and cite exact passages supporting every conclusion. Every review required by the
+  recorded procedure must pass both fixtures before F4 is accepted.
 - Technical details support the story; routine work does not crowd out the interesting work.
 - Route diagnostics contain no credentials, account labels, editorial context from another role, or
   unrelated environment data.
-- A failed qualitative attempt records passage-level evidence and returns to the existing maker prompt
-  workflow. Any later exact prompt-text revision follows `HUMAN_GUIDANCE.md`; deterministic prose-shape
-  hacks are not used as a substitute.
+- A failed qualitative attempt records passage-level evidence. It does not alter approved prompt text
+  in this plan or introduce deterministic prose-shape hacks as a substitute.
 
-**Evidence class:** one-time real-route and qualitative evidence.
+**Evidence class:** mandatory fixture-backed acceptance and independent artifact review; optional
+real-route corroboration.
 
 ### F5 - Activate the attested maker contract and prove atomic publication
 
@@ -395,8 +417,8 @@ prior verified artifact.
 
 **Deliverables:**
 
-- Cite and verify the exact passing F4 attestation in one separately reviewed producer/publisher
-  cutover.
+- Cite and verify the exact passing fixture-backed F4 attestation and both accepting independent
+  review artifacts in one separately reviewed producer/publisher cutover.
 - Make the attested maker contract the sole active producer and publisher contract, then remove the
   retired pre-production production paths.
 - Produce one complete date-owned bundle and import it through the publisher's public interface in a
@@ -410,8 +432,8 @@ prior verified artifact.
 **Acceptance:**
 
 - Bundle validation and strict site build finish before the served release changes.
-- Producer and publisher name and verify the same passing attestation and active maker-contract
-  identity.
+- Producer and publisher name and verify the same passing attestation, accepted independent-review
+  evidence, and active maker-contract identity.
 - Failure injection and abrupt-process evidence leave the prior coherent release available or leave a
   clean first-publication state that can retry automatically.
 - Recovery handles every persisted transaction state written by the importer.
@@ -441,9 +463,10 @@ checks.
 **Acceptance:**
 
 - Tracked units parse successfully and express the documented schedule and direct command.
-- The staged command completes against disposable producer and publisher roots.
-- Installed-unit drift is either reconciled and verified live or recorded as an explicit deployment
-  action with exact evidence; it does not cause redesign of the producer.
+- The staged command completes against disposable producer and publisher roots and verifies the
+  resulting complete page after a strict MkDocs build.
+- Installed-unit drift is optional operational corroboration; it does not gate repository completion
+  or cause redesign of the producer.
 - No calendar wait or occupied real date is required for proof.
 
 **Evidence class:** one-time staged and operational evidence.
@@ -502,8 +525,8 @@ source source_me.sh
 python3 -m pytest -q <focused producer tests>
 python3 -m pytest -q tests/
 
-# Real editorial evidence: one-time, outside pytest
-./make_blog.py --date <fixture-backed unpublished date>
+# Fixture-backed editorial evidence: one-time, outside pytest
+# The F4 role-harness invocation is recorded with its sealed artifacts after implementation.
 
 # Publisher contract and strict build
 cd /home/vosslab/nsh/vosslab-daily-blog
@@ -526,7 +549,7 @@ route and host commands are one-time integration checks and produce redacted evi
 | Risk | Impact | Mitigation |
 | --- | --- | --- |
 | Account-routing work re-enters the project | Scope expands while editorial delivery stalls | Fixed external Hermes command boundary and F7 owned-path audit |
-| Maker contract remains experimental only | Reliable pipeline still publishes the wrong voice | F4 passing attestation and F5 atomic producer/publisher cutover |
+| Maker contract remains experimental only | Reliable pipeline still publishes the wrong voice | F4 fixture-backed attestation and F5 atomic producer/publisher cutover |
 | Prompt improvement becomes formatting enforcement | Prose passes tests but sounds artificial | Qualitative central test; deterministic checks limited to integrity and safety |
 | Retired contracts remain coupled to production | Pre-production complexity and ambiguous ownership persist | F5 removes compatibility paths after attested replacement proof |
 | Replacement intent diverges between callers | Regeneration succeeds but publication does not replace | F2 explicit end-to-end replacement argument |
@@ -542,7 +565,8 @@ The fixup is complete when all of the following are verified:
 
 - The active production editorial contract is the passing attested maker contract from the guiding
   prompt plan, adopted by one reviewed producer/publisher cutover.
-- A complete generated post passes the central maker-voice test with concrete independent review.
+- Both complete fixture-backed generated posts pass the central maker-voice test in the configured
+  independent, passage-grounded artifact reviews.
 - August 22 and 23 inform the desired qualities without imposing output equivalence.
 - Every editorial role uses a fresh self-contained invocation through the existing Hermes provider
   command boundary.
@@ -555,11 +579,14 @@ The fixup is complete when all of the following are verified:
 - Repeated coherent dates are idempotent, and failed attempts preserve coherent publication state.
 - Tracked units express and exercise the direct 04:00 America/Chicago path.
 - Permanent tests are offline, deterministic, behavior-focused, and repository-compliant.
-- Real model, process, filesystem, publisher, and systemd observations are recorded as one-time
-  evidence.
+- Live model and installed-host observations are optional one-time corroboration; fixture-backed
+  process, publisher, and schedule evidence is the required autonomous proof.
 - Final documentation and the closure index link every material claim to verified evidence.
 
 ## Evidence record
+
+The current execution ledger is
+`docs/active_plans/reports/daily_blog_fixup_evidence.md`.
 
 Each milestone report records:
 

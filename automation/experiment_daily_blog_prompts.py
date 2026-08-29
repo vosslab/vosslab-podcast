@@ -60,9 +60,11 @@ import daily_blog.editorial  # type: ignore[import-untyped]
 import daily_blog.evaluation  # type: ignore[import-untyped]
 import daily_blog.experiment_capture_artifacts  # type: ignore[import-untyped]
 import daily_blog.experiment_output  # type: ignore[import-untyped]
+import daily_blog.fixture_hermes  # type: ignore[import-untyped]
 import daily_blog.io_utils  # type: ignore[import-untyped]
 import daily_blog.private_artifacts  # type: ignore[import-untyped]
 import daily_blog.rubric_calibration  # type: ignore[import-untyped]
+import daily_blog.routes  # type: ignore[import-untyped]
 import daily_blog.schema  # type: ignore[import-untyped]
 
 
@@ -131,7 +133,11 @@ def _validate_fixture_selection(fixtures: dict[str, ExperimentFixture]) -> None:
 #============================================
 def _route_metadata(route: daily_blog.config.RoleRoute) -> dict[str, str]:
 	"""Return the non-secret identity of one configured route."""
-	return {"name": route.name, "executable": os.path.basename(route.command[0])}
+	return {
+		"name": route.name,
+		"executable": os.path.basename(route.command[0]),
+		"command_sha256": daily_blog.io_utils.sha256_text("\x00".join(route.command)),
+	}
 
 
 #============================================
@@ -141,6 +147,20 @@ def _error_metadata(stage: str, error: BaseException, route: str = "") -> dict[s
 	if route:
 		value["route"] = route
 	return value
+
+
+#============================================
+def _fixture_shim_metadata(
+	provenance: daily_blog.routes.FixtureRouteProvenance,
+) -> dict[str, str]:
+	"""Return the non-secret fixture-shim identity sealed into a capture artifact."""
+	return {
+		"schema_version": provenance.schema_version,
+		"executable_sha256": provenance.executable_sha256,
+		"mapping_sha256": provenance.mapping_sha256,
+		"response_map_id": provenance.response_map_id,
+		"route_sha256": daily_blog.io_utils.sha256_text("\x00".join(provenance.allowed_route)),
+	}
 
 
 #============================================
@@ -362,10 +382,9 @@ def _run_arm_generation(
 		Persistable record, selected candidate when available, and expected failure metadata.
 	"""
 	snapshot = daily_blog.editorial.load_prompt_contract_snapshot(contract)
-	run_id = (
-		f"experiment-{experiment_id}-{fixture_name}-{contract.name}-{repetition}-"
-		+ uuid.uuid4().hex[:10]
-	)
+	# The experiment identity is unique. Stable child identities let a sealed fixture shim
+	# precompute the exact stdin prompts without weakening the fresh-process route boundary.
+	run_id = f"experiment-{experiment_id}-{fixture_name}-{contract.name}-{repetition}"
 	started = time.monotonic()
 	try:
 		raw = daily_blog.editorial.generate_candidates(
@@ -625,6 +644,8 @@ def _commit_experiment_report(
 	records: list[dict[str, object]],
 	comparisons: list[dict[str, object]],
 	errors: list[dict[str, object]],
+	execution_mode: str,
+	fixture_shim: dict[str, str] | None,
 ) -> tuple[int, pathlib.Path]:
 	"""Write the sealed report and atomically commit its private directory.
 
@@ -676,6 +697,11 @@ def _commit_experiment_report(
 		"activation_status": "pending_calibration_attestation",
 		"non_publishing": True,
 		"contains_full_prompts": False,
+		"execution_mode": execution_mode,
+		"external_route_used": (
+			daily_blog.experiment_capture_artifacts.EXECUTION_PROVENANCE[execution_mode]
+		),
+		"fixture_shim": fixture_shim,
 	}
 	report_bytes = _json_bytes(report)
 	daily_blog.private_artifacts.write_regular_bytes_at(
@@ -703,6 +729,11 @@ def _commit_experiment_report(
 		"report_sha256": daily_blog.io_utils.sha256_bytes(report_bytes),
 		"activation_status": "pending_calibration_attestation",
 		"non_publishing": True,
+		"execution_mode": execution_mode,
+		"external_route_used": (
+			daily_blog.experiment_capture_artifacts.EXECUTION_PROVENANCE[execution_mode]
+		),
+		"fixture_shim": fixture_shim,
 	}
 	manifest["capture_id"] = daily_blog.io_utils.hash_value(manifest)
 	daily_blog.private_artifacts.write_regular_bytes_at(
@@ -733,6 +764,8 @@ def run_experiment(
 	arms: tuple[str, ...] = DEFAULT_ARMS,
 	runner: object | None = None,
 	experiment_id: str | None = None,
+	execution_mode: str = daily_blog.experiment_capture_artifacts.EXTERNAL_HERMES,
+	fixture_installation: daily_blog.fixture_hermes.FixtureHermesInstallation | None = None,
 ) -> tuple[int, pathlib.Path]:
 	"""Run the full sealed generated-prose experiment.
 
@@ -744,6 +777,8 @@ def run_experiment(
 		arms: Exact registered arm sequence; caller-selected subsets are rejected.
 		runner: Optional isolated route runner for offline verification.
 		experiment_id: Optional validated immutable output identity.
+		execution_mode: Owned execution provenance for this sealed capture.
+		fixture_installation: Descriptor-verifiable no-egress shim installation for fixture mode.
 
 	Returns:
 		Process status and committed private experiment directory.
@@ -753,12 +788,40 @@ def run_experiment(
 	"""
 	if (
 		type(repetitions) is not int
-		or not daily_blog.rubric_calibration.MIN_REPETITIONS
+		or not 1
 		<= repetitions
 		<= daily_blog.rubric_calibration.MAX_REPETITIONS
 		or tuple(arms) != DEFAULT_ARMS
 	):
 		raise RuntimeError("Experiment repetitions and registered arms must be explicit and valid.")
+	if (
+		not isinstance(execution_mode, str)
+		or execution_mode not in daily_blog.experiment_capture_artifacts.EXECUTION_PROVENANCE
+	):
+		raise RuntimeError("Prompt experiment execution provenance is invalid.")
+	if execution_mode == daily_blog.experiment_capture_artifacts.FIXTURE_HERMES_SHIM:
+		routes = (*config.author_routes, config.referee_route)
+		if (
+			not isinstance(runner, daily_blog.routes.CommandRouteRunner)
+			or fixture_installation is None
+		):
+			raise RuntimeError("Fixture Hermes captures require an attested shim installation.")
+		fixture_provenance = daily_blog.fixture_hermes.validate_fixture_installation(
+			fixture_installation
+		)
+		if (
+			runner.fixture_provenance != fixture_provenance
+			or runner.path_override != fixture_installation.path
+			or runner.fixture_validator is None
+		):
+			raise RuntimeError("Fixture Hermes runner does not match its attested installation.")
+		if any(route.command != daily_blog.config.HERMES_EDITORIAL_ROUTE for route in routes):
+			raise RuntimeError("Fixture Hermes captures require the sealed Hermes editorial route.")
+		fixture_shim = _fixture_shim_metadata(fixture_provenance)
+	else:
+		if fixture_installation is not None:
+			raise RuntimeError("External Hermes captures cannot declare a fixture installation.")
+		fixture_shim = None
 	fixtures: dict[str, ExperimentFixture] = {
 		"busy": load_fixture(busy_fixture),
 		"quiet": load_fixture(quiet_fixture),
@@ -797,6 +860,8 @@ def run_experiment(
 			list(batch.records),
 			list(batch.comparisons),
 			list(batch.errors),
+			execution_mode,
+			fixture_shim,
 		)
 	finally:
 		os.close(transaction.stage_fd)

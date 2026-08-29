@@ -4,7 +4,6 @@
 import dataclasses
 import datetime
 import json
-import os
 import re
 import shutil
 import subprocess
@@ -20,7 +19,7 @@ import daily_blog.prompt_resources
 import daily_blog.private_artifacts
 
 
-CALIBRATION_SCHEMA_VERSION = "vosslab.daily-blog.rubric-calibration.v1"
+CALIBRATION_SCHEMA_VERSION = "vosslab.daily-blog.rubric-calibration.v3"
 CALIBRATION_ROOT_NAME = "daily_blog_rubric_calibrations"
 CALIBRATION_DATES = (
 	"2026-08-22",
@@ -32,11 +31,14 @@ CALIBRATION_DATES = (
 MAX_POST_BYTES = 250_000
 MAX_ARTIFACT_BYTES = 2_000_000
 MAX_RESPONSE_CHARS = 12_000
-MAX_EVIDENCE_CHARS = 600
-MAX_REASON_CHARS = 1_000
+MAX_PASSAGE_CHARS = 400
+MAX_CRITERION_REASON_CHARS = 600
+MAX_OVERALL_REASON_CHARS = 1_000
 DEFAULT_REPETITIONS = 3
 MIN_REPETITIONS = 2
 MAX_REPETITIONS = 5
+DEFAULT_MAXIMUM_CRITERION_SCORE_SPAN = 1
+DEFAULT_MINIMUM_AGGREGATE_BAND_SEPARATION = 0.25
 CALIBRATION_ID_RE = re.compile(
 	r"^rubric-calibration-(?:preparation-)?[a-z0-9][a-z0-9-]{0,95}$"
 )
@@ -89,15 +91,48 @@ class RubricCalibrationContract:
 	expected_criteria: tuple[tuple[str, str, int], ...]
 
 
+@dataclasses.dataclass(frozen=True)
+class CalibrationProcedure:
+	"""One bounded, artifact-recorded diagnostic procedure for a live run."""
+
+	repetitions: int
+	maximum_criterion_score_span: int
+	minimum_positive_negative_mean_separation: float
+
+	#============================================
+	def __post_init__(self) -> None:
+		"""Reject procedure settings that could create invalid or unbounded route work."""
+		if (
+			type(self.repetitions) is not int
+			or not MIN_REPETITIONS <= self.repetitions <= MAX_REPETITIONS
+		):
+			raise RuntimeError("Rubric calibration repetitions are outside the bounded range.")
+		if (
+			type(self.maximum_criterion_score_span) is not int
+			or not 0 <= self.maximum_criterion_score_span <= 3
+		):
+			raise RuntimeError("Rubric calibration score-span tolerance is invalid.")
+		if (
+			type(self.minimum_positive_negative_mean_separation) is not float
+			or not 0.0 <= self.minimum_positive_negative_mean_separation <= 3.0
+		):
+			raise RuntimeError("Rubric calibration separation threshold is invalid.")
+
+	#============================================
+	def to_dict(self) -> dict[str, int | float]:
+		"""Return the procedure values embedded in preparation and live evidence."""
+		return dataclasses.asdict(self)
+
+
 CALIBRATION_CONTRACT = RubricCalibrationContract(
 	name="daily-maker-rubric-historical-calibration",
-	version="v1",
+	version="v2",
 	rubric_name="daily_blog_rubric_v4.md",
 	rubric_sha256="5a4562d9a995320f9b74c4dc69a58985bdc50dd37761c5c8563a0536c5ad3cad",
 	template_name="daily_blog_rubric_calibrator_v4.txt",
-	template_sha256="f49e7f405bfd981b388c2c7d71e1459a402c222991ee24adaa68abe5b62925c5",
+	template_sha256="2679776c5b49711427ecaa54775c419874bc112c4103082be97699d7c951dafd",
 	repair_template_name="daily_blog_rubric_calibrator_repair_v4.txt",
-	repair_template_sha256="3d34515e7eab321acc8fd0d0d27fe6f09e9eda6337cad34aaac67d25b03d9473",
+	repair_template_sha256="00fdd53dd7f17043daf42882c7133bbd5dead46a26c655f16b4b17b56494c3ba",
 	expected_criteria=(
 		("maker_substance", "Maker substance", 25),
 		("author_presence_and_curiosity", "Author presence and curiosity", 20),
@@ -165,6 +200,13 @@ from daily_blog.rubric_calibration_artifacts import (
 load_live_calibration_evidence = (
 	daily_blog.rubric_calibration_artifacts.load_live_calibration_evidence
 )
+load_calibration_evidence = (
+	daily_blog.rubric_calibration_artifacts.load_calibration_evidence
+)
+load_fixture_calibration_evidence = (
+	daily_blog.rubric_calibration_artifacts.load_fixture_calibration_evidence
+)
+run_fixture_calibration = daily_blog.rubric_calibration_artifacts.run_fixture_calibration
 
 
 #============================================
@@ -178,7 +220,7 @@ def parse_rubric_criteria(rubric: str) -> tuple[RubricCriterion, ...]:
 		tuple(values) != CALIBRATION_CONTRACT.expected_criteria
 		or sum(value[2] for value in values) != 100
 	):
-		raise RuntimeError("Maker rubric criteria or weights do not match calibration v1.")
+		raise RuntimeError("Maker rubric criteria or weights do not match calibration v2.")
 	criteria = tuple(RubricCriterion(*value) for value in values)
 	return criteria
 
@@ -248,12 +290,14 @@ def _bounded_text(value: object, label: str, limit: int) -> str:
 def parse_calibration_result(
 	response: str,
 	criteria: tuple[RubricCriterion, ...],
+	post: str,
 ) -> dict:
-	"""Parse one exact per-criterion scorecard and compute its weighted score.
+	"""Parse one passage-grounded scorecard and compute its weighted score.
 
 	Args:
 		response: Bounded JSON text returned by the referee route.
 		criteria: Ordered contract-owned score fields and weights.
+		post: Complete reviewed post used to verify every exact cited passage.
 
 	Returns:
 		Validated per-field scores, evidence, reason, and deterministic weighted score.
@@ -264,7 +308,7 @@ def parse_calibration_result(
 	"""
 	if not isinstance(response, str) or len(response) > MAX_RESPONSE_CHARS:
 		raise RuntimeError("Rubric calibration response exceeds its structured budget.")
-	value = json.loads(response.strip())
+	value = daily_blog.rubric_calibration_artifacts.strict_json_loads(response.strip())
 	if not isinstance(value, dict) or set(value) != {"scores", "overall_reason"}:
 		raise RuntimeError("Rubric calibration result fields are invalid.")
 	scores_value = value["scores"]
@@ -273,33 +317,85 @@ def parse_calibration_result(
 	}:
 		raise RuntimeError("Rubric calibration score fields are invalid.")
 	scores = {}
-	evidence = {}
+	passages = {}
+	reasons = {}
 	weighted = 0
 	for criterion in criteria:
 		entry = scores_value[criterion.field]
-		if not isinstance(entry, dict) or set(entry) != {"score", "evidence"}:
+		if not isinstance(entry, dict) or set(entry) != {"score", "passage", "reason"}:
 			raise RuntimeError("Rubric calibration criterion result fields are invalid.")
 		score = entry["score"]
 		if type(score) is not int or not 1 <= score <= 4:
 			raise RuntimeError("Rubric calibration criterion score must be an integer from 1 through 4.")
 		scores[criterion.field] = score
-		evidence[criterion.field] = _bounded_text(
-			entry["evidence"],
-			criterion.field + " evidence",
-			MAX_EVIDENCE_CHARS,
+		passage = _bounded_text(
+			entry["passage"],
+			criterion.field + " passage",
+			MAX_PASSAGE_CHARS,
+		)
+		# ASVS 2.2.1: a claimed grounding anchor must be an exact substring of the
+		# fixed post rather than an unverified model-authored paraphrase.
+		if passage not in post:
+			raise RuntimeError("Rubric calibration passage is not present in the reviewed post.")
+		passages[criterion.field] = passage
+		reasons[criterion.field] = _bounded_text(
+			entry["reason"],
+			criterion.field + " reason",
+			MAX_CRITERION_REASON_CHARS,
 		)
 		weighted += score * criterion.weight
 	result = {
 		"scores": scores,
-		"evidence": evidence,
+		"passages": passages,
+		"reasons": reasons,
 		"weighted_score": weighted / 100,
 		"overall_reason": _bounded_text(
 			value["overall_reason"],
 			"overall reason",
-			MAX_REASON_CHARS,
+			MAX_OVERALL_REASON_CHARS,
 		),
 	}
 	return result
+
+
+#============================================
+def scored_result_is_grounded(
+	value: object,
+	criteria: tuple[RubricCriterion, ...],
+	post: str,
+) -> bool:
+	"""Return whether one scored result is complete and grounded in its reviewed post."""
+	if not isinstance(value, dict) or value.get("status") != "scored":
+		return False
+	fields = {criterion.field for criterion in criteria}
+	scores = value.get("scores")
+	passages = value.get("passages")
+	reasons = value.get("reasons")
+	if (
+		not isinstance(scores, dict) or set(scores) != fields
+		or not isinstance(passages, dict) or set(passages) != fields
+		or not isinstance(reasons, dict) or set(reasons) != fields
+		or any(type(score) is not int or not 1 <= score <= 4 for score in scores.values())
+		or any(
+			not isinstance(passage, str)
+			or not passage
+			or len(passage) > MAX_PASSAGE_CHARS
+			or passage not in post
+			for passage in passages.values()
+		)
+		or any(
+			not isinstance(reason, str)
+			or not reason
+			or len(reason) > MAX_CRITERION_REASON_CHARS
+			for reason in reasons.values()
+		)
+		or not isinstance(value.get("overall_reason"), str)
+		or not value["overall_reason"]
+		or len(value["overall_reason"]) > MAX_OVERALL_REASON_CHARS
+	):
+		return False
+	weighted = sum(scores[criterion.field] * criterion.weight for criterion in criteria) / 100
+	return type(value.get("weighted_score")) in {int, float} and value["weighted_score"] == weighted
 
 
 #============================================
@@ -367,8 +463,8 @@ def score_maker_post(
 			"diagnostic": _safe_route_failure(diagnostic_scope + "_route", error),
 		}
 	try:
-		result = parse_calibration_result(response, criteria)
-	except (json.JSONDecodeError, RuntimeError):
+		result = parse_calibration_result(response, criteria, post)
+	except (json.JSONDecodeError, RuntimeError, ValueError):
 		_repair = daily_blog.prompt_resources.load_allowlisted_instruction_prompt(
 			CALIBRATION_CONTRACT.repair_template_name,
 			CALIBRATION_RESOURCE_NAMES,
@@ -376,6 +472,7 @@ def score_maker_post(
 		)
 		repair_prompt = _repair.format(
 			criterion_contract=_criterion_contract(criteria),
+			post=post,
 			response=response[:MAX_RESPONSE_CHARS],
 		)
 		if len(repair_prompt) > config.prompt_limits["referee_chars"]:
@@ -402,8 +499,8 @@ def score_maker_post(
 				),
 			}
 		try:
-			result = parse_calibration_result(repaired, criteria)
-		except (json.JSONDecodeError, RuntimeError) as error:
+			result = parse_calibration_result(repaired, criteria, post)
+		except (json.JSONDecodeError, RuntimeError, ValueError) as error:
 			return {
 				"status": "error",
 				"diagnostic": _safe_route_failure(
@@ -425,8 +522,42 @@ def _date_target(report_date: str, weighted_score: float) -> bool | None:
 
 
 #============================================
-def target_contract() -> dict:
-	"""Return the documented operational reading of the plan's historical score bands."""
+def calibration_procedure(
+	*,
+	repetitions: int = DEFAULT_REPETITIONS,
+	maximum_criterion_score_span: int = DEFAULT_MAXIMUM_CRITERION_SCORE_SPAN,
+	minimum_positive_negative_mean_separation: float = (
+		DEFAULT_MINIMUM_AGGREGATE_BAND_SEPARATION
+	),
+) -> CalibrationProcedure:
+	"""Build one validated experimental procedure from operator-configurable settings."""
+	return CalibrationProcedure(
+		repetitions,
+		maximum_criterion_score_span,
+		minimum_positive_negative_mean_separation,
+	)
+
+
+#============================================
+def procedure_from_target_contract(value: object) -> CalibrationProcedure:
+	"""Recover the procedure recorded by one sealed calibration target contract."""
+	if not isinstance(value, dict):
+		raise RuntimeError("Rubric calibration target contract is invalid.")
+	try:
+		procedure = CalibrationProcedure(
+			value["diagnostic_repetitions"],
+			value["maximum_criterion_score_span"],
+			value["minimum_positive_negative_mean_separation"],
+		)
+	except KeyError as error:
+		raise RuntimeError("Rubric calibration procedure is incomplete.") from error
+	return procedure
+
+
+#============================================
+def target_contract(procedure: CalibrationProcedure | None = None) -> dict:
+	"""Return historical bands plus this run's recorded diagnostic procedure."""
+	procedure = procedure or calibration_procedure()
 	return {
 		"positive_passable": {
 			"dates": ["2026-08-22", "2026-08-23"],
@@ -439,7 +570,12 @@ def target_contract() -> dict:
 			"maximum_inclusive": 2.25,
 		},
 		"baseline_only": {"dates": ["2026-08-26"]},
-		"exact_repeated_score_stability": True,
+		"diagnostic_repetitions": procedure.repetitions,
+		"passage_grounding": "exact_post_substring_per_criterion_per_run",
+		"maximum_criterion_score_span": procedure.maximum_criterion_score_span,
+		"minimum_positive_negative_mean_separation": (
+			procedure.minimum_positive_negative_mean_separation
+		),
 		"band_four_begins_at": 3.5,
 	}
 
@@ -448,83 +584,140 @@ def target_contract() -> dict:
 def aggregate_calibration(
 	records: list[dict],
 	criteria: tuple[RubricCriterion, ...],
-	repetitions: int,
+	posts: tuple[HistoricalPost, ...],
+	procedure: CalibrationProcedure,
 ) -> dict:
-	"""Summarize completion, repeated-score stability, and historical target bands.
+	"""Summarize grounded repeated-run consistency, separation, and target bands.
 
 	Args:
 		records: Every attempted scorecard with its fixed report date.
 		criteria: Ordered contract-owned score fields.
-		repetitions: Required record count for each historical post.
+		posts: Fixed posts that every reported passage must quote exactly.
+		procedure: Bounded repetition count and diagnostic tolerances recorded by this run.
 
 	Returns:
 		Per-date observations and the deterministic pass, fail, or incomplete status.
 	"""
-	expected_count = len(CALIBRATION_DATES) * repetitions
-	complete = (
-		len(records) == expected_count
-		and all(record.get("status") == "scored" for record in records)
+	expected_count = len(CALIBRATION_DATES) * procedure.repetitions
+	post_by_date = {post.report_date: post for post in posts}
+	matrix_complete = (
+		set(post_by_date) == set(CALIBRATION_DATES)
+		and len(records) == expected_count
 		and all(
-			sum(record.get("report_date") == report_date for record in records) == repetitions
+			{
+				record.get("repetition")
+				for record in records
+				if record.get("report_date") == report_date
+			} == set(range(procedure.repetitions))
 			for report_date in CALIBRATION_DATES
 		)
 	)
+	complete = matrix_complete and all(record.get("status") == "scored" for record in records)
 	dates: dict[str, dict[str, object]] = {}
-	stability_results = []
+	grounding_results = []
+	consistency_results = []
 	target_results = []
 	band_four_results = []
+	mean_by_date: dict[str, float] = {}
 	for report_date in CALIBRATION_DATES:
 		date_records = [
 			record for record in records
 			if record.get("report_date") == report_date and record.get("status") == "scored"
 		]
+		post = post_by_date.get(report_date)
+		grounded_records = [
+			record for record in date_records
+			if post is not None
+			and record.get("post_sha256") == post.sha256
+			and scored_result_is_grounded(record, criteria, post.text)
+		]
 		criterion_values = {
-			criterion.field: [record["scores"][criterion.field] for record in date_records]
+			criterion.field: [record["scores"][criterion.field] for record in grounded_records]
 			for criterion in criteria
 		}
-		weighted_values = [record["weighted_score"] for record in date_records]
+		weighted_values = [record["weighted_score"] for record in grounded_records]
 		mean_weighted = (
 			sum(weighted_values) / len(weighted_values) if weighted_values else None
 		)
-		stable = bool(date_records) and all(
-			len(set(values)) == 1 for values in criterion_values.values()
+		if mean_weighted is not None:
+			mean_by_date[report_date] = mean_weighted
+		criterion_spans = {
+			field: max(values) - min(values) if values else None
+			for field, values in criterion_values.items()
+		}
+		passage_grounded = len(grounded_records) == procedure.repetitions
+		qualitative_consistency = passage_grounded and all(
+			span is not None and span <= procedure.maximum_criterion_score_span
+			for span in criterion_spans.values()
 		)
 		target_met = (
 			_date_target(report_date, mean_weighted)
 			if mean_weighted is not None
 			else None
 		)
-		stability_results.append(stable)
+		grounding_results.append(passage_grounded)
+		consistency_results.append(qualitative_consistency)
 		target_results.append(target_met)
 		band_four_results.append(
 			mean_weighted is not None and mean_weighted < 3.5
 		)
 		dates[report_date] = {
 			"scored_runs": len(date_records),
+			"grounded_runs": len(grounded_records),
 			"criterion_scores": criterion_values,
+			"criterion_score_spans": criterion_spans,
 			"weighted_scores": weighted_values,
+			"weighted_score_span": (
+				max(weighted_values) - min(weighted_values) if weighted_values else None
+			),
 			"mean_weighted_score": mean_weighted,
-			"stable": stable,
+			"passage_grounded": passage_grounded,
+			"qualitative_consistency": qualitative_consistency,
 			"target_met": target_met,
 		}
-	stable = complete and all(stability_results)
-	targets_met = complete and all(value is not False for value in target_results)
+	passage_grounded = complete and all(grounding_results)
+	qualitative_consistency = passage_grounded and all(consistency_results)
+	targets_met = passage_grounded and all(value is not False for value in target_results)
 	band_four_unclaimed = complete and all(band_four_results)
-	status = "pass" if stable and targets_met and band_four_unclaimed else "fail"
-	if not complete:
+	positive_dates = target_contract(procedure)["positive_passable"]["dates"]
+	negative_dates = target_contract(procedure)["negative"]["dates"]
+	band_separation = None
+	if all(report_date in mean_by_date for report_date in positive_dates + negative_dates):
+		positive_mean = sum(mean_by_date[date] for date in positive_dates) / len(positive_dates)
+		negative_mean = sum(mean_by_date[date] for date in negative_dates) / len(negative_dates)
+		band_separation = positive_mean - negative_mean
+	band_separation_met = (
+		passage_grounded
+		and band_separation is not None
+		and band_separation >= procedure.minimum_positive_negative_mean_separation
+	)
+	status = "pass" if (
+		qualitative_consistency
+		and targets_met
+		and band_separation_met
+		and band_four_unclaimed
+	) else "fail"
+	if not matrix_complete or not complete:
 		status = "incomplete"
 	return {
 		"status": status,
 		"complete": complete,
-		"stable": stable,
+		"passage_grounded": passage_grounded,
+		"qualitative_consistency": qualitative_consistency,
 		"targets_met": targets_met,
+		"band_separation": band_separation,
+		"band_separation_met": band_separation_met,
 		"band_four_unclaimed": band_four_unclaimed,
 		"dates": dates,
 	}
 
 
 #============================================
-def _preparation_identity(posts: tuple[HistoricalPost, ...], rubric: str) -> dict:
+def _preparation_identity(
+	posts: tuple[HistoricalPost, ...],
+	rubric: str,
+	procedure: CalibrationProcedure | None = None,
+) -> dict:
 	"""Build the immutable local-input identity shared by preparation and live runs.
 
 	Args:
@@ -538,7 +731,7 @@ def _preparation_identity(posts: tuple[HistoricalPost, ...], rubric: str) -> dic
 		"schema_version": CALIBRATION_SCHEMA_VERSION,
 		"contract_name": CALIBRATION_CONTRACT.name,
 		"contract_version": CALIBRATION_CONTRACT.version,
-		"target_contract": target_contract(),
+		"target_contract": target_contract(procedure),
 		"rubric_sha256": daily_blog.io_utils.sha256_text(rubric),
 		"template_sha256": daily_blog.io_utils.sha256_text(
 			daily_blog.prompt_resources.load_allowlisted_instruction_prompt(
@@ -567,6 +760,7 @@ def _preparation_identity(posts: tuple[HistoricalPost, ...], rubric: str) -> dic
 #============================================
 def build_preparation(
 	config: daily_blog.config.DailyBlogConfig,
+	procedure: CalibrationProcedure | None = None,
 ) -> tuple[dict, tuple[HistoricalPost, ...]]:
 	"""Build a route-free calibration report with deterministic historical profiles.
 
@@ -581,7 +775,8 @@ def build_preparation(
 	"""
 	posts = load_historical_posts(config.daily_blog_repository)
 	rubric, _template, criteria = calibration_resources()
-	identity = _preparation_identity(posts, rubric)
+	procedure = procedure or calibration_procedure()
+	identity = _preparation_identity(posts, rubric, procedure)
 	report = {
 		"schema_version": CALIBRATION_SCHEMA_VERSION,
 		"mode": "preparation",
@@ -589,7 +784,7 @@ def build_preparation(
 		"external_route_used": False,
 		"preparation_id": daily_blog.io_utils.hash_value(identity),
 		"criteria": [dataclasses.asdict(criterion) for criterion in criteria],
-		"target_contract": target_contract(),
+		"target_contract": target_contract(procedure),
 		"posts": {
 			post.report_date: {
 				"bytes": post.byte_count,
@@ -601,14 +796,17 @@ def build_preparation(
 		"pending": [
 			"explicit historical-post model-data-sharing approval",
 			"repeated referee-route scorecards",
-			"target and stability evaluation",
+			"aggregate separation, grounded-reason, and consistency evaluation",
 		],
 	}
 	return report, posts
 
 
 #============================================
-def prepare_calibration(config: daily_blog.config.DailyBlogConfig) -> tuple[str, dict]:
+def prepare_calibration(
+	config: daily_blog.config.DailyBlogConfig,
+	procedure: CalibrationProcedure | None = None,
+) -> tuple[str, dict]:
 	"""Persist one route-free, content-addressed calibration preparation report.
 
 	Args:
@@ -620,7 +818,7 @@ def prepare_calibration(config: daily_blog.config.DailyBlogConfig) -> tuple[str,
 	Raises:
 		RuntimeError: Historical inputs, resources, or private output fail their contracts.
 	"""
-	report, posts = build_preparation(config)
+	report, posts = build_preparation(config, procedure)
 	calibration_id = "rubric-calibration-preparation-" + report["preparation_id"][:24]
 	manifest = {
 		"schema_version": CALIBRATION_SCHEMA_VERSION,
@@ -671,30 +869,35 @@ def _score_records(
 
 
 #============================================
-def _live_report(
+def _calibration_report(
 	config: daily_blog.config.DailyBlogConfig,
 	calibration_id: str,
-	repetitions: int,
+	procedure: CalibrationProcedure,
 	preparation_identity: dict,
 	criteria: tuple[RubricCriterion, ...],
 	records: list[dict],
 	aggregate: dict,
+	*,
+	mode: str,
+	external_route_used: bool,
+	fixture: dict | None = None,
 ) -> dict:
-	"""Build the complete private live score report without persisting it."""
+	"""Build one complete private score report with explicit route provenance."""
 	report = {
 		"schema_version": CALIBRATION_SCHEMA_VERSION,
 		"calibration_id": calibration_id,
-		"mode": "live",
+		"mode": mode,
 		"non_publishing": True,
-		"external_route_used": True,
+		"external_route_used": external_route_used,
 		"route": {
 			"name": config.referee_route.name,
-			"executable": os.path.basename(config.referee_route.command[0]),
+			"command": list(config.referee_route.command),
 		},
-		"repetitions": repetitions,
+		"fixture": fixture,
+		"repetitions": procedure.repetitions,
 		"preparation_id": daily_blog.io_utils.hash_value(preparation_identity),
 		"criteria": [dataclasses.asdict(criterion) for criterion in criteria],
-		"target_contract": target_contract(),
+		"target_contract": target_contract(procedure),
 		"records": records,
 		"aggregate": aggregate,
 	}
@@ -702,17 +905,18 @@ def _live_report(
 
 
 #============================================
-def _live_manifest(
+def _calibration_manifest(
 	calibration_id: str,
 	preparation_identity: dict,
 	posts: tuple[HistoricalPost, ...],
 	report: dict,
 ) -> dict:
-	"""Build the immutable identity for one private live report."""
+	"""Build the immutable identity for one private provenance-labelled report."""
 	manifest = {
 		"schema_version": CALIBRATION_SCHEMA_VERSION,
 		"calibration_id": calibration_id,
-		"mode": "live",
+		"mode": report["mode"],
+		"fixture": report["fixture"],
 		"report_sha256": daily_blog.io_utils.sha256_text(
 			daily_blog.io_utils.stable_json_text(report)
 		),
@@ -728,6 +932,10 @@ def run_live_calibration(
 	*,
 	operator_approved: bool,
 	repetitions: int = DEFAULT_REPETITIONS,
+	maximum_criterion_score_span: int = DEFAULT_MAXIMUM_CRITERION_SCORE_SPAN,
+	minimum_positive_negative_mean_separation: float = (
+		DEFAULT_MINIMUM_AGGREGATE_BAND_SEPARATION
+	),
 	runner: object | None = None,
 	calibration_id: str | None = None,
 ) -> tuple[int, str, dict]:
@@ -752,27 +960,34 @@ def run_live_calibration(
 		raise CalibrationBlockedError(
 			"Historical rubric calibration requires explicit model-data-sharing approval."
 		)
-	if type(repetitions) is not int or not MIN_REPETITIONS <= repetitions <= MAX_REPETITIONS:
-		raise RuntimeError("Rubric calibration repetitions must be between two and five.")
+	procedure = calibration_procedure(
+		repetitions=repetitions,
+		maximum_criterion_score_span=maximum_criterion_score_span,
+		minimum_positive_negative_mean_separation=(
+			minimum_positive_negative_mean_separation
+		),
+	)
 	posts = load_historical_posts(config.daily_blog_repository)
 	rubric, _template, criteria = calibration_resources()
 	if runner is None and shutil.which(config.referee_route.command[0]) is None:
 		raise CalibrationBlockedError("Configured rubric calibration route is unavailable.")
 	runner = runner or daily_blog.routes.CommandRouteRunner()
 	calibration_id = calibration_id or _new_calibration_id()
-	records = _score_records(posts, config, runner, repetitions)
-	aggregate = aggregate_calibration(records, criteria, repetitions)
-	preparation_identity = _preparation_identity(posts, rubric)
-	report = _live_report(
+	records = _score_records(posts, config, runner, procedure.repetitions)
+	aggregate = aggregate_calibration(records, criteria, posts, procedure)
+	preparation_identity = _preparation_identity(posts, rubric, procedure)
+	report = _calibration_report(
 		config,
 		calibration_id,
-		repetitions,
+		procedure,
 		preparation_identity,
 		criteria,
 		records,
 		aggregate,
+		mode="external_hermes",
+		external_route_used=True,
 	)
-	manifest = _live_manifest(calibration_id, preparation_identity, posts, report)
+	manifest = _calibration_manifest(calibration_id, preparation_identity, posts, report)
 	path = install_calibration_artifacts(config, calibration_id, manifest, report)
 	code = 0 if aggregate["status"] == "pass" else 1
 	return code, path, report

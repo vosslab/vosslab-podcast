@@ -10,24 +10,22 @@ audio. Its daily-publication subsystem also creates one evidence-bound blog bund
 into the local site. See [README.md](../README.md) and
 [CODE_ARCHITECTURE.md](CODE_ARCHITECTURE.md).
 
-## Is v4 active?
+## Is the maker contract active?
 
-Schema v4 is active for the publication bundle and evidence packet, but the editorial
-`v4-maker` contract is not. Production still selects and imports `v3-historical` policy v3;
-`v4-maker` is a private, non-publishing experiment. See
+The editorial `v4-maker` contract is active through `v4-three-examples-corpus-v2` and bundle v5.
+Its fixture-backed F4 evidence and producer/publisher activation are accepted. See
 [CODE_ARCHITECTURE.md](CODE_ARCHITECTURE.md) and
 [prompt_experiment_status.md](active_plans/reports/prompt_experiment_status.md).
 
 ## Can v4-maker publish?
 
-No. The production orchestrator rejects it before lock acquisition, mirror refresh, model routing,
-bundle creation, or importer invocation. The experiment writes only private reports under `out/`.
+Yes. It is the active producer and publisher contract.
 See [DAILY_BLOG_OPERATIONS.md](DAILY_BLOG_OPERATIONS.md).
 
-## Does the timer activate v4-maker?
+## Does the timer use v4-maker?
 
-No. The timer runs the active v3 editorial contract. Activation requires a completed reviewed
-non-publishing experiment and one explicit producer-publisher contract change. See
+Yes. The timer runs the active v4 editorial contract. Its F4 review and producer-publisher cutover
+are already accepted. See
 [ROADMAP.md](ROADMAP.md) and [DAILY_BLOG_OPERATIONS.md](DAILY_BLOG_OPERATIONS.md).
 
 ## How do I make one daily post?
@@ -37,7 +35,7 @@ day with `./make_blog.py --date 2026-21-08`. The latter means August 21, 2026;
 the command normalizes it to `2026-08-21`. When that date exists, an interactive
 terminal asks `Overwrite 2026-08-21? [N/y]:`; `y` replaces the generated post and
 the default preserves it. A noninteractive run preserves the existing post and
-exits successfully. Otherwise the command runs the active v3 producer through
+exits successfully. Otherwise the command runs the active v4 producer through
 local site import.
 See [DAILY_BLOG_OPERATIONS.md](DAILY_BLOG_OPERATIONS.md).
 
@@ -84,12 +82,10 @@ generation, replacement, and import. Runs are attempts and `bundle_sha256` verif
 identifies the publication. This makes idempotency and intentional replacement unambiguous. See
 [USAGE.md](USAGE.md) and [CODE_ARCHITECTURE.md](CODE_ARCHITECTURE.md).
 
-## What approvals remain?
+## What evidence remains?
 
-Before a v4-maker activation decision, approve historical-post sharing, record a passing live
-calibration, approve the Hermes author/referee route and project-context access, run and review the
-sealed comparison, record its winner, and review the explicit joint producer-publisher cutover.
-These approvals do not authorize publication by the experiment. See
+F4-F6 are accepted. F7 runs full suites and fresh independent audits before closure. Installed host
+state remains optional telemetry. See
 [DAILY_BLOG_OPERATIONS.md](DAILY_BLOG_OPERATIONS.md) and [ROADMAP.md](ROADMAP.md).
 
 ## Why allow a clean schema cutover?
