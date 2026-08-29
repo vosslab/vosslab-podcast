@@ -27,13 +27,20 @@
   fixed Aug. 22-26 loader, structured repeated scorecards, private artifacts, and a route-free
   calibration report. Preparation identity
   `aa1ceeb9d14db2c5d68b7be9c1369cf9231709f2cc0acc7a30f50570b74a2e87` used no model route.
-- Added a manager-ready daily-blog Hermes fixup plan that accepts the proven CLI transport,
-  keeps model credentials out of the project, explicitly binds author/referee roles to
-  `openai-codex`, and records the confirmed fresh-process defect as a required Hermes shared-snapshot
-  and bounded-refresh repair before full-prompt publication proof.
+- Added a manager-ready daily-blog integration plan centered on the approved maker-voice contract,
+  producer orchestration, publisher integrity, and the direct 04:00 systemd path. The plan treats
+  `hermes chat --provider openai-codex --query-file -` as the complete external model boundary;
+  Hermes continues to own model credentials and account selection internally.
 
 ### Behavior or Interface Changes
 
+- Made the podcast's current publication contract an explicit single registry owner and separated
+  every trusted comparison arm into a non-production registry. Publication now asks that owner
+  directly before any collection side effect, so a later evidence-backed maker activation has one
+  cutover point instead of duplicated identity checks; approved prompt bytes remain unchanged.
+- Made publisher replacement intent explicit for every direct and CLI orchestration call. Run state
+  v4 now persists only the failed phase and a fixed diagnostic category, keeping exception text and
+  secret-like values out of both lifecycle state and events.
 - Advanced the immutable producer candidate-validation records to policy v3 without compatibility
   aliases. Active `v3-historical` is
   `aada487814ca0080d4a49648440ee6614e5f3a3628be6197ffafcef242969324`; experimental `v4-maker`
@@ -43,7 +50,7 @@
 - Kept active v3 production and v4 experimentation separate: the publication orchestrator rejects
   v4 before lock acquisition, mirror refresh, model routing, bundle writing, or publisher import.
   The publisher independently enforces the same policy shape and imports only active v3 policy v3.
-- Cut the pre-production evidence boundary to evidence v4, editorial projection v2, and run v3.
+- Cut the pre-production evidence boundary to evidence v4, editorial projection v2, and run v4.
   Projection exposes `new_source_repository` and puts same-day new source repositories before
   routine cards while leaving the author and referee responsible for the final editorial choice.
 - Advanced the producer/publisher boundary to bundle v4. `report_date` is the sole publication
@@ -83,39 +90,30 @@
   distinguished its contract-test evidence from the remaining real-route activation gate, clarified
   the current bundle v4 and publication-date identity, and renumbered the active
   maker-voice plan through milestones 15 and 16.
-- Rebuilt the daily-blog Hermes fixup plan as dependency-scoped milestones. The plan now uses a
-  shared sanitized capacity snapshot, pre-refresh-completion selection plus managed refresh for
-  due-but-usable state, bounded synchronous refresh for unusable state, exact staged-runtime proof,
-  fixture exact-snapshot selection, disposable date-ownership checks, and the direct 04:00 systemd
-  contract.
-  Each independent task receives a fresh self-contained subagent, with weak or drifting workers
-  replaced rather than reused. Permanent tests follow the fast offline repository checklist; real
-  process, PTY, captured-provider, filesystem, staged-package, and transient-systemd checks are
-  one-time evidence unless durable E2E value justifies retention. Gates must trace to behavior, security, protocol, policy, or repository
-  rules rather than arbitrary counts, performance targets, or output equivalence. Every milestone now
-  has an unattended path: M0 seals a locally available Hermes revision and a redacted integrity-pinned
-  fixture pack; fixtures, fake clocks, process barriers, and disposable roots prove capacity,
-  publication, and replacement; staged CLI/gateway packages prove exact imports and hashes without a
-  target restart, and a manager-independent unit-command emulator proves the byte-identical direct
-  command without a calendar wait or target user manager. Fresh-agent review and
-  a versioned local closure bundle replace interactive and external delivery gates. Closure
-  records owned change sets, optional commit boundaries, and a checksum index while preserving unrelated
-  working-tree changes. An independent repository-rule audit then removed the unsafe live-root `--yes`
-  example, confined documentation edits to this plan and its changelog entry, replaced stopwatch and
-  Git-hunk gates with deterministic barriers and owned change sets, and limited content-hash equality to
-  the same repaired runtime files.
-- Expanded the daily-blog bring-up report with the confirmed Hermes account-selection root cause and
-  remaining implementation concerns: per-account probe isolation, retained eligibility state,
-  daemon-thread completion, reuse of Hermes locking/atomic-write primitives, profile-scoped cache
-  identity, process-local lease limits, exact-snapshot diagnostics, and installed-runtime proof.
-- Clarified the report's deliberate refresh policy: missing, corrupt, or over-three-hour state uses a
-  bounded synchronous cold refresh, while ten-minute-to-three-hour state remains usable for immediate
-  selection and starts a bounded managed refresh that must finish or retain the prior snapshot before
-  the one-shot CLI exits.
+- Corrected the daily-blog fixup scope after review showed that it had expanded into a separate Hermes
+  capacity-routing project. The replacement dependency chain is podcast-owned: prepare the approved
+  maker candidate, simplify producer orchestration, retain grounded deterministic tests, complete and
+  review the existing empirical evidence, activate the attested winner through one producer/publisher
+  cutover, and verify the tracked schedule. Existing
+  Hermes account selection remains an accepted external service behind the normal `hermes chat`
+  command. Scratch Hermes work and its former M2-M8 gates are superseded and do not participate in
+  implementation, deployment, or closure.
+- Classified permanent and one-time verification directly from the repository rules. Fast pytest
+  retains offline deterministic behavior contracts; real model calls, process crashes, PTY and
+  multiprocess checks, filesystem atomicity, strict publication, and systemd observations remain
+  one-time evidence unless a durable E2E earns its maintenance cost. Editorial acceptance uses the
+  complete-post maker question and August 22-23 as qualitative examples rather than output
+  equivalence or arbitrary prose-shape gates.
+- Expanded the historical daily-blog bring-up report with an account-selection investigation and
+  implementation concerns in Hermes. Those notes remain background for the external service owner;
+  they are not active fixup dependencies or podcast deliverables.
+- Recorded the investigation's refresh-policy distinction for historical completeness. The podcast
+  integration relies on the supported `hermes chat` boundary and does not implement or validate that
+  internal policy.
 - Applied the repository's fresh-subagent principle to blog creation. Each author, referee, and repair
-  attempt receives a new isolated Hermes process and self-contained prompt; only deterministic
-  evidence and sanitized capacity observations cross task boundaries, never conversation or editorial
-  state.
+  attempt receives a new isolated Hermes process and self-contained prompt. Deterministic project
+  evidence may cross task boundaries; Hermes account and capacity state remains entirely behind the
+  external CLI boundary.
 - Consolidated durable human guidance around the intended operating model: Hermes owns model and
   account selection, systemd invokes `./make_blog.py --yesterday` non-interactively at 04:00, all
   non-content phases remain deterministic, one date has one replaceable result, interactive

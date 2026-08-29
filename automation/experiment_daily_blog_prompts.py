@@ -480,7 +480,7 @@ def _run_pairwise_comparisons(
 		Pairwise referee records for this fixture repetition.
 	"""
 	comparison_snapshot = daily_blog.editorial.load_prompt_contract_snapshot(
-		daily_blog.contracts.named_contract("v4-instruction-only")
+		daily_blog.contracts.resolve_maker_experiment_contract("v4-instruction-only")
 	)
 	comparisons = []
 	for pair in daily_blog.experiment_capture_artifacts.COMPARISON_PAIRS:
@@ -764,7 +764,10 @@ def run_experiment(
 		"quiet": load_fixture(quiet_fixture),
 	}
 	_validate_fixture_selection(fixtures)
-	contracts = tuple(daily_blog.contracts.named_contract(name) for name in arms)
+	contracts = tuple(
+		daily_blog.contracts.resolve_maker_experiment_contract(name)
+		for name in arms
+	)
 	route_metadata = (
 		preflight_routes(config, verify_executables=runner is None)
 	)

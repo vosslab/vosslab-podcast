@@ -6,6 +6,7 @@ import hashlib
 import json
 import pathlib
 import re
+import types
 
 
 PROMPT_DIRECTORY = "pipeline/prompts"
@@ -427,12 +428,32 @@ V4_THREE_EXAMPLES_CORPUS_V2_CONTRACT = dataclasses.replace(
 	example_resource_name=V4_VOICE_RESOURCE.name,
 	example_selection_name=V4_THREE_EXAMPLES_CORPUS_V2,
 )
-EDITORIAL_CONTRACTS = {
-	"v3": V3_EDITORIAL_CONTRACT,
-	V4_INSTRUCTION_ONLY: V4_INSTRUCTION_ONLY_CONTRACT,
-	V4_ONE_EXAMPLE: V4_ONE_EXAMPLE_CONTRACT,
-	V4_THREE_EXAMPLES_CORPUS_V2: V4_THREE_EXAMPLES_CORPUS_V2_CONTRACT,
-}
+EDITORIAL_CONTRACTS = types.MappingProxyType({
+	V3_EDITORIAL_CONTRACT.name: V3_EDITORIAL_CONTRACT,
+	V4_INSTRUCTION_ONLY_CONTRACT.name: V4_INSTRUCTION_ONLY_CONTRACT,
+	V4_ONE_EXAMPLE_CONTRACT.name: V4_ONE_EXAMPLE_CONTRACT,
+	V4_THREE_EXAMPLES_CORPUS_V2_CONTRACT.name: V4_THREE_EXAMPLES_CORPUS_V2_CONTRACT,
+})
+# The maker experiment is an immutable, fixed comparison rather than a view of
+# either the publication owner or the broader trusted-contract registry. This
+# mapping is its sole contract owner: a reviewed capture must keep the exact
+# v3 control and three approved v4 candidates even if publication or trusted
+# contract registration changes later.
+MAKER_EXPERIMENT_EDITORIAL_CONTRACTS = types.MappingProxyType({
+	V3_EDITORIAL_CONTRACT.name: V3_EDITORIAL_CONTRACT,
+	V4_INSTRUCTION_ONLY_CONTRACT.name: V4_INSTRUCTION_ONLY_CONTRACT,
+	V4_ONE_EXAMPLE_CONTRACT.name: V4_ONE_EXAMPLE_CONTRACT,
+	V4_THREE_EXAMPLES_CORPUS_V2_CONTRACT.name: V4_THREE_EXAMPLES_CORPUS_V2_CONTRACT,
+})
+
+# Publication ownership is deliberately separate from experiment membership.
+PRODUCTION_EDITORIAL_CONTRACT = V3_EDITORIAL_CONTRACT
+PROMPT_EXPERIMENT_ARMS = tuple(MAKER_EXPERIMENT_EDITORIAL_CONTRACTS)
+PROMPT_EXPERIMENT_COMPARISON_PAIRS = tuple(
+	f"{left}:{right}"
+	for index, left in enumerate(PROMPT_EXPERIMENT_ARMS)
+	for right in PROMPT_EXPERIMENT_ARMS[index + 1:]
+)
 V4_ONE_EXAMPLE_SELECTION = ExampleSelection(
 	V4_ONE_EXAMPLE, V4_ONE_EXAMPLE, V4_VOICE_RESOURCE.name, ("aug-23",)
 )
@@ -450,8 +471,14 @@ EXAMPLE_SELECTIONS = {
 
 #============================================
 def active_contract() -> EditorialContract:
-	"""Return the production contract; activation stays explicit and stable."""
-	return V3_EDITORIAL_CONTRACT
+	"""Return the sole production contract owned by the publication pipeline."""
+	return PRODUCTION_EDITORIAL_CONTRACT
+
+
+#============================================
+def is_production_contract(contract: EditorialContract) -> bool:
+	"""Return whether a trusted contract is the current publication owner."""
+	return resolve_contract(contract) is PRODUCTION_EDITORIAL_CONTRACT
 
 
 #============================================
@@ -460,6 +487,18 @@ def named_contract(name: str) -> EditorialContract:
 	if not isinstance(name, str) or name not in EDITORIAL_CONTRACTS:
 		raise RuntimeError("Editorial contract name is unsupported.")
 	return EDITORIAL_CONTRACTS[name]
+
+
+#============================================
+def resolve_maker_experiment_contract(name: str) -> EditorialContract:
+	"""Return one exact frozen contract from the approved maker experiment."""
+	if not isinstance(name, str):
+		raise RuntimeError("Maker experiment contract name is unsupported.")
+	try:
+		return MAKER_EXPERIMENT_EDITORIAL_CONTRACTS[name]
+	except KeyError as error:
+		# ASVS 2.2.1: experiment arm names use a positive allowlist at this boundary.
+		raise RuntimeError("Maker experiment contract name is unsupported.") from error
 
 
 #============================================

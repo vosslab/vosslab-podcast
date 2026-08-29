@@ -26,10 +26,13 @@ the active contract, create a publication bundle, invoke the importer, or publis
 | [`automation/attest_daily_blog_prompt_experiment.py`](../automation/attest_daily_blog_prompt_experiment.py) and [`pipeline/daily_blog/experiment_attestation.py`](../pipeline/daily_blog/experiment_attestation.py) | Stage 2 deterministic acceptance join | Immutable non-publishing attestation |
 | [`pipeline/daily_blog/rubric_calibration.py`](../pipeline/daily_blog/rubric_calibration.py) | Historical rubric calibration | Passing live calibration evidence |
 
-`schema.py` owns the typed daily-blog serialization contracts. `contracts.py` owns registered
-editorial contracts and validation policies. `config.py` owns settings, output roots, and isolated
-role-route configuration. `private_artifacts.py` owns descriptor-pinned reads and private atomic
-directory operations shared by captures, calibrations, and attestations.
+`schema.py` owns typed evidence, projection, and bundle serialization contracts.
+`run_contracts.py` owns the versioned durable run-state schema, legal phase sequence, and redacted
+failure categories. `io_utils.py` owns shared UTC timestamps, canonical JSON, hashing, and atomic
+file writes. `contracts.py` owns registered editorial contracts and validation policies.
+`config.py` owns settings, output roots, and isolated role-route configuration.
+`private_artifacts.py` owns descriptor-pinned reads and private atomic directory operations shared
+by captures, calibrations, and attestations.
 
 ## Active publication flow
 

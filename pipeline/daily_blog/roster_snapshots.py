@@ -345,7 +345,7 @@ def write_repository_roster_snapshot(
 					roster_bytes = daily_blog.io_utils.stable_json_text(roster.to_dict()).encode("utf-8")
 					manifest = _snapshot_manifest(
 						roster,
-						captured_utc or daily_blog.schema.utc_now(),
+						captured_utc or daily_blog.io_utils.utc_now(),
 						roster_bytes,
 					)
 					manifest_bytes = daily_blog.io_utils.stable_json_text(manifest).encode("utf-8")

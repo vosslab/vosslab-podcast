@@ -21,14 +21,8 @@ FIXTURE_SCHEMA = "vosslab.daily-blog.experiment-fixture.v2"
 CAPTURE_SCHEMA = "vosslab.daily-blog.prompt-experiment-capture.v2"
 MAX_ARTIFACT_BYTES = 4_000_000
 EXPERIMENT_ID_RE = re.compile(r"^prompt-experiment-[a-z0-9][a-z0-9-]{0,95}$")
-DEFAULT_ARMS = (
-	"v3", "v4-instruction-only", "v4-one-example", "v4-three-examples-corpus-v2",
-)
-COMPARISON_PAIRS = (
-	"v3:v4-instruction-only", "v3:v4-one-example", "v3:v4-three-examples-corpus-v2",
-	"v4-instruction-only:v4-one-example", "v4-instruction-only:v4-three-examples-corpus-v2",
-	"v4-one-example:v4-three-examples-corpus-v2",
-)
+DEFAULT_ARMS = daily_blog.contracts.PROMPT_EXPERIMENT_ARMS
+COMPARISON_PAIRS = daily_blog.contracts.PROMPT_EXPERIMENT_COMPARISON_PAIRS
 APPROVED_FIXTURE_ROTATION = {
 	"quiet": ("2026-08-23", "4adcb80db0cdde222fbc6a7a53ec008d1198d0cc03f9cecc16c12ddbca24522e", "0f79bcfea4d3fb783258df4a37effef5996b6fdb9736ff6944fd17051570b8a1"),
 	"busy": ("2026-08-26", "04fd7a045538662e5c6b48ad79e08dd608de1b5a10c1c8857c7b12042bad41da", "0f79bcfea4d3fb783258df4a37effef5996b6fdb9736ff6944fd17051570b8a1"),
@@ -421,7 +415,7 @@ def _validate_capture(
 			raise RuntimeError("Prompt experiment capture fixture identity is invalid.")
 		try:
 			snapshot = daily_blog.editorial.load_prompt_contract_snapshot(
-				daily_blog.contracts.named_contract(key[1])
+				daily_blog.contracts.resolve_maker_experiment_contract(key[1])
 			)
 			expected_prompt_identity = daily_blog.editorial.prompt_contract_identity(snapshot=snapshot)
 		except (KeyError, RuntimeError) as error:

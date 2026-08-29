@@ -96,7 +96,7 @@ they are not publication IDs, report-date aliases, bundle IDs, or publication po
 the validated authoritative roster snapshot at `daily_blog_repository_rosters/ROSTER_ID/`, reloads
 and verifies it, and binds its path and identity in `run_state.json` before mirror work. It then
 writes the per-run sealed `repository_roster.json` and `mirror_manifest.json` for the exact
-owner-qualified mirror set. The typed run-v3 `run_state.json` records all ten legal phases, their
+owner-qualified mirror set. The typed run-v4 `run_state.json` records all ten legal phases, their
 status, input and output hashes, reuse state, timestamps, roster/evidence packet references, bundle
 reference, and bounded failure details. Phase-specific JSON artifacts and the append-only
 `events.jsonl` operational timeline remain beside it for inspection. If the publisher already has a

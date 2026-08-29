@@ -37,7 +37,7 @@ pipeline/daily_blog/
   experiment_attestation.py               stage-2 immutable attestation owner
   experiment_capture_artifacts.py         sealed fixture and capture verifier
   experiment_output.py                    stage-1 private output transaction
-  io_utils.py                             canonical JSON and hash helpers
+  io_utils.py                             UTC timestamps, canonical JSON, and hash helpers
   private_artifacts.py                    descriptor-pinned private artifact I/O
   projection.py                           bounded editorial projection
   publisher.py                            publisher CLI boundary
@@ -49,8 +49,9 @@ pipeline/daily_blog/
   mirrors.py                              owner-qualified Git mirror refresh and inspection
   orchestrator.py                         date-owned publication phase coordinator
   run_state.py                            durable per-run state and event records
+  run_contracts.py                        typed run-state schema and legal phase contracts
   locks.py                                per-date ownership and phase-value cache
-  schema.py                               typed versioned daily-blog records
+  schema.py                               typed evidence, projection, and bundle records
 ```
 
 `pipeline/prompts/` contains versioned author, referee, rubric, calibration, and voice-example

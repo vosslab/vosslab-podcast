@@ -2,7 +2,6 @@
 
 # Standard Library
 import dataclasses
-import datetime
 import collections.abc
 
 # local repo modules
@@ -14,25 +13,10 @@ import daily_blog.repository_contracts
 BUNDLE_SCHEMA_VERSION = "vosslab.daily-blog.bundle.v4"
 EVIDENCE_SCHEMA_VERSION = "vosslab.daily-blog.evidence.v4"
 PROJECTION_SCHEMA_VERSION = "vosslab.daily-blog.editorial-projection.v2"
-RUN_SCHEMA_VERSION = "vosslab.daily-blog.run.v3"
 GENERATOR_VERSION = "daily-blog-generator-v2"
 PROMPT_VERSION = "daily-blog-prompts-v3"
 RUBRIC_VERSION = "daily-blog-rubric-v3"
 
-LEGAL_PHASES = (
-	"repository_discovery",
-	"mirror_refresh",
-	"activity_location",
-	"evidence_assembly",
-	"editorial_projection",
-	"author_generation",
-	"candidate_validation",
-	"referee_selection",
-	"bundle_creation",
-	"site_import",
-)
-PHASE_STATUSES = {"pending", "running", "completed", "failed"}
-RUN_STATES = {"running", "completed", "failed"}
 AUTHORITY_ORDER = {
 	"dated_changelog": 600,
 	"changed_documentation": 500,
@@ -49,14 +33,6 @@ AUTHORITY_LEVELS = {
 	"screenshot": "visual_support",
 	"commit_metadata": "locator_provenance",
 }
-
-#============================================
-def utc_now() -> str:
-	"""Return a stable UTC timestamp without microseconds."""
-	moment = datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0)
-	text = moment.isoformat().replace("+00:00", "Z")
-	return text
-
 
 #============================================
 def validate_site_import_result(value: object, bundle_sha256: str, report_date: str) -> dict:
@@ -756,205 +732,3 @@ class EditorialProjection:
 			raise RuntimeError("Editorial projection identity does not match its content.")
 		projection.render_context()
 		return projection
-
-
-@dataclasses.dataclass
-class PhaseRecord:
-	"""Mutable status for one legal run phase."""
-
-	status: str = "pending"
-	started_at: str = ""
-	completed_at: str = ""
-	input_hash: str = ""
-	output_hash: str = ""
-	reused: bool = False
-	failure: str = ""
-
-	#============================================
-	def to_dict(self) -> dict:
-		"""Serialize one phase record."""
-		value = dataclasses.asdict(self)
-		return value
-
-
-@dataclasses.dataclass
-class RunRecord:
-	"""Single authoritative, resumable run-state record."""
-
-	run_id: str
-	report_date: str
-	state: str
-	current_phase: str
-	phases: dict[str, PhaseRecord]
-	repository_roster: dict
-	evidence_packet: dict
-	editorial_projection: dict
-	publication_bundle: dict
-	failure: dict
-	started_at: str
-	updated_at: str
-	completed_at: str
-	schema_version: str = RUN_SCHEMA_VERSION
-
-	#============================================
-	@classmethod
-	def create(cls, run_id: str, report_date: str) -> "RunRecord":
-		"""Create a new running record with every legal phase pending."""
-		now = utc_now()
-		phases = {name: PhaseRecord() for name in LEGAL_PHASES}
-		record = cls(
-			run_id=run_id,
-			report_date=report_date,
-			state="running",
-			current_phase="",
-			phases=phases,
-			repository_roster={},
-			evidence_packet={},
-			editorial_projection={},
-			publication_bundle={},
-			failure={},
-			started_at=now,
-			updated_at=now,
-			completed_at="",
-		)
-		return record
-
-	#============================================
-	def start_phase(self, phase: str, input_hash: str) -> None:
-		"""Mark one pending phase as running."""
-		if phase not in LEGAL_PHASES:
-			raise RuntimeError(f"Illegal run phase: {phase}")
-		record = self.phases[phase]
-		if record.status != "pending":
-			raise RuntimeError(f"Run phase is already owned: {phase}")
-		phase_index = LEGAL_PHASES.index(phase)
-		if any(self.phases[name].status != "completed" for name in LEGAL_PHASES[:phase_index]):
-			raise RuntimeError(f"Run phase prerequisites are incomplete: {phase}")
-		if any(self.phases[name].status != "pending" for name in LEGAL_PHASES[phase_index + 1:]):
-			raise RuntimeError(f"Later run phase already has state: {phase}")
-		now = utc_now()
-		record.status = "running"
-		record.started_at = now
-		record.input_hash = input_hash
-		self.current_phase = phase
-		self.updated_at = now
-
-	#============================================
-	def complete_phase(self, phase: str, output_hash: str, reused: bool = False) -> None:
-		"""Complete the currently running phase with an output identity."""
-		record = self.phases[phase]
-		if self.current_phase != phase or record.status != "running":
-			raise RuntimeError(f"Run phase is not running: {phase}")
-		now = utc_now()
-		record.status = "completed"
-		record.completed_at = now
-		record.output_hash = output_hash
-		record.reused = reused
-		self.current_phase = ""
-		self.updated_at = now
-
-	#============================================
-	def fail_phase(self, phase: str, failure_kind: str, message: str) -> None:
-		"""Fail the currently running phase with inspectable bounded details."""
-		record = self.phases[phase]
-		if self.current_phase != phase or record.status != "running":
-			raise RuntimeError(f"Run phase is not running: {phase}")
-		now = utc_now()
-		record.status = "failed"
-		record.completed_at = now
-		record.failure = failure_kind
-		self.state = "failed"
-		self.failure = {"phase": phase, "kind": failure_kind, "message": message[:2000]}
-		self.current_phase = ""
-		self.updated_at = now
-		self.completed_at = now
-
-	#============================================
-	def complete(self) -> None:
-		"""Mark a fully completed run immutable."""
-		for phase in LEGAL_PHASES:
-			if self.phases[phase].status != "completed":
-				raise RuntimeError(f"Cannot complete run with unfinished phase: {phase}")
-		now = utc_now()
-		self.state = "completed"
-		self.current_phase = ""
-		self.updated_at = now
-		self.completed_at = now
-
-	#============================================
-	def validate(self) -> None:
-		"""Reject incomplete or internally inconsistent run-state records."""
-		if self.schema_version != RUN_SCHEMA_VERSION:
-			raise RuntimeError("Unsupported run record schema.")
-		if self.state not in RUN_STATES:
-			raise RuntimeError("Invalid run state.")
-		if tuple(self.phases) != LEGAL_PHASES:
-			raise RuntimeError("Run record phases do not match the legal ordered phase set.")
-		for phase in self.phases.values():
-			if phase.status not in PHASE_STATUSES:
-				raise RuntimeError("Invalid phase status.")
-		running = [name for name, phase in self.phases.items() if phase.status == "running"]
-		failed = [name for name, phase in self.phases.items() if phase.status == "failed"]
-		if len(running) > 1 or len(failed) > 1:
-			raise RuntimeError("Run record contains conflicting phase ownership.")
-		if self.current_phase:
-			if self.phases[self.current_phase].status != "running":
-				raise RuntimeError("Current phase must be running.")
-		if running != ([self.current_phase] if self.current_phase else []):
-			raise RuntimeError("Running phase must match current phase.")
-		if self.state == "running" and failed:
-			raise RuntimeError("Running run contains a failed phase.")
-		if self.state == "failed":
-			if not failed or self.failure.get("phase") != failed[0]:
-				raise RuntimeError("Failed run requires matching failure details.")
-		if self.state == "completed":
-			if any(phase.status != "completed" for phase in self.phases.values()):
-				raise RuntimeError("Completed run contains an unfinished phase.")
-			if (
-				not self.repository_roster
-				or not self.evidence_packet
-				or not self.editorial_projection
-				or not self.publication_bundle
-			):
-				raise RuntimeError("Completed run requires evidence, projection, and bundle references.")
-		seen_open_phase = False
-		for name in LEGAL_PHASES:
-			status = self.phases[name].status
-			if status == "completed" and seen_open_phase:
-				raise RuntimeError("Run phases do not follow legal execution order.")
-			if status != "completed":
-				seen_open_phase = True
-
-	#============================================
-	def to_dict(self) -> dict:
-		"""Serialize and validate the complete run record."""
-		self.validate()
-		value = dataclasses.asdict(self)
-		return value
-
-	#============================================
-	@classmethod
-	def from_dict(cls, value: dict) -> "RunRecord":
-		"""Deserialize and validate one run record."""
-		phases = {
-			name: PhaseRecord(**phase_value)
-			for name, phase_value in value["phases"].items()
-		}
-		record = cls(
-			run_id=str(value["run_id"]),
-			report_date=str(value["report_date"]),
-			state=str(value["state"]),
-			current_phase=str(value["current_phase"]),
-			phases=phases,
-			repository_roster=dict(value["repository_roster"]),
-			evidence_packet=dict(value["evidence_packet"]),
-			editorial_projection=dict(value["editorial_projection"]),
-			publication_bundle=dict(value["publication_bundle"]),
-			failure=dict(value["failure"]),
-			started_at=str(value["started_at"]),
-			updated_at=str(value["updated_at"]),
-			completed_at=str(value["completed_at"]),
-			schema_version=str(value["schema_version"]),
-		)
-		record.validate()
-		return record

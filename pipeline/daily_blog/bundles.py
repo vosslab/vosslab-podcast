@@ -424,7 +424,7 @@ class BundleWriter:
 			"bundle_sha256": "",
 			"report_date": packet.report_date,
 			"timezone": packet.timezone,
-			"created_at": daily_blog.schema.utc_now(),
+			"created_at": daily_blog.io_utils.utc_now(),
 			"generator": {
 				"run_id": run_id,
 				"revision": self.generator_revision,

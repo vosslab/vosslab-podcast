@@ -121,9 +121,9 @@ an explicit activation decision changes the producer and publisher boundaries.
 
 Each attempt receives a new directory under
 `out/<user>/daily_blog_runs/YYYY-MM-DD/RUN_ID/`. `run_state.json` uses schema version
-`vosslab.daily-blog.run.v3` and is the authoritative typed lifecycle record. It holds the run and
+`vosslab.daily-blog.run.v4` and is the authoritative typed lifecycle record. It holds the run and
 report identities, state, current phase, all phase records, roster/evidence/projection/bundle references,
-bounded failure information, and timestamps.
+one fixed failure category without raw exception text, and timestamps.
 
 The ordered phase names are `repository_discovery`, `mirror_refresh`, `activity_location`, `evidence_assembly`,
 `editorial_projection`, `author_generation`, `candidate_validation`, `referee_selection`,

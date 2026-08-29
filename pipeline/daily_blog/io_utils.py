@@ -6,6 +6,15 @@ import json
 import uuid
 import hashlib
 import subprocess
+import datetime
+
+
+#============================================
+def utc_now() -> str:
+	"""Return a stable UTC timestamp without microseconds."""
+	moment = datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0)
+	text = moment.isoformat().replace("+00:00", "Z")
+	return text
 
 
 #============================================

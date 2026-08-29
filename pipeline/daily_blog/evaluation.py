@@ -563,7 +563,7 @@ def _write_shadow_artifacts(
 		"shadow_id": shadow_id,
 		"path": shadow_id,
 		"scorecard_sha256": daily_blog.io_utils.hash_value(scorecard),
-		"updated_at": daily_blog.schema.utc_now(),
+		"updated_at": daily_blog.io_utils.utc_now(),
 	}
 	daily_blog.io_utils.atomic_write_json(os.path.join(date_root, "latest.json"), latest)
 	return shadow_path, scorecard

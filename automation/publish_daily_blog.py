@@ -4,7 +4,6 @@
 # Standard Library
 import argparse
 import collections.abc
-import functools
 import os
 
 # local repo modules
@@ -74,14 +73,10 @@ def publish_report_date(
 				print(f"Report date: {report_date}")
 				print("Publication status: already published")
 				return
-			publisher_function = functools.partial(
-				daily_blog.publisher.import_bundle,
-				replace_existing=True,
-			)
 			bundle_path, _bundle = daily_blog.orchestrator.run_daily_publication_locked(
 				config,
 				report_date,
-				publisher_function=publisher_function,
+				publisher_function=daily_blog.publisher.import_bundle,
 				force_regeneration=True,
 			)
 			print(f"Daily publication: {bundle_path}")
@@ -91,6 +86,8 @@ def publish_report_date(
 		bundle_path, _bundle = daily_blog.orchestrator.run_daily_publication_locked(
 			config,
 			report_date,
+			publisher_function=daily_blog.publisher.import_bundle,
+			force_regeneration=False,
 		)
 		print(f"Daily publication: {bundle_path}")
 		print(f"Report date: {report_date}")

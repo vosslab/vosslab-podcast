@@ -9,6 +9,7 @@ import datetime
 # local repo modules
 import daily_blog.schema
 import daily_blog.io_utils
+import daily_blog.run_contracts
 
 
 class RunStore:
@@ -16,7 +17,7 @@ class RunStore:
 
 	EVENT_FIELDS = {
 		"daily_publication.phase_completed": frozenset({"phase", "reused"}),
-		"daily_publication.phase_failed": frozenset({"error_class", "phase"}),
+		"daily_publication.phase_failed": frozenset({"failure_kind", "phase"}),
 		"daily_publication.phase_started": frozenset({"phase"}),
 		"daily_publication.run_completed": frozenset(
 			{"bundle_sha256", "site_import_status", "state"}
@@ -49,18 +50,14 @@ class RunStore:
 			raise RuntimeError("Unsupported daily-publication event name.")
 		if set(details) != self.EVENT_FIELDS[event]:
 			raise RuntimeError("Daily-publication event fields do not match the event schema.")
-		if "phase" in details and details["phase"] not in daily_blog.schema.LEGAL_PHASES:
+		if "phase" in details and details["phase"] not in daily_blog.run_contracts.LEGAL_PHASES:
 			raise RuntimeError("Daily-publication event phase is unsupported.")
 		if "reused" in details and type(details["reused"]) is not bool:
 			raise RuntimeError("Daily-publication reused state must be Boolean.")
-		if "error_class" in details:
-			error_class = details["error_class"]
-			if (
-				not isinstance(error_class, str)
-				or len(error_class) > 100
-				or not error_class.isidentifier()
-			):
-				raise RuntimeError("Daily-publication error class must be a bounded identifier.")
+		if "failure_kind" in details:
+			failure_kind = details["failure_kind"]
+			if failure_kind not in daily_blog.run_contracts.FAILURE_KINDS:
+				raise RuntimeError("Daily-publication failure kind is unsupported.")
 		if "bundle_sha256" in details:
 			checksum = details["bundle_sha256"]
 			if (
@@ -135,7 +132,7 @@ class RunStore:
 			self._write_sink_warning("stdout", error)
 
 	#============================================
-	def save(self, record: daily_blog.schema.RunRecord) -> None:
+	def save(self, record: daily_blog.run_contracts.RunRecord) -> None:
 		"""Atomically persist the authoritative typed run record."""
 		daily_blog.io_utils.atomic_write_json(self.record_path, record.to_dict())
 

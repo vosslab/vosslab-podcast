@@ -233,7 +233,7 @@ class MirrorManager:
 			"default_revision": default_revision,
 			"object_available": available,
 			"ref_fingerprint": ref_fingerprint,
-			"refreshed_at": daily_blog.schema.utc_now(),
+			"refreshed_at": daily_blog.io_utils.utc_now(),
 		}
 		return entry
 

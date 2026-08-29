@@ -244,7 +244,7 @@ def failed_capture_matrix(
 		for repetition in range(repetitions):
 			for arm in experiment.DEFAULT_ARMS:
 				snapshot = experiment.daily_blog.editorial.load_prompt_contract_snapshot(
-					experiment.daily_blog.contracts.named_contract(arm)
+					experiment.daily_blog.contracts.resolve_maker_experiment_contract(arm)
 				)
 				diagnostic = {"stage": "author_generation", "code": "ExpectedFailure"}
 				records.append({

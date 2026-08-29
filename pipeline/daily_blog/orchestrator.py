@@ -10,6 +10,7 @@ import collections.abc
 # local repo modules
 import daily_blog.config
 import daily_blog.schema
+import daily_blog.run_contracts
 import daily_blog.repository_contracts
 import daily_blog.locks
 import daily_blog.mirrors
@@ -32,6 +33,38 @@ def new_run_id() -> str:
 	moment = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
 	run_id = f"{moment}-{uuid.uuid4().hex[:10]}"
 	return run_id
+
+
+#============================================
+def invoke_publisher(
+	publisher_function: collections.abc.Callable,
+	daily_blog_repository: str,
+	bundle_path: str,
+	*,
+	replace_existing: bool,
+) -> dict:
+	"""Invoke the publisher through the explicit replacement-intent boundary.
+
+	Args:
+		publisher_function: Publisher implementation selected by the caller.
+		daily_blog_repository: Physical publisher repository root.
+		bundle_path: Validated producer bundle directory.
+		replace_existing: Exact Boolean date-owned replacement decision.
+
+	Returns:
+		A fresh dictionary copied from the publisher's mapping receipt.
+	"""
+	if type(replace_existing) is not bool:
+		raise RuntimeError("Replace-existing state must be Boolean.")
+	result = publisher_function(
+		daily_blog_repository,
+		bundle_path,
+		replace_existing=replace_existing,
+	)
+	if not isinstance(result, collections.abc.Mapping):
+		raise RuntimeError("Daily-blog publisher must return a mapping.")
+	result_copy = dict(result)
+	return result_copy
 
 
 #============================================
@@ -132,21 +165,45 @@ def _resolve_active_publication_snapshot(
 		resolved_snapshot = daily_blog.editorial.validate_snapshot(snapshot)
 	else:
 		resolved_snapshot = None
-	active = daily_blog.contracts.active_contract()
 	if (
-		resolved_contract is not None and resolved_contract is not active
+		resolved_contract is not None
+		and not daily_blog.contracts.is_production_contract(resolved_contract)
 	) or (
-		resolved_snapshot is not None and resolved_snapshot.contract is not active
+		resolved_snapshot is not None
+		and not daily_blog.contracts.is_production_contract(resolved_snapshot.contract)
 	):
 		raise RuntimeError(
-			"Experimental editorial contracts require the non-publishing prompt experiment runner."
+			"Non-production editorial contracts require the prompt experiment runner."
 		)
 	resolved = daily_blog.editorial.resolve_run_snapshot(contract, snapshot)
-	if resolved.contract is not active:
+	if not daily_blog.contracts.is_production_contract(resolved.contract):
 		raise RuntimeError(
-			"Experimental editorial contracts require the non-publishing prompt experiment runner."
+			"Non-production editorial contracts require the prompt experiment runner."
 		)
 	return resolved
+
+
+#============================================
+def record_phase_failure(
+	record: daily_blog.run_contracts.RunRecord,
+	store: daily_blog.run_state.RunStore,
+	error: BaseException,
+) -> None:
+	"""Atomically record the current phase's redacted failure transition.
+
+	The persisted record and lifecycle event retain only the legal phase and
+	bounded failure category; exception text remains process-local.
+	"""
+	phase = record.current_phase
+	if not phase:
+		return
+	failure_kind = daily_blog.run_contracts.classify_exception(error)
+	record.fail_phase(phase, failure_kind)
+	store.save(record)
+	store.append_event(
+		"daily_publication.phase_failed",
+		{"failure_kind": failure_kind, "phase": phase},
+	)
 
 
 #============================================
@@ -159,7 +216,7 @@ class DailyPublicationOrchestrator:
 		config: daily_blog.config.DailyBlogConfig,
 		report_date: str,
 		route_runner: object | None = None,
-		publisher_function: collections.abc.Callable[[str, str], dict] | None = None,
+		publisher_function: collections.abc.Callable | None = None,
 		repository_loader: collections.abc.Callable[
 			[str, str], daily_blog.repository_contracts.RepositoryRoster
 		] | None = None,
@@ -201,7 +258,7 @@ class DailyPublicationOrchestrator:
 			report_date,
 			self.run_id,
 		)
-		self.record = daily_blog.schema.RunRecord.create(self.run_id, report_date)
+		self.record = daily_blog.run_contracts.RunRecord.create(self.run_id, report_date)
 		cache_root = os.path.join(
 			config.output_root,
 			config.output_owner,
@@ -239,16 +296,8 @@ class DailyPublicationOrchestrator:
 
 	#============================================
 	def _fail_current(self, error: Exception) -> None:
-		"""Keep raw failure text in run state and emit only its class to lifecycle logs."""
-		phase = self.record.current_phase
-		if not phase:
-			return
-		self.record.fail_phase(phase, error.__class__.__name__, str(error))
-		self.store.save(self.record)
-		self.store.append_event(
-			"daily_publication.phase_failed",
-			{"error_class": error.__class__.__name__, "phase": phase},
-		)
+		"""Delegate the current run's failure transition to its public boundary."""
+		record_phase_failure(self.record, self.store, error)
 
 	#============================================
 	def _repository_phase(self) -> daily_blog.repository_contracts.RepositoryRoster:
@@ -686,7 +735,12 @@ class DailyPublicationOrchestrator:
 			"replace_existing": self.force_regeneration,
 		}
 		self._start("site_import", phase_input)
-		publisher_result = self.publisher_function(self.config.daily_blog_repository, bundle_path)
+		publisher_result = invoke_publisher(
+			self.publisher_function,
+			self.config.daily_blog_repository,
+			bundle_path,
+			replace_existing=self.force_regeneration,
+		)
 		result = daily_blog.schema.validate_site_import_result(
 			publisher_result,
 			bundle["bundle_sha256"],
@@ -772,7 +826,7 @@ def run_daily_publication_locked(
 	config: daily_blog.config.DailyBlogConfig,
 	report_date: str,
 	route_runner: object | None = None,
-	publisher_function: collections.abc.Callable[[str, str], dict] | None = None,
+	publisher_function: collections.abc.Callable | None = None,
 	repository_loader: collections.abc.Callable[
 		[str, str], daily_blog.repository_contracts.RepositoryRoster
 	] | None = None,
@@ -803,7 +857,7 @@ def run_daily_publication(
 	config: daily_blog.config.DailyBlogConfig,
 	report_date: str,
 	route_runner: object | None = None,
-	publisher_function: collections.abc.Callable[[str, str], dict] | None = None,
+	publisher_function: collections.abc.Callable | None = None,
 	repository_loader: collections.abc.Callable[
 		[str, str], daily_blog.repository_contracts.RepositoryRoster
 	] | None = None,

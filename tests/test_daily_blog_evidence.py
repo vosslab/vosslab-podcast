@@ -10,6 +10,7 @@ import pytest
 
 # local repo modules
 import daily_blog.schema
+import daily_blog.run_contracts
 import daily_blog.locks
 import daily_blog.evidence
 import daily_blog.run_state
@@ -147,7 +148,7 @@ def test_evidence_packet_identity_inputs_are_immutable_after_creation() -> None:
 #============================================
 def test_run_record_rejects_completed_state_with_pending_phases() -> None:
 	"""A terminal success record cannot serialize incomplete phase state."""
-	record = daily_blog.schema.RunRecord.create("run-one", "2026-08-23")
+	record = daily_blog.run_contracts.RunRecord.create("run-one", "2026-08-23")
 	record.state = "completed"
 	record.evidence_packet = {"packet_id": "packet"}
 	record.publication_bundle = {"bundle_sha256": "a" * 64}
@@ -174,26 +175,66 @@ def test_phase_cache_reuses_json_by_exact_input_hash(tmp_path: pathlib.Path) -> 
 #============================================
 def test_run_record_round_trip_preserves_legal_phase_order() -> None:
 	"""Typed serialization round-trips an active record without schema drift."""
-	record = daily_blog.schema.RunRecord.create("run-two", "2026-08-23")
+	record = daily_blog.run_contracts.RunRecord.create("run-two", "2026-08-23")
 	value = record.to_dict()
 
-	restored = daily_blog.schema.RunRecord.from_dict(value)
+	restored = daily_blog.run_contracts.RunRecord.from_dict(value)
 
 	assert restored.to_dict() == value
 
 
 #============================================
-def test_failed_run_record_serializes_original_phase_failure() -> None:
-	"""A failed phase becomes a valid terminal record instead of masking its error."""
-	record = daily_blog.schema.RunRecord.create("run-failed", "2026-08-23")
+def test_run_record_rejects_array_of_pairs_for_structured_reference() -> None:
+	"""Serialized run references must remain JSON objects, not coercible pair arrays."""
+	value = daily_blog.run_contracts.RunRecord.create("run-pairs", "2026-08-23").to_dict()
+	value["repository_roster"] = [("roster_id", "private")]
+
+	with pytest.raises(RuntimeError, match="repository_roster must be an object"):
+		daily_blog.run_contracts.RunRecord.from_dict(value)
+
+
+#============================================
+def test_run_record_rejects_array_of_pairs_for_phase_record() -> None:
+	"""Each persisted phase must remain a JSON object before state construction."""
+	value = daily_blog.run_contracts.RunRecord.create("run-phase-pairs", "2026-08-23").to_dict()
+	value["phases"]["repository_discovery"] = [("status", "pending")]
+
+	with pytest.raises(RuntimeError, match="phase must be an object"):
+		daily_blog.run_contracts.RunRecord.from_dict(value)
+
+
+#============================================
+def test_failed_run_record_serializes_safe_phase_failure() -> None:
+	"""A failed phase persists only its phase and bounded diagnostic category."""
+	record = daily_blog.run_contracts.RunRecord.create("run-failed", "2026-08-23")
 	record.start_phase("repository_discovery", "a" * 64)
-	record.fail_phase("repository_discovery", "RuntimeError", "network unavailable")
+	record.fail_phase("repository_discovery", "runtime_error")
 
 	value = record.to_dict()
+	restored = daily_blog.run_contracts.RunRecord.from_dict(value)
 
 	assert (
 		value["state"], value["current_phase"], value["failure"]["phase"]
 	) == ("failed", "", "repository_discovery")
+	assert value["failure"] == {"phase": "repository_discovery", "kind": "runtime_error"}
+	assert restored.to_dict() == value
+
+
+#============================================
+def test_failed_run_record_rejects_raw_or_unsupported_diagnostics() -> None:
+	"""Failed-run v4 rejects raw messages and unknown persisted details."""
+	record = daily_blog.run_contracts.RunRecord.create("run-failed-details", "2026-08-23")
+	record.start_phase("repository_discovery", "a" * 64)
+	record.fail_phase("repository_discovery", "runtime_error")
+	value = record.to_dict()
+
+	with_message = dict(value)
+	with_message["failure"] = dict(value["failure"], message="private-failure-sentinel")
+	with pytest.raises(RuntimeError, match="matching failure details"):
+		daily_blog.run_contracts.RunRecord.from_dict(with_message)
+	with_extra_detail = dict(value, raw_message="private-failure-sentinel")
+	with pytest.raises(RuntimeError, match="unsupported fields"):
+		daily_blog.run_contracts.RunRecord.from_dict(with_extra_detail)
 
 
 #============================================
@@ -214,7 +255,7 @@ def test_evidence_packet_rejects_string_completeness_state() -> None:
 #============================================
 def test_run_record_rejects_out_of_order_phase_start() -> None:
 	"""Typed phase ownership cannot skip an incomplete prerequisite."""
-	record = daily_blog.schema.RunRecord.create("run-sequence", "2026-08-23")
+	record = daily_blog.run_contracts.RunRecord.create("run-sequence", "2026-08-23")
 
 	with pytest.raises(RuntimeError, match="prerequisites"):
 		record.start_phase("evidence_assembly", "a" * 64)
@@ -230,7 +271,7 @@ def test_run_store_persists_safe_structured_phase_event(
 
 	store.append_event(
 		"daily_publication.phase_failed",
-		{"phase": "mirror_refresh", "error_class": "RuntimeError"},
+		{"phase": "mirror_refresh", "failure_kind": "runtime_error"},
 	)
 
 	event_path = tmp_path / "vosslab" / "daily_blog_runs" / "2026-08-23" / "run-log" / "events.jsonl"
@@ -238,10 +279,10 @@ def test_run_store_persists_safe_structured_phase_event(
 		event = json.loads(handle.read())
 	stdout_event = json.loads(capsys.readouterr().out)
 	assert event["event"] == "daily_publication.phase_failed"
-	assert (event["run_id"], event["phase"], event["error_class"]) == (
+	assert (event["run_id"], event["phase"], event["failure_kind"]) == (
 		"run-log",
 		"mirror_refresh",
-		"RuntimeError",
+		"runtime_error",
 	)
 	assert stdout_event == event
 
@@ -297,12 +338,12 @@ def test_site_import_receipt_requires_known_status_and_identity() -> None:
 
 
 #============================================
-def test_failure_boundary_keeps_raw_message_out_of_lifecycle_events(
+def test_failure_boundary_keeps_exception_text_out_of_persisted_diagnostics(
 	tmp_path: pathlib.Path,
 	capsys: pytest.CaptureFixture,
 ) -> None:
-	"""Private state retains the error while durable and stdout events expose only its class."""
-	record = daily_blog.schema.RunRecord.create("run-failure", "2026-08-23")
+	"""Run state and lifecycle events retain a fixed category rather than error text."""
+	record = daily_blog.run_contracts.RunRecord.create("run-failure", "2026-08-23")
 	record.start_phase("repository_discovery", "a" * 64)
 	store = daily_blog.run_state.RunStore(
 		str(tmp_path),
@@ -310,16 +351,21 @@ def test_failure_boundary_keeps_raw_message_out_of_lifecycle_events(
 		"2026-08-23",
 		"run-failure",
 	)
-	orchestrator = object.__new__(daily_blog.orchestrator.DailyPublicationOrchestrator)
-	orchestrator.record = record
-	orchestrator.store = store
 
-	orchestrator._fail_current(RuntimeError("private-failure-sentinel"))
+	daily_blog.orchestrator.record_phase_failure(
+		record,
+		store,
+		RuntimeError("private-failure-sentinel"),
+	)
 
 	with open(store.record_path, "r", encoding="utf-8") as handle:
 		run_state_text = handle.read()
 	with open(store.event_path, "r", encoding="utf-8") as handle:
 		event_text = handle.read()
 	stdout_text = capsys.readouterr().out
-	assert "private-failure-sentinel" in run_state_text
-	assert "private-failure-sentinel" not in event_text + stdout_text
+	assert "private-failure-sentinel" not in run_state_text + event_text + stdout_text
+	assert json.loads(run_state_text)["failure"] == {
+		"phase": "repository_discovery", "kind": "runtime_error",
+	}
+	assert json.loads(event_text)["failure_kind"] == "runtime_error"
+	assert json.loads(stdout_text)["failure_kind"] == "runtime_error"

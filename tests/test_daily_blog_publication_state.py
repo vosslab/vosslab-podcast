@@ -15,6 +15,7 @@ import automation.publish_daily_blog
 import daily_blog.bundles
 import daily_blog.editorial
 import daily_blog.io_utils
+import daily_blog.orchestrator
 import daily_blog.projection
 import daily_blog.publication_state
 import daily_blog.repository_contracts
@@ -91,10 +92,58 @@ def _current_publication_config(tmp_path: pathlib.Path) -> types.SimpleNamespace
 
 
 #============================================
-def test_confirmed_date_replacement_forces_fresh_generation_under_one_lock(
+def test_missing_date_passes_nonreplacement_intent_to_public_pipeline(
 	monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-	"""One affirmative date decision selects fresh generation and publisher replacement."""
+	"""A missing date gives the public pipeline explicit nonreplacement intent."""
+	config = types.SimpleNamespace(daily_blog_repository="/publisher")
+	observed = []
+
+	monkeypatch.setattr(
+		automation.publish_daily_blog.daily_blog.publication_state,
+		"inspect_publication",
+		lambda _config, _date: daily_blog.publication_state.PublicationInspection("missing"),
+	)
+	monkeypatch.setattr(
+		automation.publish_daily_blog.daily_blog.orchestrator,
+		"publication_date_lock",
+		lambda _config, _date: contextlib.nullcontext(),
+	)
+
+	def import_bundle(_repository: str, _path: str, *, replace_existing: bool) -> dict:
+		observed.append(("publisher", replace_existing))
+		return {}
+
+	def run_locked(_config: object, report_date: str, **kwargs: object) -> tuple[str, dict]:
+		observed.append((
+			report_date,
+			kwargs["publisher_function"] is import_bundle,
+			kwargs["force_regeneration"],
+		))
+		publisher = kwargs["publisher_function"]
+		publisher("/publisher", "/bundle", replace_existing=False)
+		return "/bundle", {"bundle_sha256": "a" * 64}
+
+	monkeypatch.setattr(automation.publish_daily_blog.daily_blog.publisher, "import_bundle", import_bundle)
+	monkeypatch.setattr(
+		automation.publish_daily_blog.daily_blog.orchestrator,
+		"run_daily_publication_locked",
+		run_locked,
+	)
+
+	automation.publish_daily_blog.publish_report_date(
+		config,
+		"2026-08-26",
+	)
+
+	assert observed == [("2026-08-26", True, False), ("publisher", False)]
+
+
+#============================================
+def test_confirmed_date_replacement_passes_replacement_intent_to_public_pipeline(
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""An affirmative decision gives the public pipeline explicit replacement intent."""
 	config = types.SimpleNamespace(daily_blog_repository="/publisher")
 	observed = []
 
@@ -114,9 +163,12 @@ def test_confirmed_date_replacement_forces_fresh_generation_under_one_lock(
 		return {}
 
 	def run_locked(_config: object, report_date: str, **kwargs: object) -> tuple[str, dict]:
-		observed.append((report_date, kwargs["force_regeneration"]))
-		publisher = kwargs["publisher_function"]
-		publisher("/publisher", "/bundle")
+		observed.append((
+			report_date,
+			kwargs["publisher_function"] is import_bundle,
+			kwargs["force_regeneration"],
+		))
+		kwargs["publisher_function"]("/publisher", "/bundle", replace_existing=True)
 		return "/bundle", {"bundle_sha256": "a" * 64}
 
 	monkeypatch.setattr(automation.publish_daily_blog.daily_blog.publisher, "import_bundle", import_bundle)
@@ -132,7 +184,53 @@ def test_confirmed_date_replacement_forces_fresh_generation_under_one_lock(
 		replacement_decider=lambda report_date: report_date == "2026-08-26",
 	)
 
-	assert observed == [("2026-08-26", True), ("publisher", True)]
+	assert observed == [("2026-08-26", True, True), ("publisher", True)]
+
+
+#============================================
+@pytest.mark.parametrize("replace_existing", [False, True])
+def test_invoke_publisher_passes_intent_and_copies_mapping_receipt(
+	replace_existing: bool,
+) -> None:
+	"""The publisher boundary passes its Boolean intent and isolates a mapping receipt."""
+	receipt = types.MappingProxyType({"status": "imported"})
+	observed = []
+
+	def publisher(_repository: str, _bundle: str, *, replace_existing: bool) -> object:
+		observed.append(replace_existing)
+		return receipt
+
+	result = daily_blog.orchestrator.invoke_publisher(
+		publisher, "/publisher", "/bundle", replace_existing=replace_existing
+	)
+
+	assert (observed, result, result is receipt) == ([replace_existing], dict(receipt), False)
+
+
+#============================================
+def test_invoke_publisher_rejects_nonmapping_receipt() -> None:
+	"""The publisher boundary rejects receipts without mapping semantics."""
+
+	def publisher(_repository: str, _bundle: str, *, replace_existing: bool) -> object:
+		return [("status", "imported")]
+
+	with pytest.raises(RuntimeError, match="must return a mapping"):
+		daily_blog.orchestrator.invoke_publisher(
+			publisher, "/publisher", "/bundle", replace_existing=False
+		)
+
+
+#============================================
+def test_invoke_publisher_rejects_integer_replacement_intent() -> None:
+	"""Replacement intent accepts only the Boolean protocol value."""
+
+	def publisher(_repository: str, _bundle: str, *, replace_existing: bool) -> object:
+		return {}
+
+	with pytest.raises(RuntimeError, match="must be Boolean"):
+		daily_blog.orchestrator.invoke_publisher(
+			publisher, "/publisher", "/bundle", replace_existing=1
+		)
 
 
 #============================================

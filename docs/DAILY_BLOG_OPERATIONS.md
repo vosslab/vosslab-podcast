@@ -122,7 +122,7 @@ Before mirror work, production writes and reload-verifies the matching immutable
 `out/vosslab/daily_blog_repository_rosters/ROSTER_ID/`. The run state binds that snapshot's absolute
 path and full identity alongside the per-run sealed roster artifact.
 
-The authoritative run v3 state has ten ordered phases:
+The authoritative run v4 state has ten ordered phases:
 
 1. `repository_discovery`
 2. `mirror_refresh`

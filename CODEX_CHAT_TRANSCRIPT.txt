@@ -2451,3 +2451,48 @@ Next actions
 1. Preserve fresh role processes while implementing shared Hermes capacity observations.
 2. Verify that account-state persistence contains no prompt, response, transcript, session, memory,
    or editorial-decision fields.
+
+---
+Session Update: 2026-08-28 (Daily-blog fixup scope correction)
+
+What changed
+- Replaced the Hermes-capacity repair plan with a podcast-owned maker-voice integration plan.
+- Defined `hermes chat --provider openai-codex --query-file -` as the complete external model
+  boundary; Hermes retains model credentials and account selection internally.
+- Recentered the dependency chain on maker-candidate preparation, producer orchestration, grounded
+  deterministic tests, complete-post empirical evidence, attested producer/publisher activation, and
+  the tracked 04:00 systemd path.
+- Classified former Hermes M2-M8 work and existing Hermes scratch work as superseded external context
+  rather than an implementation, deployment, or closure dependency.
+- Updated the changelog to state the corrected scope and permanent-versus-one-time verification
+  policy.
+- Applied the independent review findings: empirical evidence now precedes activation everywhere;
+  `report_date` is the sole publication identity and bundle digest is integrity-only; in-process fakes
+  prove route behavior while fresh OS-process isolation remains one-time evidence; and capacity state
+  stays entirely behind the Hermes CLI boundary.
+
+What was tested
+- Documentation verification covered Markdown links, scope-term searches, ASCII compliance, and diff
+  whitespace.
+
+Next actions
+1. Implement F0-F7 in dependency order from the revised fixup plan.
+2. Keep review effort on maker voice, ownership, validation, publication integrity, and delivery.
+
+---
+Session Update: 2026-08-28 (F2 run-contract ownership)
+
+What changed
+- Moved the durable run-state schema, legal phases, redacted failure categories, and run records
+  from `pipeline/daily_blog/schema.py` into `pipeline/daily_blog/run_contracts.py`.
+- Made `pipeline/daily_blog/io_utils.py` the sole owner of shared UTC timestamp creation.
+- Updated production callers, tests, and architecture documentation to use the new direct owners;
+  `schema.py` provides no lifecycle compatibility aliases.
+
+What was tested
+- Focused daily-blog evidence, publication-state, and contract-integration tests passed.
+- Source-file limit, function typing, pyflakes, ASCII, whitespace, and diff-whitespace checks passed.
+
+Next actions
+1. Continue the remaining F2 integration checks from the active plan.
+2. Keep all later producer and publisher work on the direct contract owners.
