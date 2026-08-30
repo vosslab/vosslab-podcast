@@ -1,12 +1,14 @@
-"""Settings-backed configuration for producer and publisher ownership."""
+"""Settings-backed aggregate runtime configuration and loading."""
 
 # Standard Library
-import os
 import dataclasses
+import os
+import re
 
 # local repo modules
 from podlib import pipeline_settings
-
+import daily_blog.editorial_stage_config
+import daily_blog.final_synthesis_config
 
 DEFAULT_COLLECTION_LIMITS = {
 	"changed_documentation_chars": 16000,
@@ -26,38 +28,91 @@ DEFAULT_PROMPT_LIMITS = {
 	"author_chars": 72000,
 	"referee_chars": 88000,
 }
-# ASVS 1.2.5 and 16.5.1: fixed argv plus quiet stdout separates payloads from diagnostics.
-HERMES_EDITORIAL_ROUTE = (
-	"hermes",
-	"chat",
-	"--provider",
-	"openai-codex",
-	"--query-file",
-	"-",
-	"--ignore-rules",
-	"--quiet",
-)
-HERMES_MODEL_ARGUMENTS = {"--model", "-m", "model"}
+DEFAULT_EDITORIAL_RELIABILITY = {
+	"candidate_count": 2,
+	"reviewer_count": 1,
+	"max_parallel_calls": 1,
+	"max_route_calls": 16,
+	"route_retry_attempts": 1,
+}
+_GITHUB_OWNER_RE = re.compile(r"^[A-Za-z0-9-]+$")
 DAILY_BLOG_SETTING_KEYS = {
 	"collection_limits",
+	"complete_post",
+	"daily_outline",
+	"editorial_reliability",
+	"final_synthesis",
 	"identity_emails",
 	"identity_names",
+	"logging",
 	"mirror_cache_root",
 	"projection_limits",
 	"prompt_limits",
+	"repository_outline",
+	"repository_story",
 	"report_timezone",
 	"repository_path",
 	"routes",
-	"shadow_evaluation",
 }
+
+@dataclasses.dataclass(frozen=True)
+class EditorialReliabilityConfig:
+	"""Bounded replication and concurrency settings for subjective stages."""
+
+	candidate_count: int = DEFAULT_EDITORIAL_RELIABILITY["candidate_count"]
+	reviewer_count: int = DEFAULT_EDITORIAL_RELIABILITY["reviewer_count"]
+	max_parallel_calls: int = DEFAULT_EDITORIAL_RELIABILITY["max_parallel_calls"]
+	max_route_calls: int = DEFAULT_EDITORIAL_RELIABILITY["max_route_calls"]
+	route_retry_attempts: int = DEFAULT_EDITORIAL_RELIABILITY["route_retry_attempts"]
+
+	#============================================
+	def __post_init__(self) -> None:
+		"""Require enough alternatives and explicit global resource bounds."""
+		values = (
+			self.candidate_count,
+			self.reviewer_count,
+			self.max_parallel_calls,
+			self.max_route_calls,
+		)
+		if any(type(value) is not int or value <= 0 for value in values):
+			raise RuntimeError("Editorial reliability settings must be positive integers.")
+		if type(self.route_retry_attempts) is not int or self.route_retry_attempts < 0:
+			raise RuntimeError("Editorial route retry attempts must be a nonnegative integer.")
+		if self.candidate_count < 2:
+			raise RuntimeError("Editorial generation requires at least two independent candidates.")
+		if self.max_route_calls < self.candidate_count:
+			raise RuntimeError("Editorial route budget cannot cover candidate generation.")
+		pair_count = self.candidate_count * (self.candidate_count - 1) // 2
+		full_review_calls = pair_count * self.reviewer_count * 2
+		maximum_attempts = self.route_retry_attempts + 1
+		required_calls = (self.candidate_count + full_review_calls) * maximum_attempts
+		if self.max_route_calls < required_calls:
+			raise RuntimeError(
+				"Editorial route budget cannot cover configured retries and review repair."
+			)
 
 
 @dataclasses.dataclass(frozen=True)
-class RoleRoute:
-	"""One isolated command route for an author or referee role."""
+class DailyBlogLoggingConfig:
+	"""Optional bounded-run logging and measured-retention settings.
 
-	name: str
-	command: tuple[str, ...]
+	A missing retention value deliberately means no deletion. Operators supply
+	evidence before selecting a default rather than embedding a policy here.
+	"""
+
+	detailed_retention_days: int | None = None
+	max_events_per_run: int | None = None
+
+	#============================================
+	def __post_init__(self) -> None:
+		"""Require explicitly configured limits to be positive exact integers."""
+		for name, value in (
+			("detailed_retention_days", self.detailed_retention_days),
+			("max_events_per_run", self.max_events_per_run),
+		):
+			if value is not None and (type(value) is not int or value <= 0):
+				raise RuntimeError(f"daily_blog.logging.{name} must be a positive integer.")
+
 
 
 @dataclasses.dataclass(frozen=True)
@@ -72,97 +127,33 @@ class DailyBlogConfig:
 	mirror_cache_root: str
 	identity_names: tuple[str, ...]
 	identity_emails: tuple[str, ...]
-	author_routes: tuple[RoleRoute, ...]
-	referee_route: RoleRoute
+	author_routes: tuple[daily_blog.editorial_stage_config.RoleRoute, ...]
+	referee_route: daily_blog.editorial_stage_config.RoleRoute
 	collection_limits: dict[str, int]
 	projection_limits: dict[str, int]
 	prompt_limits: dict[str, int]
-	allow_shadow_model_data_sharing: bool = False
-
-
-#============================================
-def _string_list(value: object, label: str) -> tuple[str, ...]:
-	"""Validate and normalize one YAML string list."""
-	if not isinstance(value, list):
-		raise RuntimeError(f"{label} must be a list.")
-	items = []
-	for item in value:
-		text = str(item).strip()
-		if text:
-			items.append(text)
-	result = tuple(items)
-	return result
-
-
-#============================================
-def _role_route(value: object, label: str) -> RoleRoute:
-	"""Validate one role command route."""
-	if not isinstance(value, dict):
-		raise RuntimeError(f"{label} must be a mapping.")
-	name = str(value.get("name") or "").strip()
-	command_value = value.get("command")
-	if not name:
-		raise RuntimeError(f"{label}.name is required.")
-	command = _string_list(command_value, f"{label}.command")
-	if not command:
-		raise RuntimeError(f"{label}.command requires at least one argument.")
-	_validate_role_command(command, label)
-	route = RoleRoute(name=name, command=command)
-	return route
-
-
-#============================================
-def _validate_role_command(command: tuple[str, ...], label: str) -> None:
-	"""Require the sealed Hermes stdin transport contract for every editorial role."""
-	if command[:2] != ("hermes", "chat"):
-		raise RuntimeError(f"{label}.command must invoke hermes chat.")
-	for argument in command:
-		name = argument.split("=", 1)[0]
-		if name in HERMES_MODEL_ARGUMENTS:
-			raise RuntimeError(
-				f"{label}.command must leave model selection to Hermes: {name}"
-			)
-	if command != HERMES_EDITORIAL_ROUTE:
-		raise RuntimeError(
-			f"{label}.command must exactly match the sealed Hermes editorial route."
-		)
-
-
-#============================================
-def _default_command() -> list[str]:
-	"""Return the isolated Hermes stdin transport route."""
-	command = list(HERMES_EDITORIAL_ROUTE)
-	return command
-
-
-#============================================
-def _load_routes(settings: dict) -> tuple[tuple[RoleRoute, ...], RoleRoute]:
-	"""Load exactly two author routes and one separately named referee route."""
-	routes = pipeline_settings.get_nested_value(settings, ["daily_blog", "routes"], {})
-	if not routes:
-		command = _default_command()
-		_validate_role_command(tuple(command), "daily_blog.routes.default")
-		authors = (
-			RoleRoute("author_one", tuple(command)),
-			RoleRoute("author_two", tuple(command)),
-		)
-		referee = RoleRoute("referee", tuple(command))
-		return authors, referee
-	if not isinstance(routes, dict):
-		raise RuntimeError("daily_blog.routes must be a mapping.")
-	author_values = routes.get("authors")
-	if not isinstance(author_values, list) or len(author_values) != 2:
-		raise RuntimeError("daily_blog.routes.authors requires exactly two routes.")
-	authors = tuple(
-		_role_route(value, f"daily_blog.routes.authors[{index}]")
-		for index, value in enumerate(author_values)
+	editorial_reliability: EditorialReliabilityConfig = dataclasses.field(
+		default_factory=EditorialReliabilityConfig
 	)
-	if authors[0].name == authors[1].name:
-		raise RuntimeError("Author route names must be distinct.")
-	referee = _role_route(routes.get("referee"), "daily_blog.routes.referee")
-	if referee.name in {route.name for route in authors}:
-		raise RuntimeError("Referee route name must be distinct from author route names.")
-	return authors, referee
+	repository_outline: daily_blog.editorial_stage_config.RepositoryOutlineConfig = dataclasses.field(
+		default_factory=daily_blog.editorial_stage_config.RepositoryOutlineConfig
+	)
+	repository_story: daily_blog.editorial_stage_config.RepositoryStoryConfig = dataclasses.field(
+		default_factory=daily_blog.editorial_stage_config.RepositoryStoryConfig
+	)
+	complete_post: daily_blog.editorial_stage_config.CompletePostConfig = dataclasses.field(
+		default_factory=daily_blog.editorial_stage_config.CompletePostConfig
+	)
+	daily_outline: daily_blog.editorial_stage_config.DailyOutlineConfig = dataclasses.field(
+		default_factory=daily_blog.editorial_stage_config.DailyOutlineConfig
+	)
+	final_synthesis: daily_blog.final_synthesis_config.FinalSynthesisConfig = dataclasses.field(
+		default_factory=daily_blog.final_synthesis_config.FinalSynthesisConfig
+	)
+	logging: DailyBlogLoggingConfig = dataclasses.field(
+		default_factory=DailyBlogLoggingConfig
+	)
+
 
 
 #============================================
@@ -172,11 +163,7 @@ def _load_limits(
 	defaults: dict[str, int],
 ) -> dict[str, int]:
 	"""Load one positive daily-blog limit mapping with explicit known keys."""
-	configured = pipeline_settings.get_nested_value(
-		settings,
-		["daily_blog", name],
-		{},
-	)
+	configured = pipeline_settings.get_nested_value(settings, ["daily_blog", name], {})
 	if not isinstance(configured, dict):
 		raise RuntimeError(f"daily_blog.{name} must be a mapping.")
 	unknown = set(configured) - set(defaults)
@@ -192,6 +179,43 @@ def _load_limits(
 
 
 #============================================
+def _load_editorial_reliability(settings: dict) -> EditorialReliabilityConfig:
+	"""Load the bounded replication and shared route-call budget."""
+	configured = pipeline_settings.get_nested_value(
+		settings, ["daily_blog", "editorial_reliability"], {},
+	)
+	if not isinstance(configured, dict):
+		raise RuntimeError("daily_blog.editorial_reliability must be a mapping.")
+	unknown = set(configured) - set(DEFAULT_EDITORIAL_RELIABILITY)
+	if unknown:
+		names = ", ".join(sorted(unknown))
+		raise RuntimeError(f"Unknown daily_blog.editorial_reliability keys: {names}")
+	values = dict(DEFAULT_EDITORIAL_RELIABILITY)
+	values.update(configured)
+	return EditorialReliabilityConfig(**values)
+
+
+#============================================
+def _load_logging_config(settings: dict) -> DailyBlogLoggingConfig:
+	"""Load explicit logging controls without imposing an unmeasured default."""
+	configured = pipeline_settings.get_nested_value(
+		settings,
+		["daily_blog", "logging"],
+		{},
+	)
+	if not isinstance(configured, dict):
+		raise RuntimeError("daily_blog.logging must be a mapping.")
+	allowed = {"detailed_retention_days", "max_events_per_run"}
+	unknown = set(configured) - allowed
+	if unknown:
+		names = ", ".join(sorted(unknown))
+		raise RuntimeError(f"Unknown daily_blog.logging keys: {names}")
+	return DailyBlogLoggingConfig(
+		detailed_retention_days=configured.get("detailed_retention_days"),
+		max_events_per_run=configured.get("max_events_per_run"),
+	)
+
+
 def load_config(settings_path: str = "settings.yaml", output_root: str = "out") -> DailyBlogConfig:
 	"""Load and validate the complete daily-blog producer configuration."""
 	settings, resolved_path = pipeline_settings.load_settings(settings_path)
@@ -203,6 +227,10 @@ def load_config(settings_path: str = "settings.yaml", output_root: str = "out") 
 		names = ", ".join(sorted(unknown_settings))
 		raise RuntimeError(f"Unknown daily_blog settings: {names}")
 	output_owner = pipeline_settings.get_github_username(settings)
+	# This identifier becomes a durable output-path component.  Keep the
+	# grammar broad enough for GitHub owners while excluding path syntax.
+	if type(output_owner) is not str or _GITHUB_OWNER_RE.fullmatch(output_owner) is None:
+		raise RuntimeError("GitHub output owner must use only ASCII letters, digits, or hyphens.")
 	report_timezone = pipeline_settings.get_setting_str(
 		settings,
 		["daily_blog", "report_timezone"],
@@ -219,7 +247,7 @@ def load_config(settings_path: str = "settings.yaml", output_root: str = "out") 
 		"/home/vosslab/repo-mirrors",
 	)
 	default_name = pipeline_settings.get_github_identity_login(settings)
-	identity_names = _string_list(
+	identity_names = daily_blog.editorial_stage_config._string_list(
 		pipeline_settings.get_nested_value(
 			settings,
 			["daily_blog", "identity_names"],
@@ -227,7 +255,7 @@ def load_config(settings_path: str = "settings.yaml", output_root: str = "out") 
 		),
 		"daily_blog.identity_names",
 	)
-	identity_emails = _string_list(
+	identity_emails = daily_blog.editorial_stage_config._string_list(
 		pipeline_settings.get_nested_value(
 			settings,
 			["daily_blog", "identity_emails"],
@@ -237,7 +265,7 @@ def load_config(settings_path: str = "settings.yaml", output_root: str = "out") 
 	)
 	if not identity_names and not identity_emails:
 		raise RuntimeError("Daily-blog attribution requires identity_names or identity_emails.")
-	author_routes, referee_route = _load_routes(settings)
+	author_routes, referee_route = daily_blog.editorial_stage_config._load_routes(settings)
 	config = DailyBlogConfig(
 		settings_path=resolved_path,
 		output_root=os.path.abspath(output_root),
@@ -264,10 +292,12 @@ def load_config(settings_path: str = "settings.yaml", output_root: str = "out") 
 			"prompt_limits",
 			DEFAULT_PROMPT_LIMITS,
 		),
-		allow_shadow_model_data_sharing=pipeline_settings.get_setting_bool(
-			settings,
-			["daily_blog", "shadow_evaluation", "external_model_data_sharing"],
-			False,
-		),
+		editorial_reliability=_load_editorial_reliability(settings),
+		repository_outline=daily_blog.editorial_stage_config._load_repository_outline_config(settings),
+		repository_story=daily_blog.editorial_stage_config._load_repository_story_config(settings),
+		complete_post=daily_blog.editorial_stage_config._load_complete_post_config(settings),
+		daily_outline=daily_blog.editorial_stage_config._load_daily_outline_config(settings),
+		final_synthesis=daily_blog.final_synthesis_config._load_final_synthesis_config(settings),
+		logging=_load_logging_config(settings),
 	)
 	return config

@@ -16,6 +16,7 @@ import daily_blog.evidence
 import daily_blog.run_state
 import daily_blog.orchestrator
 
+CREATED_AT = "2026-08-23T00:00:00Z"
 
 #============================================
 def collection_limits(supporting_total_chars: int = 60) -> dict[str, int]:
@@ -148,7 +149,7 @@ def test_evidence_packet_identity_inputs_are_immutable_after_creation() -> None:
 #============================================
 def test_run_record_rejects_completed_state_with_pending_phases() -> None:
 	"""A terminal success record cannot serialize incomplete phase state."""
-	record = daily_blog.run_contracts.RunRecord.create("run-one", "2026-08-23")
+	record = daily_blog.run_contracts.RunRecord.create("run-one", "2026-08-23", CREATED_AT)
 	record.state = "completed"
 	record.evidence_packet = {"packet_id": "packet"}
 	record.publication_bundle = {"bundle_sha256": "a" * 64}
@@ -175,7 +176,7 @@ def test_phase_cache_reuses_json_by_exact_input_hash(tmp_path: pathlib.Path) -> 
 #============================================
 def test_run_record_round_trip_preserves_legal_phase_order() -> None:
 	"""Typed serialization round-trips an active record without schema drift."""
-	record = daily_blog.run_contracts.RunRecord.create("run-two", "2026-08-23")
+	record = daily_blog.run_contracts.RunRecord.create("run-two", "2026-08-23", CREATED_AT)
 	value = record.to_dict()
 
 	restored = daily_blog.run_contracts.RunRecord.from_dict(value)
@@ -186,7 +187,7 @@ def test_run_record_round_trip_preserves_legal_phase_order() -> None:
 #============================================
 def test_run_record_rejects_array_of_pairs_for_structured_reference() -> None:
 	"""Serialized run references must remain JSON objects, not coercible pair arrays."""
-	value = daily_blog.run_contracts.RunRecord.create("run-pairs", "2026-08-23").to_dict()
+	value = daily_blog.run_contracts.RunRecord.create("run-pairs", "2026-08-23", CREATED_AT).to_dict()
 	value["repository_roster"] = [("roster_id", "private")]
 
 	with pytest.raises(RuntimeError, match="repository_roster must be an object"):
@@ -196,7 +197,7 @@ def test_run_record_rejects_array_of_pairs_for_structured_reference() -> None:
 #============================================
 def test_run_record_rejects_array_of_pairs_for_phase_record() -> None:
 	"""Each persisted phase must remain a JSON object before state construction."""
-	value = daily_blog.run_contracts.RunRecord.create("run-phase-pairs", "2026-08-23").to_dict()
+	value = daily_blog.run_contracts.RunRecord.create("run-phase-pairs", "2026-08-23", CREATED_AT).to_dict()
 	value["phases"]["repository_discovery"] = [("status", "pending")]
 
 	with pytest.raises(RuntimeError, match="phase must be an object"):
@@ -206,7 +207,7 @@ def test_run_record_rejects_array_of_pairs_for_phase_record() -> None:
 #============================================
 def test_failed_run_record_serializes_safe_phase_failure() -> None:
 	"""A failed phase persists only its phase and bounded diagnostic category."""
-	record = daily_blog.run_contracts.RunRecord.create("run-failed", "2026-08-23")
+	record = daily_blog.run_contracts.RunRecord.create("run-failed", "2026-08-23", CREATED_AT)
 	record.start_phase("repository_discovery", "a" * 64)
 	record.fail_phase("repository_discovery", "runtime_error")
 
@@ -223,7 +224,7 @@ def test_failed_run_record_serializes_safe_phase_failure() -> None:
 #============================================
 def test_failed_run_record_rejects_raw_or_unsupported_diagnostics() -> None:
 	"""Failed-run v4 rejects raw messages and unknown persisted details."""
-	record = daily_blog.run_contracts.RunRecord.create("run-failed-details", "2026-08-23")
+	record = daily_blog.run_contracts.RunRecord.create("run-failed-details", "2026-08-23", CREATED_AT)
 	record.start_phase("repository_discovery", "a" * 64)
 	record.fail_phase("repository_discovery", "runtime_error")
 	value = record.to_dict()
@@ -255,7 +256,7 @@ def test_evidence_packet_rejects_string_completeness_state() -> None:
 #============================================
 def test_run_record_rejects_out_of_order_phase_start() -> None:
 	"""Typed phase ownership cannot skip an incomplete prerequisite."""
-	record = daily_blog.run_contracts.RunRecord.create("run-sequence", "2026-08-23")
+	record = daily_blog.run_contracts.RunRecord.create("run-sequence", "2026-08-23", CREATED_AT)
 
 	with pytest.raises(RuntimeError, match="prerequisites"):
 		record.start_phase("evidence_assembly", "a" * 64)
@@ -274,7 +275,7 @@ def test_run_store_persists_safe_structured_phase_event(
 		{"phase": "mirror_refresh", "failure_kind": "runtime_error"},
 	)
 
-	event_path = tmp_path / "vosslab" / "daily_blog_runs" / "2026-08-23" / "run-log" / "events.jsonl"
+	event_path = tmp_path / "vosslab" / "daily_blog" / "2026-08-23" / "runs" / "run-log" / "events.jsonl"
 	with open(event_path, "r", encoding="utf-8") as handle:
 		event = json.loads(handle.read())
 	stdout_event = json.loads(capsys.readouterr().out)
@@ -343,7 +344,7 @@ def test_failure_boundary_keeps_exception_text_out_of_persisted_diagnostics(
 	capsys: pytest.CaptureFixture,
 ) -> None:
 	"""Run state and lifecycle events retain a fixed category rather than error text."""
-	record = daily_blog.run_contracts.RunRecord.create("run-failure", "2026-08-23")
+	record = daily_blog.run_contracts.RunRecord.create("run-failure", "2026-08-23", CREATED_AT)
 	record.start_phase("repository_discovery", "a" * 64)
 	store = daily_blog.run_state.RunStore(
 		str(tmp_path),

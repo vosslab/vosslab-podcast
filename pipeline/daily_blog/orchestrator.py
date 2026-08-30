@@ -1,31 +1,32 @@
-"""Date-driven orchestration for evidence, editorial, bundling, and site import."""
+"""Date-driven lifecycle coordination for one daily blog publication."""
 
 # Standard Library
+import collections.abc
+import datetime
 import os
 import uuid
-import datetime
-import dataclasses
-import collections.abc
 
 # local repo modules
-import daily_blog.config
-import daily_blog.schema
-import daily_blog.run_contracts
-import daily_blog.repository_contracts
-import daily_blog.locks
-import daily_blog.mirrors
-import daily_blog.repositories
+import daily_blog.acquisition_workflow
+import daily_blog.activation
 import daily_blog.activity
-import daily_blog.evidence
-import daily_blog.projection
-import daily_blog.bundles
+import daily_blog.config
 import daily_blog.contracts
 import daily_blog.editorial
-import daily_blog.publisher
-import daily_blog.run_state
 import daily_blog.io_utils
-import daily_blog.roster_snapshots
-import daily_blog.activation
+import daily_blog.locks
+import daily_blog.prompt_registry
+import daily_blog.publication_contract
+import daily_blog.publication_finalization
+import daily_blog.publication_workflow
+import daily_blog.publisher
+import daily_blog.repositories
+import daily_blog.repository_contracts
+import daily_blog.repository_editorial_workflow
+import daily_blog.route_cache
+import daily_blog.run_contracts
+import daily_blog.run_state
+import daily_blog.schema
 
 
 #============================================
@@ -44,17 +45,7 @@ def invoke_publisher(
 	*,
 	replace_existing: bool,
 ) -> dict:
-	"""Invoke the publisher through the explicit replacement-intent boundary.
-
-	Args:
-		publisher_function: Publisher implementation selected by the caller.
-		daily_blog_repository: Physical publisher repository root.
-		bundle_path: Validated producer bundle directory.
-		replace_existing: Exact Boolean date-owned replacement decision.
-
-	Returns:
-		A fresh dictionary copied from the publisher's mapping receipt.
-	"""
+	"""Invoke the publisher through the explicit replacement-intent boundary."""
 	if type(replace_existing) is not bool:
 		raise RuntimeError("Replace-existing state must be Boolean.")
 	result = publisher_function(
@@ -69,119 +60,30 @@ def invoke_publisher(
 
 
 #============================================
-def _stable_mirror_input(entries: list[dict]) -> list[dict]:
-	"""Remove refresh timestamps while retaining every object-location input."""
-	values = []
-	for entry in entries:
-		values.append(
-			{
-				"repository": entry["repository"],
-				"repository_url": entry["repository_url"],
-				"clone_url": entry["clone_url"],
-				"created_at": entry["created_at"],
-				"is_fork": entry["is_fork"],
-				"roster_id": entry["roster_id"],
-				"cache_path": entry["cache_path"],
-				"default_revision": entry["default_revision"],
-				"object_available": entry["object_available"],
-				"ref_fingerprint": entry["ref_fingerprint"],
-			}
-		)
-	return values
-
-
-#============================================
-def _cache_assets(
-	cache: daily_blog.locks.PhaseCache,
-	phase: str,
-	input_hash: str,
-	assets: dict[str, bytes],
-) -> None:
-	"""Persist selected evidence assets with a hash-verified manifest."""
-	asset_dir = cache.asset_dir(phase, input_hash)
-	manifest = {}
-	for asset_path, contents in assets.items():
-		destination = os.path.join(asset_dir, os.path.basename(asset_path))
-		daily_blog.io_utils.atomic_write_bytes(destination, contents)
-		manifest[asset_path] = daily_blog.io_utils.sha256_bytes(contents)
-	cache.store_json(phase, input_hash, "assets.json", manifest)
-
-
-#============================================
-def _load_cached_assets(
-	cache: daily_blog.locks.PhaseCache,
-	phase: str,
-	input_hash: str,
-	packet: daily_blog.schema.EvidencePacket,
-) -> dict[str, bytes]:
-	"""Load and verify all asset bytes required by one cached evidence packet."""
-	assets = {}
-	asset_dir = cache.asset_dir(phase, input_hash)
-	manifest = cache.load_json(phase, input_hash, "assets.json")
-	if not isinstance(manifest, dict):
-		raise RuntimeError("Cached evidence asset manifest is missing.")
-	for item in packet.items:
-		if not item.asset_path:
-			continue
-		path = os.path.join(asset_dir, os.path.basename(item.asset_path))
-		if not os.path.isfile(path):
-			raise RuntimeError(f"Cached evidence asset is missing: {item.asset_path}")
-		with open(path, "rb") as handle:
-			contents = handle.read()
-		if manifest.get(item.asset_path) != daily_blog.io_utils.sha256_bytes(contents):
-			raise RuntimeError(f"Cached evidence asset hash mismatch: {item.asset_path}")
-		assets[item.asset_path] = contents
-	if set(manifest) != set(assets):
-		raise RuntimeError("Cached evidence assets do not match their manifest.")
-	return assets
-
-
-#============================================
-def _decision_value(decision: daily_blog.editorial.EditorialDecision) -> dict:
-	"""Return one run-safe referee summary without private candidate content."""
-	return {
-		"winner": decision.winner,
-		"reason": decision.reason,
-		"evidence_quality": decision.evidence_quality,
-		"confidence": decision.confidence,
-		"projection_id": decision.projection_id,
-		"post_hash": daily_blog.io_utils.sha256_text(decision.post),
-		"anonymous_mapping": decision.anonymous_mapping,
-	}
-
-
-#============================================
 def _resolve_active_publication_snapshot(
 	contract: daily_blog.contracts.EditorialContract | None,
 	snapshot: daily_blog.editorial.PromptContractSnapshot | None,
 ) -> daily_blog.editorial.PromptContractSnapshot:
 	"""Accept the one active, factory-issued prompt snapshot for publication."""
-	# Validate every supplied object before deciding whether it is publishable.
-	# That retains the ordinary tamper/registry failures while ensuring every valid
-	# experimental selector receives the actionable non-publishing guidance.
 	resolved_contract = None
 	if contract is not None:
-		resolved_contract = daily_blog.contracts.resolve_contract(contract)
+		resolved_contract = daily_blog.prompt_registry.resolve_contract(contract)
 	if snapshot is not None:
 		resolved_snapshot = daily_blog.editorial.validate_snapshot(snapshot)
 	else:
 		resolved_snapshot = None
 	if (
 		resolved_contract is not None
-		and not daily_blog.contracts.is_production_contract(resolved_contract)
+		and not daily_blog.prompt_registry.is_production_contract(resolved_contract)
 	) or (
 		resolved_snapshot is not None
-		and not daily_blog.contracts.is_production_contract(resolved_snapshot.contract)
+		and not daily_blog.prompt_registry.is_production_contract(resolved_snapshot.contract)
 	):
-		raise RuntimeError(
-			"Non-production editorial contracts require the prompt experiment runner."
-		)
+		raise RuntimeError("Non-production editorial contracts require the prompt experiment runner.")
 	activation = daily_blog.activation.load_maker_activation()
 	resolved = daily_blog.editorial.resolve_run_snapshot(contract, snapshot)
-	if not daily_blog.contracts.is_production_contract(resolved.contract):
-		raise RuntimeError(
-			"Non-production editorial contracts require the prompt experiment runner."
-		)
+	if not daily_blog.prompt_registry.is_production_contract(resolved.contract):
+		raise RuntimeError("Non-production editorial contracts require the prompt experiment runner.")
 	if (
 		activation.contract is not resolved.contract
 		or activation.receipt["editorial_prompt_contract"]
@@ -192,16 +94,51 @@ def _resolve_active_publication_snapshot(
 
 
 #============================================
+def _publication_identity(
+	repository_root: str,
+	settings_path: str | None,
+	contract: daily_blog.contracts.EditorialContract,
+	snapshot: daily_blog.editorial.PromptContractSnapshot,
+) -> daily_blog.publication_contract.PublicationIdentity:
+	"""Resolve validated prompt and activation state before publication sealing."""
+	policy = daily_blog.prompt_registry.policy_for_contract(contract)
+	activation = daily_blog.activation.load_maker_activation()
+	prompt_contract = daily_blog.editorial.prompt_contract_identity(snapshot=snapshot)
+	if activation.contract is not contract or activation.receipt["editorial_prompt_contract"] != prompt_contract:
+		raise RuntimeError("Production prompt snapshot does not match maker activation.")
+	identity = daily_blog.publication_contract.publication_identity(
+		repository_root,
+		settings_path,
+		prompt_paths=daily_blog.prompt_registry.prompt_paths(contract),
+		contracts={
+			"evidence_schema": daily_blog.schema.EVIDENCE_SCHEMA_VERSION,
+			"editorial_projection_schema": daily_blog.schema.PROJECTION_SCHEMA_VERSION,
+			"prompt_version": contract.prompt_version,
+			"rubric_version": contract.rubric_version,
+			"candidate_validation": {
+				"name": policy.name,
+				"version": policy.version,
+				"sha256": policy.sha256(),
+			},
+		},
+		editorial_prompt_contract=prompt_contract,
+		activation_receipt={
+			"activation_id": activation.activation_id,
+			"editorial_prompt_contract_sha256": activation.receipt[
+				"editorial_prompt_contract_sha256"
+			],
+		},
+	)
+	return identity
+
+
+#============================================
 def record_phase_failure(
 	record: daily_blog.run_contracts.RunRecord,
 	store: daily_blog.run_state.RunStore,
 	error: BaseException,
 ) -> None:
-	"""Atomically record the current phase's redacted failure transition.
-
-	The persisted record and lifecycle event retain only the legal phase and
-	bounded failure category; exception text remains process-local.
-	"""
+	"""Atomically record the current phase's redacted failure transition."""
 	phase = record.current_phase
 	if not phase:
 		return
@@ -216,7 +153,7 @@ def record_phase_failure(
 
 #============================================
 class DailyPublicationOrchestrator:
-	"""Execute the ten legal phases for one immutable daily run."""
+	"""Execute admission, typed editorial stages, and terminal publication."""
 
 	#============================================
 	def __init__(
@@ -225,6 +162,8 @@ class DailyPublicationOrchestrator:
 		report_date: str,
 		route_runner: object | None = None,
 		publisher_function: collections.abc.Callable | None = None,
+		page_verifier: collections.abc.Callable | None = None,
+		runtime: daily_blog.publication_workflow.PublicationRuntime | None = None,
 		repository_loader: collections.abc.Callable[
 			[str, str], daily_blog.repository_contracts.RepositoryRoster
 		] | None = None,
@@ -232,28 +171,33 @@ class DailyPublicationOrchestrator:
 		contract: daily_blog.contracts.EditorialContract | None = None,
 		snapshot: daily_blog.editorial.PromptContractSnapshot | None = None,
 		force_regeneration: bool = False,
+		command_started_at: str | None = None,
 	) -> None:
-		"""Bind dependencies while preserving replaceable test boundaries."""
+		"""Bind explicit lifecycle dependencies for one report-date-owned run."""
 		daily_blog.activity.build_date_window(report_date, config.report_timezone)
 		if type(force_regeneration) is not bool:
 			raise RuntimeError("Force-regeneration state must be Boolean.")
 		self.config = config
 		self.report_date = report_date
 		self.force_regeneration = force_regeneration
-		self.route_runner = route_runner
-		self.publisher_function = publisher_function or daily_blog.publisher.import_bundle
+		self.runtime = daily_blog.publication_workflow.require_runtime(runtime)
+		self.route_runner = self.runtime.route_runner or route_runner
+		self.publisher_function = (
+			self.runtime.publisher_function or publisher_function or daily_blog.publisher.import_bundle
+		)
+		self.page_verifier = (
+			self.runtime.page_verifier or page_verifier or daily_blog.publisher.verify_published_page
+		)
 		self.repository_loader = (
-			repository_loader or daily_blog.repositories.discover_owner_repositories
+			self.runtime.repository_loader or repository_loader
+			or daily_blog.repositories.discover_owner_repositories
 		)
 		self.refresh_mirrors = refresh_mirrors
-		# ASVS 2.2.1: one authoritative resolver owns the trusted prompt-file read.
 		self.prompt_snapshot = _resolve_active_publication_snapshot(contract, snapshot)
 		self.editorial_contract = self.prompt_snapshot.contract
-		self.prompt_contract = daily_blog.editorial.prompt_contract_identity(
-			snapshot=self.prompt_snapshot
-		)
+		self.prompt_contract = daily_blog.editorial.prompt_contract_identity(snapshot=self.prompt_snapshot)
 		self.generator_root = daily_blog.io_utils.repository_root(__file__)
-		self.generator_identity = daily_blog.bundles.generator_contract_identity(
+		self.generator_identity = _publication_identity(
 			self.generator_root,
 			config.settings_path,
 			self.editorial_contract,
@@ -266,27 +210,28 @@ class DailyPublicationOrchestrator:
 			config.output_owner,
 			report_date,
 			self.run_id,
+			max_events_per_run=config.logging.max_events_per_run,
 		)
-		self.record = daily_blog.run_contracts.RunRecord.create(self.run_id, report_date)
-		cache_root = os.path.join(
-			config.output_root,
-			config.output_owner,
-			"daily_blog_cache",
+		self.record = daily_blog.run_contracts.RunRecord.create(
+			self.run_id,
+			report_date,
+			created_at=command_started_at,
 		)
+		cache_root = os.path.join(config.output_root, config.output_owner, "daily_blog_cache")
 		self.cache = daily_blog.locks.PhaseCache(cache_root)
+		self.route_capacity = daily_blog.route_cache.RunCapacityPlan.for_run(config, 0)
+		self.route_budget = self.route_capacity.new_budget()
+		self.route_cache = daily_blog.route_cache.RouteResultCache(self.cache)
 		self.store.save(self.record)
-		self.store.append_event(
-			"daily_publication.run_started", {"state": self.record.state}
-		)
+		self.store.append_event("daily_publication.run_started", {"state": self.record.state})
 
 	#============================================
 	def _start(self, phase: str, input_value: object) -> str:
-		"""Start one phase and persist its canonical input hash."""
-		source_bound_input = {
+		"""Start one phase and persist its canonical source-bound input hash."""
+		input_hash = daily_blog.io_utils.hash_value({
 			"generator_revision": self.generator_revision,
 			"phase_input": input_value,
-		}
-		input_hash = daily_blog.io_utils.hash_value(source_bound_input)
+		})
 		self.record.start_phase(phase, input_hash)
 		self.store.save(self.record)
 		self.store.append_event("daily_publication.phase_started", {"phase": phase})
@@ -309,509 +254,74 @@ class DailyPublicationOrchestrator:
 		record_phase_failure(self.record, self.store, error)
 
 	#============================================
-	def _repository_phase(self) -> daily_blog.repository_contracts.RepositoryRoster:
-		"""Acquire and persist the authoritative eligible GitHub owner roster."""
-		phase_input = {
-			"owner": self.config.output_owner,
-			"policy": daily_blog.repositories.REPOSITORY_POLICY_VERSION,
-			"schema": daily_blog.repository_contracts.REPOSITORY_ROSTER_SCHEMA_VERSION,
-		}
-		self._start("repository_discovery", phase_input)
-		roster = self.repository_loader(
-			self.config.output_owner,
-			self.config.output_root,
-		)
-		# Reparse at the boundary so test providers and future adapters cannot bypass schema checks.
-		roster = daily_blog.repository_contracts.RepositoryRoster.from_dict(roster.to_dict())
-		if roster.owner.casefold() != self.config.output_owner.casefold():
-			raise RuntimeError("Repository roster owner does not match publication owner.")
-		# Persist the owner roster outside the run before any mirror can consume it.
-		# Reloading through the snapshot boundary proves the on-disk artifact has the
-		# same typed content and integrity identity as this run's roster.
-		snapshot_path, snapshot_identity = (
-			daily_blog.roster_snapshots.write_repository_roster_snapshot(
-				self.config.output_root,
-				self.config.output_owner,
-				roster,
-			)
-		)
-		verified_roster, verified_identity = (
-			daily_blog.roster_snapshots.load_repository_roster_snapshot(
-				self.config.output_root,
-				self.config.output_owner,
-				snapshot_path,
-			)
-		)
-		if verified_roster != roster or verified_identity != snapshot_identity:
-			raise RuntimeError("Repository roster snapshot verification does not match discovery.")
-		value = roster.to_dict()
-		self.store.write_artifact("repository_roster.json", value)
-		# The authoritative repository universe is the run's first content artifact.
-		# Prompt identity follows it so no prompt experiment can outrun discovery.
-		self.store.write_artifact("prompt_contract.json", self.prompt_contract)
-		self.record.repository_roster = {
-			"roster_id": roster.roster_id,
-			"artifact": "repository_roster.json",
-			"snapshot_path": snapshot_path,
-			"snapshot_identity": snapshot_identity,
-		}
-		self._complete("repository_discovery", value)
-		return roster
-
-	#============================================
-	def _mirror_phase(
-		self,
-		roster: daily_blog.repository_contracts.RepositoryRoster,
-	) -> list[dict]:
-		"""Refresh durable mirrors and persist their complete manifest."""
-		phase_input = {
-			"cache_root": self.config.mirror_cache_root,
-			"roster_id": roster.roster_id,
-			"refresh": self.refresh_mirrors,
-		}
-		self._start("mirror_refresh", phase_input)
-		manager = daily_blog.mirrors.MirrorManager(
-			self.config.mirror_cache_root,
-			roster,
-		)
-		entries = manager.refresh_all(refresh=self.refresh_mirrors)
-		self.store.write_artifact("mirror_manifest.json", entries)
-		failed = [entry for entry in entries if entry["refresh_result"] == "failed"]
-		if failed:
-			names = ", ".join(entry["repository"] for entry in failed)
-			raise RuntimeError(f"Mirror refresh failed for: {names}")
-		self._complete("mirror_refresh", entries)
-		return entries
-
-	#============================================
-	def _activity_phase(
-		self,
-		mirror_entries: list[dict],
-	) -> list[daily_blog.schema.RepositoryActivity]:
-		"""Locate activity or restore the exact matching typed artifact."""
-		phase_input = {
-			"report_date": self.report_date,
-			"timezone": self.config.report_timezone,
-			"identity_names": list(self.config.identity_names),
-			"identity_emails": list(self.config.identity_emails),
-			"mirrors": _stable_mirror_input(mirror_entries),
-		}
-		input_hash = self._start("activity_location", phase_input)
-		cached = self.cache.load_json("activity_location", input_hash, "activity.json")
-		reused = cached is not None
-		if cached is None:
-			activities = daily_blog.activity.locate_activity(
-				self.report_date,
-				self.config.report_timezone,
-				mirror_entries,
-				self.config.identity_names,
-				self.config.identity_emails,
-			)
-			value = [activity.to_dict() for activity in activities]
-			self.cache.store_json("activity_location", input_hash, "activity.json", value)
-		else:
-			value = list(cached)
-			activities = [
-				daily_blog.schema.RepositoryActivity.from_dict(item) for item in value
-			]
-		self.store.write_artifact("activity.json", value)
-		self._complete("activity_location", value, reused=reused)
-		return activities
-
-	#============================================
-	def _evidence_phase(
-		self,
-		mirror_entries: list[dict],
-		activities: list[daily_blog.schema.RepositoryActivity],
-	) -> tuple[daily_blog.schema.EvidencePacket, dict[str, bytes]]:
-		"""Assemble evidence or restore one hash-verified packet and assets."""
-		activity_value = [activity.to_dict() for activity in activities]
-		phase_input = {
-			"activity": activity_value,
-			"collection_limits": self.config.collection_limits,
-			"schema": daily_blog.schema.EVIDENCE_SCHEMA_VERSION,
-			"mirrors": _stable_mirror_input(mirror_entries),
-		}
-		input_hash = self._start("evidence_assembly", phase_input)
-		cached = self.cache.load_json("evidence_assembly", input_hash, "evidence.json")
-		reused = cached is not None
-		if cached is None:
-			assembler = daily_blog.evidence.EvidenceAssembler(
-				self.report_date,
-				self.config.report_timezone,
-				self.config.collection_limits,
-			)
-			packet, assets = assembler.assemble(mirror_entries, activities)
-			self.cache.store_json(
-				"evidence_assembly", input_hash, "evidence.json", packet.to_dict()
-			)
-			_cache_assets(self.cache, "evidence_assembly", input_hash, assets)
-		else:
-			packet = daily_blog.schema.EvidencePacket.from_dict(dict(cached))
-			assets = _load_cached_assets(
-				self.cache, "evidence_assembly", input_hash, packet
-			)
-		if not packet.complete:
-			raise RuntimeError("Evidence assembly is incomplete.")
-		self.store.write_artifact("evidence.json", packet.to_dict())
-		self.record.evidence_packet = {
-			"packet_id": packet.packet_id,
-			"artifact": "evidence.json",
-		}
-		self._complete("evidence_assembly", packet.to_dict(), reused=reused)
-		return packet, assets
-
-	#============================================
-	def _projection_phase(
-		self,
-		packet: daily_blog.schema.EvidencePacket,
-	) -> daily_blog.schema.EditorialProjection:
-		"""Build or restore the exact bounded editorial projection."""
-		phase_input = {
-			"packet_id": packet.packet_id,
-			"projection_policy": daily_blog.projection.PROJECTION_POLICY_VERSION,
-			"projection_limits": self.config.projection_limits,
-			"schema": daily_blog.schema.PROJECTION_SCHEMA_VERSION,
-		}
-		input_hash = self._start("editorial_projection", phase_input)
-		cached = self.cache.load_json(
-			"editorial_projection",
-			input_hash,
-			"editorial_projection.json",
-		)
-		reused = cached is not None
-		if cached is None:
-			projection = daily_blog.projection.build_projection(
-				packet,
-				self.config.projection_limits,
-			)
-			self.cache.store_json(
-				"editorial_projection",
-				input_hash,
-				"editorial_projection.json",
-				projection.to_dict(),
-			)
-		else:
-			projection = daily_blog.schema.EditorialProjection.from_dict(dict(cached))
-		if projection.packet_id != packet.packet_id:
-			raise RuntimeError("Editorial projection does not match the evidence packet.")
-		self.store.write_artifact("editorial_projection.json", projection.to_dict())
-		self.record.editorial_projection = {
-			"projection_id": projection.projection_id,
-			"artifact": "editorial_projection.json",
-		}
-		self._complete("editorial_projection", projection.to_dict(), reused=reused)
-		return projection
-
-	#============================================
-	def _author_phase(
-		self,
-		packet: daily_blog.schema.EvidencePacket,
-		projection: daily_blog.schema.EditorialProjection,
-	) -> tuple[str, str, list[dict], list[dict], bool]:
-		"""Generate or reuse complete isolated-author artifacts."""
-		phase_input = {
-			"packet_id": packet.packet_id,
-			"projection_id": projection.projection_id,
-			"prompt_contract": self.prompt_contract,
-			"prompt_limit": self.config.prompt_limits["author_chars"],
-			"generator_revision": self.generator_revision,
-			"generation_request_id": self.run_id if self.force_regeneration else "",
-			"routes": [dataclasses.asdict(route) for route in self.config.author_routes],
-		}
-		input_hash = self._start("author_generation", phase_input)
-		artifact_run_id = "artifact-" + input_hash[:24]
-		cached = self.cache.load_json("author_generation", input_hash, "candidates.json")
-		reused = cached is not None
-		if cached is None:
-			canonical = daily_blog.editorial.generate_candidates(
-				packet,
-				projection,
-				artifact_run_id,
-				self.config,
-				runner=self.route_runner,
-				contract=self.editorial_contract,
-				snapshot=self.prompt_snapshot,
-			)
-			canonical = daily_blog.editorial.validate_raw_candidates(canonical)
-		else:
-			canonical = daily_blog.editorial.validate_raw_candidates(cached)
-		current = daily_blog.editorial.rebind_raw_candidates(
-			canonical, artifact_run_id, self.run_id
-		)
-		self.store.write_artifact("candidates.json", current)
-		self._complete("author_generation", current, reused=reused)
-		return input_hash, artifact_run_id, canonical, current, reused
-
-	#============================================
-	def _validation_phase(
-		self,
-		packet: daily_blog.schema.EvidencePacket,
-		projection: daily_blog.schema.EditorialProjection,
-		author_hash: str,
-		artifact_run_id: str,
-		canonical_raw: list[dict],
-		author_reused: bool,
-	) -> tuple[list[daily_blog.editorial.CandidateResult], list[daily_blog.editorial.CandidateResult]]:
-		"""Validate canonical candidates and bind their metadata to this run."""
-		phase_input = {
-			"packet_id": packet.packet_id,
-			"projection_id": projection.projection_id,
-			"candidate_hashes": [item["post_hash"] for item in canonical_raw],
-			"generator_revision": self.generator_revision,
-			"prompt_contract": self.prompt_contract,
-		}
-		input_hash = self._start("candidate_validation", phase_input)
-		cached = self.cache.load_json(
-			"candidate_validation", input_hash, "validation.json"
-		)
-		reused = cached is not None
-		if cached is None:
-			canonical = daily_blog.editorial.validate_candidates(
-				canonical_raw,
-				packet,
-				projection,
-				artifact_run_id,
-				snapshot=self.prompt_snapshot,
-			)
-		else:
-			canonical = [
-				daily_blog.editorial.CandidateResult.from_cache_dict(item)
-				for item in list(cached)
-			]
-		current = daily_blog.editorial.rebind_candidates(
-			canonical, artifact_run_id, self.run_id
-		)
-		if all(candidate.valid for candidate in canonical):
-			if not author_reused:
-				self.cache.store_json(
-					"author_generation", author_hash, "candidates.json", canonical_raw
-				)
-			if not reused:
-				self.cache.store_json(
-					"candidate_validation",
-					input_hash,
-					"validation.json",
-					[candidate.to_cache_dict() for candidate in canonical],
-				)
-		value = [
-			candidate.public_summary(f"candidate_{index + 1}")
-			for index, candidate in enumerate(current)
-		]
-		self.store.write_artifact("candidate_validation.json", value)
-		self._complete("candidate_validation", value, reused=reused)
-		return canonical, current
-
-	#============================================
-	def _referee_phase(
-		self,
-		packet: daily_blog.schema.EvidencePacket,
-		projection: daily_blog.schema.EditorialProjection,
-		artifact_run_id: str,
-		canonical_candidates: list[daily_blog.editorial.CandidateResult],
-		current_candidates: list[daily_blog.editorial.CandidateResult],
-	) -> tuple[daily_blog.editorial.EditorialDecision, daily_blog.editorial.EditorialDecision]:
-		"""Select canonical editorial content and bind it to this run."""
-		phase_input = {
-			"packet_id": packet.packet_id,
-			"projection_id": projection.projection_id,
-			"candidates": [candidate.to_cache_dict() for candidate in canonical_candidates],
-			"route": dataclasses.asdict(self.config.referee_route),
-			"prompt_contract": self.prompt_contract,
-			"prompt_limit": self.config.prompt_limits["referee_chars"],
-			"generator_revision": self.generator_revision,
-		}
-		input_hash = self._start("referee_selection", phase_input)
-		cached = self.cache.load_json("referee_selection", input_hash, "decision.json")
-		reused = cached is not None
-		if cached is None:
-			canonical = daily_blog.editorial.select_candidate(
-				packet,
-				projection,
-				artifact_run_id,
-				canonical_candidates,
-				self.config,
-				runner=self.route_runner,
-				contract=self.editorial_contract,
-				snapshot=self.prompt_snapshot,
-			)
-			self.cache.store_json(
-				"referee_selection",
-				input_hash,
-				"decision.json",
-				canonical.to_cache_dict(),
-			)
-		else:
-			canonical = daily_blog.editorial.EditorialDecision.from_cache_dict(dict(cached))
-		current = daily_blog.editorial.materialize_decision(
-			canonical,
-			projection,
-			self.run_id,
-			current_candidates,
-		)
-		value = _decision_value(current)
-		self.store.write_artifact("referee.json", value)
-		self._complete("referee_selection", value, reused=reused)
-		return canonical, current
-
-	#============================================
-	def _bundle_phase(
-		self,
-		roster: daily_blog.repository_contracts.RepositoryRoster,
-		packet: daily_blog.schema.EvidencePacket,
-		projection: daily_blog.schema.EditorialProjection,
-		assets: dict[str, bytes],
-		canonical_candidates: list[daily_blog.editorial.CandidateResult],
-		current_candidates: list[daily_blog.editorial.CandidateResult],
-		canonical_decision: daily_blog.editorial.EditorialDecision,
-		current_decision: daily_blog.editorial.EditorialDecision,
-	) -> tuple[str, dict]:
-		"""Create or reuse the verified bundle for this publication attempt."""
-		phase_input = {
-			"repository_roster": roster.to_dict(),
-			"packet_id": packet.packet_id,
-			"projection_id": projection.projection_id,
-			"candidates": [candidate.to_cache_dict() for candidate in canonical_candidates],
-			"decision": canonical_decision.to_cache_dict(),
-			"asset_hashes": {
-				path: daily_blog.io_utils.sha256_bytes(contents)
-				for path, contents in assets.items()
-			},
-			"generator_revision": self.generator_revision,
-			"prompt_contract": self.prompt_contract,
-			"bundle_schema": daily_blog.schema.BUNDLE_SCHEMA_VERSION,
-		}
-		input_hash = self._start("bundle_creation", phase_input)
-		cached = self.cache.load_json("bundle_creation", input_hash, "bundle.json")
-		reused = cached is not None
-		if cached is None:
-			writer = daily_blog.bundles.BundleWriter(
-				self.config.output_root,
-				self.config.output_owner,
-				self.generator_identity,
-				self.editorial_contract,
-				self.prompt_snapshot,
-			)
-			bundle_path, bundle = writer.write(
-				self.run_id,
-				packet,
-				projection,
-				assets,
-				current_candidates,
-				current_decision,
-				roster,
-			)
-			self.cache.store_json(
-				"bundle_creation",
-				input_hash,
-				"bundle.json",
-				{"bundle_path": bundle_path, "bundle": bundle},
-			)
-		else:
-			date_root = os.path.join(
-				self.config.output_root,
-				self.config.output_owner,
-				"daily_blog",
-				self.report_date,
-			)
-			bundle_path, bundle = daily_blog.bundles.load_reusable_bundle(
-				dict(cached),
-				date_root,
-				packet,
-				projection,
-				assets,
-				self.generator_identity,
-				self.editorial_contract,
-				self.prompt_snapshot,
-				roster,
-			)
-		self.store.write_artifact("publication_bundle.json", bundle)
-		self.record.publication_bundle = {
-			"bundle_sha256": bundle["bundle_sha256"],
-			"path": bundle_path,
-			"origin_run_id": bundle["generator"]["run_id"],
-			"reused": reused,
-		}
-		self._complete("bundle_creation", bundle, reused=reused)
-		return bundle_path, bundle
-
-	#============================================
-	def _site_import_phase(self, bundle_path: str, bundle: dict) -> dict:
-		"""Invoke the idempotent publisher and record whether it reused the release."""
-		phase_input = {
-			"bundle_sha256": bundle["bundle_sha256"],
-			"publisher_repository": self.config.daily_blog_repository,
-			"replace_existing": self.force_regeneration,
-		}
-		self._start("site_import", phase_input)
-		publisher_result = invoke_publisher(
-			self.publisher_function,
-			self.config.daily_blog_repository,
-			bundle_path,
-			replace_existing=self.force_regeneration,
-		)
-		result = daily_blog.schema.validate_site_import_result(
-			publisher_result,
-			bundle["bundle_sha256"],
-			self.report_date,
-		)
-		reused = result["status"] == "idempotent"
-		self.store.write_artifact("site_import.json", result)
-		self._complete("site_import", result, reused=reused)
-		return result
-
-	#============================================
 	def run(self) -> tuple[str, dict]:
-		"""Sequence the ten typed phases and persist any terminal failure."""
+		"""Run each durable boundary in its required publication order."""
 		try:
-			roster = self._repository_phase()
-			mirrors = self._mirror_phase(roster)
-			activities = self._activity_phase(mirrors)
-			packet, assets = self._evidence_phase(mirrors, activities)
-			projection = self._projection_phase(packet)
-			author_hash, artifact_id, canonical_raw, _current_raw, author_reused = (
-				self._author_phase(packet, projection)
+			acquisition = daily_blog.acquisition_workflow.AcquisitionCoordinator(
+				daily_blog.acquisition_workflow.AcquisitionDependencies(
+					self.config, self.runtime, self.report_date, self.prompt_contract,
+					self.generator_revision, self.repository_loader, self.refresh_mirrors,
+					self.store, self.record, self.cache, self._start, self._complete,
+				)
+			).acquire()
+			repository_editorial = daily_blog.repository_editorial_workflow.RepositoryEditorialCoordinator(
+				daily_blog.repository_editorial_workflow.RepositoryEditorialDependencies(
+					self.config, self.report_date, self.prompt_snapshot, self.route_runner,
+					self.route_cache, self.generator_root, self._start, self._complete,
+					lambda summary, transition: self.store.record_editorial_step(
+						self.record, summary, transition,
+					),
+					self.store.write_artifact,
+				)
+			).run(acquisition.packet)
+			self.route_capacity = repository_editorial.route_capacity
+			self.route_budget = repository_editorial.route_budget
+			stage6_input = daily_blog.publication_workflow.run_typed_stage5(
+				self, repository_editorial.stage5_input,
 			)
-			canonical_candidates, current_candidates = self._validation_phase(
-				packet,
-				projection,
-				author_hash,
-				artifact_id,
-				canonical_raw,
-				author_reused,
+			stage6_result = daily_blog.publication_workflow.run_typed_stage6(self, stage6_input)
+			stage7_result = daily_blog.publication_workflow.run_typed_stage7(
+				self, stage6_input, stage6_result,
 			)
-			canonical_decision, current_decision = self._referee_phase(
-				packet,
-				projection,
-				artifact_id,
-				canonical_candidates,
-				current_candidates,
+			validated = daily_blog.publication_workflow.validate_selected_post(
+				self, stage6_input.packets, stage7_result.artifact,
 			)
-			bundle_path, bundle = self._bundle_phase(
-				roster,
-				packet,
-				projection,
-				assets,
-				canonical_candidates,
-				current_candidates,
-				canonical_decision,
-				current_decision,
-			)
-			site_import = self._site_import_phase(bundle_path, bundle)
+			if validated.source_post is not stage7_result.artifact:
+				raise RuntimeError("Publication validation must retain the exact Stage 7 selected source post.")
+			daily_blog.publication_workflow.write_selected_post(self, validated.post)
+			finalized = daily_blog.publication_finalization.PublicationFinalizationCoordinator(
+				daily_blog.publication_finalization.SealedPublicationInput(
+					self.report_date, self.run_id, self.config.output_root, self.config.output_owner,
+					self.config.daily_blog_repository, self.generator_identity,
+					self.force_regeneration, acquisition.roster, acquisition.packet,
+					acquisition.projection, acquisition.assets, validated.post,
+				),
+				self.cache, self.store, self.record, self._start, self._complete,
+				invoke_publisher, self.publisher_function, self.page_verifier,
+			).finalize()
 			self.record.complete()
 			self.store.save(self.record)
 			self.store.append_event(
 				"daily_publication.run_completed",
 				{
-					"bundle_sha256": bundle["bundle_sha256"],
-					"site_import_status": site_import["status"],
+					"best_artifact_id": finalized.bundle["best_artifact_id"],
+					"bundle_sha256": finalized.bundle["bundle_sha256"],
+					"outcome": self.record.outcome,
+					"site_import_status": finalized.site_import["status"],
+					"verified_page_sha256": finalized.page_verification["rendered_page_sha256"],
 					"state": self.record.state,
 				},
 			)
-			return bundle_path, bundle
 		except Exception as error:
 			self._fail_current(error)
+			if self.record.state == "failed":
+				try:
+					self.store.finalize_summary(self.record)
+				except Exception:
+					pass
 			raise
+		self.store.finalize_summary(self.record)
+		return finalized.bundle_path, finalized.bundle
 
 
 #============================================
@@ -822,12 +332,10 @@ def publication_date_lock(
 	"""Return the single-owner lock for one report date."""
 	daily_blog.activity.build_date_window(report_date, config.report_timezone)
 	lock_path = os.path.join(
-		config.output_root,
-		config.output_owner,
-		"daily_blog_locks",
-		f"{report_date}.lock",
+		config.output_root, config.output_owner, "daily_blog_locks", f"{report_date}.lock",
 	)
-	return daily_blog.locks.FileLock(lock_path)
+	lock = daily_blog.locks.FileLock(lock_path)
+	return lock
 
 
 #============================================
@@ -843,19 +351,22 @@ def run_daily_publication_locked(
 	contract: daily_blog.contracts.EditorialContract | None = None,
 	snapshot: daily_blog.editorial.PromptContractSnapshot | None = None,
 	force_regeneration: bool = False,
+	runtime: daily_blog.publication_workflow.PublicationRuntime | None = None,
+	*,
+	command_started_at: str,
 ) -> tuple[str, dict]:
-	"""Execute one complete run while the caller holds the matching per-date lock."""
+	"""Execute one complete run while holding the matching per-date lock."""
 	prompt_snapshot = _resolve_active_publication_snapshot(contract, snapshot)
+	daily_blog.run_state.RunStore.prune_expired_runs(
+		config.output_root, config.output_owner, report_date,
+		config.logging.detailed_retention_days, command_started_at,
+	)
 	orchestrator = DailyPublicationOrchestrator(
-		config,
-		report_date,
-		route_runner=route_runner,
-		publisher_function=publisher_function,
-		repository_loader=repository_loader,
-		refresh_mirrors=refresh_mirrors,
-		contract=daily_blog.contracts.active_contract(),
-		snapshot=prompt_snapshot,
-		force_regeneration=force_regeneration,
+		config, report_date, route_runner=route_runner, publisher_function=publisher_function,
+		repository_loader=repository_loader, refresh_mirrors=refresh_mirrors,
+		contract=daily_blog.prompt_registry.active_contract(), snapshot=prompt_snapshot,
+		force_regeneration=force_regeneration, runtime=runtime,
+		command_started_at=command_started_at,
 	)
 	result = orchestrator.run()
 	return result
@@ -874,18 +385,16 @@ def run_daily_publication(
 	contract: daily_blog.contracts.EditorialContract | None = None,
 	snapshot: daily_blog.editorial.PromptContractSnapshot | None = None,
 	force_regeneration: bool = False,
+	runtime: daily_blog.publication_workflow.PublicationRuntime | None = None,
 ) -> tuple[str, dict]:
-	"""Validate the editorial contract, then lock and execute one publication run."""
+	"""Validate, lock, and execute one report-date-owned publication run."""
+	command_started_at = daily_blog.io_utils.utc_now()
 	prompt_snapshot = _resolve_active_publication_snapshot(contract, snapshot)
 	with publication_date_lock(config, report_date):
 		result = run_daily_publication_locked(
-			config,
-			report_date,
-			route_runner=route_runner,
-			publisher_function=publisher_function,
-			repository_loader=repository_loader,
-			refresh_mirrors=refresh_mirrors,
-			snapshot=prompt_snapshot,
-			force_regeneration=force_regeneration,
+			config, report_date, route_runner=route_runner, publisher_function=publisher_function,
+			repository_loader=repository_loader, refresh_mirrors=refresh_mirrors,
+			snapshot=prompt_snapshot, force_regeneration=force_regeneration,
+			runtime=runtime, command_started_at=command_started_at,
 		)
 	return result

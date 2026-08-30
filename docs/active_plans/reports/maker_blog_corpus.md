@@ -2,7 +2,8 @@
 
 ## Purpose and method
 
-This report implements milestones 1 to 3 of [better_prompt_plan.md](../better_prompt_plan.md).
+This report implements milestones 1 to 3 of
+[BETTER_PROMPT_PLAN.md](../../archive/BETTER_PROMPT_PLAN.md).
 It studies first-person author posts about software their authors personally built, changed,
 debugged, tested, redesigned, or learned from. It is a voice corpus, not a quality ranking.
 

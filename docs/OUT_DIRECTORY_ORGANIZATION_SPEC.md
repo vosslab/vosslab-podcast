@@ -34,100 +34,80 @@ A new top-level `out/` namespace requires a documented update to this specificat
 
 ### Daily publication
 
-- `out/<user>/daily_blog/YYYY-MM-DD/publication/bundle.json`
-- `out/<user>/daily_blog/YYYY-MM-DD/publication/evidence.json`
-- `out/<user>/daily_blog/YYYY-MM-DD/publication/editorial_projection.json`
-- `out/<user>/daily_blog/YYYY-MM-DD/publication/post.md`
-- `out/<user>/daily_blog/YYYY-MM-DD/publication/assets/`
-- `out/<user>/daily_blog_runs/YYYY-MM-DD/RUN_ID/run_state.json`
-- `out/<user>/daily_blog_runs/YYYY-MM-DD/RUN_ID/events.jsonl`
-- `out/<user>/daily_blog_runs/YYYY-MM-DD/RUN_ID/repository_roster.json`
+`report_date` is the sole publication identity. The configured output root defaults to `out`, and
+the configured GitHub owner supplies `<user>`. A date has one producer-owned hierarchy:
+
+- `out/<user>/daily_blog/YYYY-MM-DD/post.md`: the trusted date-owned producer destination used
+  while the selected complete post is finalized.
+- `out/<user>/daily_blog/YYYY-MM-DD/publication/`: the atomically promoted sealed bundle.
+- `out/<user>/daily_blog/YYYY-MM-DD/summary.jsonl`: one bounded terminal receipt per completed or
+  failed run for the date.
+- `out/<user>/daily_blog/YYYY-MM-DD/runs/RUN_ID/`: one detailed run record and its inspectable
+  artifacts.
+- `out/<user>/daily_blog_locks/YYYY-MM-DD.lock`: the advisory date lock that covers admission,
+  generation, import, and replacement.
+
+The sealed `publication/` directory contains exactly the manifest and evidence needed by the
+publisher boundary:
+
+- `bundle.json`
+- `evidence.json`
+- `repository_roster.json`
+- `editorial_projection.json`
+- `post.md`
+- `assets/` containing only manifest-declared evidence assets
+
+The bundle binds the report date, selected artifact identity, generator revision, evidence,
+roster, projection, post hash, assets, active prompt contract, and activation identity. The
+producer stages those fixed files under descriptor ownership and atomically names the directory
+`publication`. A confirmed same-date replacement replaces that one directory; it never creates a
+publication version or changes the date identity.
+
+Each `runs/RUN_ID/` directory retains `run_state.json`, `events.jsonl`, and direct JSON artifacts
+for the run. Current workflow artifacts include the captured roster and prompt contract, mirror and
+activity records, evidence and editorial projection, editorial reliability summaries, selected-post
+write record, publication validation, bundle, import, page-verification, and typed recovery fault
+when applicable. The pending editorial and terminal-summary JSON journals are transaction-recovery
+records and are removed after successful reconciliation. Artifact names are deliberately
+stage-owned rather than a fixed editorial-topology contract.
+
+The immutable authoritative roster snapshot is shared outside a single run:
+
 - `out/<user>/daily_blog_repository_rosters/ROSTER_ID/repository_roster.json`
 - `out/<user>/daily_blog_repository_rosters/ROSTER_ID/manifest.json`
-- `out/<user>/daily_blog_runs/YYYY-MM-DD/RUN_ID/mirror_manifest.json`
-- `out/<user>/daily_blog_runs/YYYY-MM-DD/RUN_ID/activity.json`
-- `out/<user>/daily_blog_runs/YYYY-MM-DD/RUN_ID/editorial_projection.json`
-- `out/<user>/daily_blog_runs/YYYY-MM-DD/RUN_ID/*.json`
-- `out/<user>/daily_blog_locks/YYYY-MM-DD.lock`
-- `out/<user>/daily_blog_cache/activity_location/INPUT_HASH/`
-- `out/<user>/daily_blog_cache/evidence_assembly/INPUT_HASH/`
-- `out/<user>/daily_blog_cache/editorial_projection/INPUT_HASH/`
-- `out/<user>/daily_blog_shadow/YYYY-MM-DD/SHADOW_ID/scorecard.json`
-- `out/<user>/daily_blog_shadow/YYYY-MM-DD/SHADOW_ID/generated_post.md`
-- `out/<user>/daily_blog_shadow/YYYY-MM-DD/SHADOW_ID/reference_post.md`
-- `out/<user>/daily_blog_shadow/YYYY-MM-DD/SHADOW_ID/evidence.json`
-- `out/<user>/daily_blog_shadow/YYYY-MM-DD/latest.json`
-- `out/<user>/daily_blog_shadow_locks/YYYY-MM-DD.lock`
-- `out/<user>/daily_blog_rubric_calibrations/CALIBRATION_ID/manifest.json`
-- `out/<user>/daily_blog_rubric_calibrations/CALIBRATION_ID/report.json`
-- `out/<user>/daily_blog_experiment_fixtures_v2/YYYY-MM-DD--FIXTURE_ID/evidence.json`
-- `out/<user>/daily_blog_experiment_fixtures_v2/YYYY-MM-DD--FIXTURE_ID/editorial_projection.json`
-- `out/<user>/daily_blog_experiment_fixtures_v2/YYYY-MM-DD--FIXTURE_ID/manifest.json`
-- `out/<user>/daily_blog_experiments/prompt-experiment-EXPERIMENT_ID/manifest.json`
-- `out/<user>/daily_blog_experiments/prompt-experiment-EXPERIMENT_ID/report.json`
-- `out/<user>/daily_blog_experiments/prompt-experiment-EXPERIMENT_ID/FIXTURE-ARM-REPETITION/`
-- `out/<user>/daily_blog_experiments/prompt-experiment-EXPERIMENT_ID/FIXTURE-ARM-REPETITION/candidate-0.md`
-  when the author route returns a candidate
-- `out/<user>/daily_blog_experiments/prompt-experiment-EXPERIMENT_ID/FIXTURE-ARM-REPETITION/candidate-1.md`
-  when the second author route returns a candidate
-- `out/<user>/daily_blog_experiments/prompt-experiment-EXPERIMENT_ID/FIXTURE-ARM-REPETITION/selected.md`
-  when a valid candidate is selected
-- `out/<user>/daily_blog_experiment_attestations/prompt-experiment-attestation-ATTESTATION_ID/manifest.json`
-- `out/<user>/daily_blog_experiment_attestations/prompt-experiment-attestation-ATTESTATION_ID/report.json`
 
-Experiment fixtures, capture v1 artifacts, calibration artifacts, and attestation v1 artifacts are
-private, immutable, and non-publishing. Configuration owns all four roots; the CLIs accept no
-alternate output namespace. A capture v1 directory records the sealed fixture rotation, registered
-arms, route metadata, candidate material, comparisons, and its content-addressed `capture_id`.
+`run_state.json` records the logical path and identity of the roster snapshot and the sealed
+publication path. Its event journal and terminal summary intentionally contain bounded status,
+identity, count, and redacted fault facts rather than route prompts, model output, or provider
+diagnostics. `summary.jsonl` is the date-level receipt journal used by the advisory reliability
+report and retention check; it is not a publication pointer.
 
-An attestation v1 directory is a deterministic, route-free join of exactly one completed capture
-and one passing live calibration from `daily_blog_rubric_calibrations/CALIBRATION_ID/`. Its report
-retains those source artifact names and identities, the recomputed acceptance result, and its
-content-addressed `attestation_id`. An attestation is evidence for a later reviewed activation
-decision only; it does not activate an experiment, create a bundle, publish, import, or change the
-schedule.
+Phase caches are producer-owned and hash-addressed:
 
-`report_date` remains the sole publication identity and names only the date-owned publication and
-run paths. Capture IDs, calibration IDs, and attestation IDs identify private evidence artifacts;
-they are not publication IDs, report-date aliases, bundle IDs, or publication pointers.
+- `out/<user>/daily_blog_cache/PHASE/INPUT_HASH/ARTIFACT.json`
+- `out/<user>/daily_blog_cache/PHASE/INPUT_HASH/assets/` when a cached phase owns assets
+- `out/<user>/daily_blog_cache/.locks/PHASE/INPUT_HASH.lock`
 
-`report_date` is the sole publication identity. For an unpublished date,
-`make_blog.py --date YYYY-MM-DD` creates a run record and writes
-the validated authoritative roster snapshot at `daily_blog_repository_rosters/ROSTER_ID/`, reloads
-and verifies it, and binds its path and identity in `run_state.json` before mirror work. It then
-writes the per-run sealed `repository_roster.json` and `mirror_manifest.json` for the exact
-owner-qualified mirror set. The typed run-v4 `run_state.json` records all ten legal phases, their
-status, input and output hashes, reuse state, timestamps, roster/evidence packet references, bundle
-reference, and bounded failure details. Phase-specific JSON artifacts and the append-only
-`events.jsonl` operational timeline remain beside it for inspection. If the publisher already has a
-coherent record for the date, the command reports that publication and creates no run. An interactive
-command can confirm replacement; a non-interactive command preserves the existing publication. One
-per-date lock covers receipt inspection, generation, and import.
+Cache phase names and artifact filenames evolve with the workflow. Every reusable JSON envelope
+binds its input hash and content hash, and a new `RUN_ID` still owns the current execution record.
+The separately configured mirror cache is operational source storage, not a publication artifact
+under this output contract.
 
-Every complete bundle is an approved final publication. It lives at the stable
-`daily_blog/YYYY-MM-DD/publication/` path and contains the current schema version, report date,
-`bundle_sha256` integrity checksum, generator revision, prompt and rubric versions,
-authority-ranked evidence, bounded editorial projection, exact selected post, asset bytes, candidate
-validation summaries, and structured referee result. A confirmed replacement atomically replaces
-that date-owned directory.
+The sibling daily-blog publisher receives the sealed producer bundle from the date-owned
+`publication/` directory. It validates the fixed manifest and declared assets through held
+descriptors before importing one byte snapshot and verifying the rendered page. The sibling site
+output is publisher-owned and is not part of the producer's `out/<user>/` layout.
 
-Phase caches use canonical input hashes and store hash-verified envelopes. Matching repository refs,
-date, identity, collection limits, projection limits, prompt limits, and contract versions can reuse
-activity, evidence, editorial projection, valid author, candidate-validation, and approved-referee
-artifacts while a new run record owns the current execution. Evidence assets are stored beside their
-cached packet and verified against their asset manifest. Blocked editorial results remain retryable.
+Detailed-run retention is an explicit configuration policy, not a cleanup default. With
+`detailed_retention_days` unset, run directories remain. With a positive value, the locked command
+can remove only a safely contained run directory that is terminal, has no pending terminal journal,
+and has exactly one matching terminal receipt. Age is calculated from command start. The
+date-level publication and `summary.jsonl` remain; unsafe, incomplete, or unreceipted children are
+skipped and reported rather than removed.
 
-`automation/calibrate_daily_blog_rubric.py` writes only private, non-publishing calibration
-artifacts. Preparation leaves retain hashes and deterministic profiles for the five fixed
-historical posts without invoking a route. Explicitly approved live leaves retain redacted repeated
-scorecards and target/stability aggregates. Neither form creates a bundle or changes a publication
-pointer.
-
-`automation/evaluate_daily_blog_shadow.py` writes an immutable non-publishing comparison under the
-shadow namespace. Each completed evaluation retains the generated and reference posts, evidence,
-candidate outputs and validation, assets, deterministic measurements, and typed semantic scorecard.
-Its `latest.json` pointer is independent of production bundle pointers, and the command has no site
-import path.
+The active maker activation is a tracked production input whose identity is bound into the bundle.
+It is not an output directory. Retired calibration, experiment, fixture-capture, attestation, and
+shadow-evaluation output namespaces have no daily-publication ownership.
 
 ### Fetch and changelog processing
 

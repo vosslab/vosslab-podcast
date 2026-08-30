@@ -1,117 +1,79 @@
 # Usage
 
-This repository turns GitHub activity into content and optional audio; its
-daily-blog workflow imports an evidence-bound post into the private local site.
+This repository collects evidence, runs the daily editorial stages, and imports one
+evidence-bound post for a date into the local daily-blog site.
 
-Load the repository environment before each command:
+Load the repository environment before Python commands:
 
 ```bash
 source source_me.sh
 ```
 
-## General content pipeline
+## Daily publication
 
-Run the primary local workflow for the last completed logical day:
-
-```bash
-source source_me.sh && python3 automation/run_local_pipeline.py --last-day
-```
-
-Common [`automation/run_local_pipeline.py`](../automation/run_local_pipeline.py)
-options are:
-
-- `--last-day`, `--last-week`, and `--last-month` select the activity window.
-- `--no-api-calls` reuses fetched JSONL; `--no-continue` regenerates cached
-  local-model outputs.
-- `--depth`, `--max-retries`, and `--retry-wait-seconds` control generation and
-  retry behavior.
-
-`--no-api-calls` does not make later local-model and audio stages offline, and
-it fails when no cached fetch JSONL is available.
-
-The pipeline writes artifacts below `out/<github_username>/`; see
-[OUT_DIRECTORY_ORGANIZATION_SPEC.md](OUT_DIRECTORY_ORGANIZATION_SPEC.md).
-
-## Daily blog publication
-
-The active production daily-blog interface is `v4-three-examples-corpus-v2`. It
-gathers exact Git evidence, validates editorial candidates, and imports the
-date-owned publication into the configured private site:
+The root command is the public daily-blog interface:
 
 ```bash
 ./make_blog.py --yesterday
-./make_blog.py --date 2026-21-08
+./make_blog.py --date 2026-08-21
 ```
 
-Exactly one selector is required. `--date` prefers `YYYY-MM-DD` but also accepts
-unambiguous `YYYY-DD-MM`; the executable relaunches through repository Python
-3.12. `report_date` is the sole publication identity. Existing coherent posts
-are preserved by default, including in a noninteractive timer run.
+`report_date` is the sole publication identity. A bundle digest proves the integrity
+of the selected artifact; it does not create a second version of that date.
 
-`make_blog.py` owns report-date selection and one run. Systemd owns the 04:00
-America/Chicago schedule and calls it directly. Hermes supplies model execution
-inside that run; it owns neither scheduling nor a publication loop. Read
-[DAILY_BLOG_OPERATIONS.md](DAILY_BLOG_OPERATIONS.md) for configuration,
-recovery, scheduling, and ownership boundaries.
+## Date and replacement
 
-## Maker evidence
+- `-Y` and `--yesterday` select the prior completed date in the configured report timezone.
+  They are for the systemd run and automatically replace an occupied date without prompting.
+- `-d DATE` and `--date DATE` select one explicit date. The command accepts canonical
+  `YYYY-MM-DD` and unambiguous `YYYY-DD-MM`, then uses canonical ISO form.
+- An occupied interactive explicit date asks `Overwrite YYYY-MM-DD? [N/y]:`. Only exact
+  lowercase `y` replaces it; every other response leaves the existing publication unchanged.
+- `-y` and `--yes` authorize replacement for an occupied explicit `--date` without prompting.
+  They cannot accompany `--yesterday`, because that path already replaces automatically.
 
-The fixture-backed maker evidence accepted v4-maker policy v3 and the
-`v4-three-examples-corpus-v2` contract. The producer/publisher cutover imports bundle v5 through
-activation `daily-blog-maker-activation-6b104be9c6907eeeffcf330f6b10173857b39c6b05baa46d4cf009a67daa7547`.
+The scheduled service runs `./make_blog.py --yesterday` at 04:00 America/Chicago.
+Systemd owns scheduling; Hermes executes configured editorial model routes inside a
+publication run.
 
-The experiment has three independently owned stages. Capture uses the existing
-author and referee interfaces with deterministic role fakes and two sealed
-fixture directories. Historical calibration uses deterministic referee evidence
-for the fixed corpus. Attestation loads completed artifacts and recomputes the
-acceptance result without invoking a model route, importer, publisher, or
-scheduler. A live Hermes run is optional one-time corroboration.
+## Controlled verification
 
-### Capture
-
-The capture CLI requires direct physical absolute paths for both sealed fixtures
-and accepts no calibration input. Its current ordinary invocation uses the configured external route;
-do not use it as fixture-backed F4 evidence until the narrow deterministic role-harness configuration
-lands. The manager invokes that harness rather than an undocumented command-line flag.
-
-Fixture identities and supported arms are recorded in
-[active_plans/reports/prompt_experiment_status.md](active_plans/reports/prompt_experiment_status.md).
-
-### Historical calibration
-
-Prepare the fixed historical rubric inputs without a model route or site import:
+Run the retained daily-publication E2E when verifying the whole public path without
+external dependencies:
 
 ```bash
-source source_me.sh && python3 automation/calibrate_daily_blog_rubric.py --prepare-only
+source source_me.sh && python3 tests/e2e/e2e_daily_publication.py
 ```
 
-The F4 fixture harness supplies deterministic referee responses through the same strict parsing and
-sealed-artifact interfaces used by live calibration. Only its passing fixture-backed calibration
-artifact may be used for attestation. Repetitions, score-span tolerance, and separation threshold
-are recorded one-time procedure settings; they remain configurable. Live historical calibration may
-be run later as redacted corroboration, but it is not an activation prerequisite.
+The controlled path injects deterministic evidence and route responses into disposable
+producer and publisher roots. It verifies initial publication, same-date replacement,
+and preservation of imported work after an injected page-verification fault. It is the
+required unattended no-egress verification path; a live Hermes publication is optional
+corroboration, not a test prerequisite or a claim about synthetic prose quality.
 
-### Deterministic attestation
+## Inputs and outputs
 
-After the fixture harness writes capture and calibration artifacts, create the private attestation
-with their direct physical absolute paths. This command requires both inputs and does not call Hermes:
+- Live input comes from the configured repository roster, exact Git activity, and bounded
+  source projections. The model sees the deterministic evidence packet through an isolated route.
+- The producer writes date-owned artifacts below
+  `out/<owner>/daily_blog/<report_date>/`, including `runs/<run_id>/run_state.json`,
+  `summary.jsonl`, `post.md`, and `publication/bundle.json`.
+- The sealed bundle contains the validated selected post, its artifact identity, evidence,
+  repository roster, editorial projection, prompt-contract binding, and activation receipt.
+  Candidate and referee deliberation remains producer-owned run history.
+- The local publisher records the imported date in
+  `data/publications/<report_date>.json` and retains its sealed bundle archive.
 
-```bash
-source source_me.sh && python3 automation/attest_daily_blog_prompt_experiment.py \
-  --capture /absolute/path/to/prompt-experiment-capture \
-  --calibration /absolute/path/to/passing-fixture-calibration \
-  --reviewer-count 2
-```
+## Terminal results
 
-The attestation is review evidence, not activation readiness. The configured independent reviewers
-work only from the sealed artifacts and must pass both complete selected posts with exact
-passage-grounded assessments. Each post is the first authority-ordered sample for its fixture;
-selection does not consult score or comparison outcomes, and later samples remain diagnostic. Load
-the exact descriptor-verified post bytes with `daily_blog.experiment_attestation.load_review_posts`.
-The shown count is the current one-time review procedure. V4 then needs a separately reviewed
-producer/publisher contract change.
+Ordinary partial editorial failures may produce a completed but `degraded` run when an
+eligible whole post remains. A run with no eligible post, unavailable evidence, invalid
+configuration, or an implementation defect records a typed pipeline fault; the command
+returns a nonzero status and emits its bounded JSON diagnosis on standard error.
 
-## Next autonomous step
+For operation and recovery details, read
+[`DAILY_BLOG_OPERATIONS.md`](DAILY_BLOG_OPERATIONS.md).
 
-Run F7 full suites and fresh independent audits. The accepted F4-F6 artifacts are retained as
-one-time evidence; installed host state remains telemetry.
+## Known gaps
+
+- TODO: record optional live-route corroboration separately from controlled E2E evidence.

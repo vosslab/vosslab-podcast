@@ -52,6 +52,18 @@ def find_test_topology_violations() -> list[str]:
 
 
 #============================================
+def pytest_addoption(parser: pytest.Parser) -> None:
+	"""Register the observational hygiene-run switch."""
+	parser.addoption(
+		"--no-ascii-fix",
+		action="store_true",
+		default=False,
+		dest="no_ascii_fix",
+		help="Disable in-place ASCII and whitespace fixers for observational runs.",
+	)
+
+
+#============================================
 def pytest_sessionstart(session: pytest.Session) -> None:
 	"""Fail fast when excluded E2E files could be silently skipped by pytest."""
 	del session
@@ -78,7 +90,9 @@ def pytest_sessionstart(session: pytest.Session) -> None:
 #   - Recursive directory exclusions need an explicit /** because fnmatch's *
 #     does not cross "/". Use "temp_scripts/**" to exclude a whole subtree.
 #
-# This template has no repo-specific exclusions, so the registry is empty.
+# This repository excludes one human-owned, byte-protected contract from the
+# two auto-fixing hygiene tests. Those vendored tests would otherwise rewrite
+# its intentional Unicode and trailing spaces in place.
 # Cross-overlay doc references (a template doc naming a doc that ships from a
 # different overlay or the universal docs/ tree) use a backticked name, not a
 # markdown link: no single relative link is valid both in the split template
@@ -89,7 +103,10 @@ def pytest_sessionstart(session: pytest.Session) -> None:
 #       "ascii_compliance": ["human_readable-*.html"],
 #       "pyflakes_code_lint": ["devel/scratch_*.py"],
 #   }
-REPO_HYGIENE_FILTERS = {}
+REPO_HYGIENE_FILTERS = {
+	"ascii_compliance": ["docs/BLOG_CONTRACT.md"],
+	"whitespace": ["docs/BLOG_CONTRACT.md"],
+}
 
 # === OPTIONAL_HELPERS_MENU ===
 # See meta/docs/PROPAGATION_RULES.md for the managed-block propagation contract.

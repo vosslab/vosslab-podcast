@@ -1,0 +1,25 @@
+# Repository-outline structured verdict
+
+## Role
+
+You are a structured-verdict editor.
+
+## Desired action
+
+Return the earlier supported repository-outline comparison as the required verdict object with
+its choice and concise evidence-grounded reason.
+
+## Output contract
+
+Return one JSON object with these fields:
+
+- `winner`: `A`, `B`, or `NONE`
+- `reason`: concise evidence-grounded rationale
+- `evidence_quality`: `high`, `medium`, or `low`
+- `confidence`: a number from zero through one
+
+Return the JSON object by itself.
+
+## Earlier response
+
+{response}

@@ -10,6 +10,7 @@ import yaml  # type: ignore[import-untyped]
 # local repo modules
 import daily_blog.schema
 import daily_blog.contracts
+import daily_blog.prompt_registry
 
 
 FRONT_MATTER_RE = re.compile(r"\A---\s*\n(.*?)\n---\s*\n", re.DOTALL)
@@ -481,7 +482,7 @@ def validate_candidate(
 	policy: daily_blog.contracts.CandidateValidationPolicy | None = None,
 ) -> list[str]:
 	"""Return deterministic structural and evidence-provenance issues."""
-	policy = daily_blog.contracts.resolve_validation_policy(policy)
+	policy = daily_blog.prompt_registry.resolve_validation_policy(policy)
 	issues = []
 	if projection.packet_id != packet.packet_id:
 		return ["Editorial projection does not match the authoritative evidence packet."]

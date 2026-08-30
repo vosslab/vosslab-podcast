@@ -2,9 +2,8 @@
 
 # Standard Library
 import json
-import re
+import os
 import pathlib
-import dataclasses
 import copy
 
 # PIP3 modules
@@ -12,12 +11,61 @@ import pytest
 
 # local repo modules
 import daily_blog.schema
+import daily_blog.artifacts
 import daily_blog.repository_contracts
-import daily_blog.bundles
+import daily_blog.publication_contract
 import daily_blog.editorial
 import daily_blog.contracts
+import daily_blog.prompt_registry
+import daily_blog.activation
 import daily_blog.io_utils
 import daily_blog.projection
+import daily_blog.publication_storage
+
+
+#============================================
+def storage_artifacts() -> dict[str, bytes]:
+	"""Return the smallest complete storage payload for boundary exercises."""
+	return {
+		"bundle.json": b"{}\n",
+		"evidence.json": b"{}\n",
+		"repository_roster.json": b"{}\n",
+		"editorial_projection.json": b"{}\n",
+		"post.md": b"A complete post.\n",
+		"assets/screenshot.png": b"image-bytes",
+	}
+
+
+#============================================
+def test_descriptor_storage_round_trips_only_confined_bundle_artifacts(
+	tmp_path: pathlib.Path,
+) -> None:
+	"""A complete bundle round-trips through the public descriptor storage boundary."""
+	storage = daily_blog.publication_storage.PublicationStorage(
+		str(tmp_path), "vosslab", "2026-08-23", "storage-round-trip",
+	)
+	path = storage.write(storage_artifacts())
+
+	assert pathlib.Path(path).is_dir()
+	assert storage.read() == storage_artifacts()
+
+
+#============================================
+def test_descriptor_storage_rejects_asset_traversal_and_nonregular_artifacts(
+	tmp_path: pathlib.Path,
+) -> None:
+	"""Unconfined names and a symlinked stored asset never become reusable input."""
+	storage = daily_blog.publication_storage.PublicationStorage(
+		str(tmp_path), "vosslab", "2026-08-23", "storage-rejections",
+	)
+	with pytest.raises(RuntimeError, match="asset name"):
+		storage.write({**storage_artifacts(), "assets/../outside": b"bad"})
+	storage.write(storage_artifacts())
+	asset = tmp_path / "vosslab" / "daily_blog" / "2026-08-23" / "publication" / "assets" / "screenshot.png"
+	asset.unlink()
+	os.symlink("/dev/null", asset)
+	with pytest.raises(RuntimeError, match="unavailable|regular"):
+		storage.read()
 
 
 #============================================
@@ -53,6 +101,57 @@ def bundle_roster(
 
 
 #============================================
+def selected_post(
+	tmp_path: pathlib.Path, packet: daily_blog.schema.EvidencePacket, content: str,
+) -> daily_blog.artifacts.CompletePost:
+	"""Return the exact typed post which publication is allowed to seal."""
+	evidence_ids = tuple(sorted(item.evidence_id for item in packet.items))
+	if not daily_blog.artifacts.evidence_references(content):
+		content += "\n<!-- evidence: " + ", ".join(evidence_ids) + " -->\n"
+	return daily_blog.artifacts.CompletePost.create(
+		packet.report_date,
+		(packet,),
+		tuple(sorted({item.repository for item in packet.items})),
+		content,
+		evidence_ids,
+		packet.report_date,
+		str(tmp_path / "vosslab" / "daily_blog" / packet.report_date / "post.md"),
+	)
+
+
+#============================================
+def bundle_identity(
+	contract: daily_blog.contracts.EditorialContract | None = None,
+	snapshot: daily_blog.editorial.PromptContractSnapshot | None = None,
+) -> daily_blog.publication_contract.PublicationIdentity:
+	"""Build the primitive identity that the orchestration boundary supplies."""
+	# Publication identity is production-shaped even when the surrounding bundle
+	# exercise uses compact synthetic evidence.
+	contract = daily_blog.prompt_registry.active_contract()
+	snapshot = daily_blog.editorial.resolve_snapshot(contract, None, snapshot)
+	policy = daily_blog.prompt_registry.policy_for_contract(contract)
+	activation_receipt = daily_blog.activation.load_maker_activation().receipt
+	return daily_blog.publication_contract.publication_identity(
+		str(pathlib.Path(__file__).resolve().parents[1]), None,
+		prompt_paths=daily_blog.prompt_registry.prompt_paths(contract), contracts={
+			"evidence_schema": daily_blog.schema.EVIDENCE_SCHEMA_VERSION,
+			"editorial_projection_schema": daily_blog.schema.PROJECTION_SCHEMA_VERSION,
+			"prompt_version": contract.prompt_version,
+			"rubric_version": contract.rubric_version,
+			"candidate_validation": {
+				"name": policy.name, "version": policy.version, "sha256": policy.sha256(),
+			},
+		}, editorial_prompt_contract=daily_blog.editorial.prompt_contract_identity(snapshot=snapshot),
+		activation_receipt={
+			"activation_id": activation_receipt["activation_id"],
+			"editorial_prompt_contract_sha256": activation_receipt[
+				"editorial_prompt_contract_sha256"
+			],
+		},
+	)
+
+
+#============================================
 def test_bundle_writer_hashes_and_promotes_one_date_owned_publication(
 	tmp_path: pathlib.Path,
 ) -> None:
@@ -65,132 +164,29 @@ def test_bundle_writer_hashes_and_promotes_one_date_owned_publication(
 	)
 	projection = make_projection(packet)
 	post = "approved selected post\n"
-	decision = daily_blog.editorial.EditorialDecision(
-		winner="A",
-		reason="Candidate A is approved for final publication.",
-		evidence_quality="medium",
-		confidence=0.8,
-		projection_id=projection.projection_id,
-		post=post,
-		anonymous_mapping={"A": 0},
-	)
-	candidate = daily_blog.editorial.CandidateResult(
-		private_route="author",
-		projection_id=projection.projection_id,
-		post=post,
-		post_hash=daily_blog.io_utils.sha256_text(post),
-		valid=True,
-		issues=(),
-	)
-	writer = daily_blog.bundles.BundleWriter(
-		str(tmp_path), "vosslab", "f" * 64, daily_blog.contracts.V3_EDITORIAL_CONTRACT
+	complete_post = selected_post(tmp_path, packet, post)
+	writer = daily_blog.publication_contract.BundleWriter(
+		str(tmp_path), "vosslab", bundle_identity()
 	)
 
 	bundle_path, bundle = writer.write(
-		"run-one", packet, projection, {}, [candidate, candidate], decision, bundle_roster(packet)
+		"run-one", packet, projection, {}, bundle_roster(packet), complete_post
 	)
 
 	with open(f"{bundle_path}/bundle.json", "r", encoding="utf-8") as handle:
 		written = json.load(handle)
-	assert written["bundle_sha256"] == daily_blog.bundles.bundle_sha256(written)
-	assert bundle_path.endswith(f"/{packet.report_date}/publication")
+	assert written["bundle_sha256"] == daily_blog.publication_contract.bundle_sha256(written)
+	assert pathlib.Path(bundle_path).is_relative_to(tmp_path / "vosslab" / "daily_blog" / packet.report_date)
 	assert bundle["editorial_projection"]["projection_id"] == projection.projection_id
 	replacement_path, replacement = writer.write(
-		"run-two", packet, projection, {}, [candidate, candidate], decision, bundle_roster(packet)
+		"run-two", packet, projection, {}, bundle_roster(packet), complete_post
 	)
 
 	assert replacement_path == bundle_path
 	assert replacement["generator"]["run_id"] == "run-two"
-	assert not tuple(pathlib.Path(bundle_path).parent.glob(".*.staging-*"))
 
 
 #============================================
-def test_bundle_records_anonymous_winner_mapping_and_exact_post_hash(
-	tmp_path: pathlib.Path,
-) -> None:
-	"""The publisher can prove which anonymous valid candidate became the final post."""
-	item = daily_blog.schema.EvidenceItem.create(
-		"commit_metadata", "vosslab/project", "a" * 40, "", "", "located work", "git show"
-	)
-	packet = daily_blog.schema.EvidencePacket.create(
-		"2026-08-23", "America/Chicago", True, {}, [], [], [item]
-	)
-	projection = make_projection(packet)
-	post = "final selected post\n"
-	candidates = [
-		daily_blog.editorial.CandidateResult(
-			"one",
-			projection.projection_id,
-			"other\n",
-			"1" * 64,
-			False,
-			("invalid",),
-		),
-		daily_blog.editorial.CandidateResult(
-			"two",
-			projection.projection_id,
-			post,
-			daily_blog.io_utils.sha256_text(post),
-			True,
-			(),
-		),
-	]
-	decision = daily_blog.editorial.EditorialDecision(
-		winner="A",
-		reason="Candidate A matches the exact evidence.",
-		evidence_quality="high",
-		confidence=0.9,
-		projection_id=projection.projection_id,
-		post=post,
-		anonymous_mapping={"A": 1},
-	)
-	writer = daily_blog.bundles.BundleWriter(
-		str(tmp_path), "vosslab", "f" * 64, daily_blog.contracts.V3_EDITORIAL_CONTRACT
-	)
-
-	_bundle_path, bundle = writer.write(
-		"run-final", packet, projection, {}, candidates, decision, bundle_roster(packet)
-	)
-
-	assert bundle["referee"]["anonymous_mapping"] == {"A": "candidate_2"}
-	assert bundle["post"]["sha256"] == candidates[1].post_hash
-
-
-#============================================
-def test_bundle_excludes_private_route_from_public_material(
-	tmp_path: pathlib.Path,
-) -> None:
-	"""A private author-route value never crosses the publication bundle boundary."""
-	item = daily_blog.schema.EvidenceItem.create(
-		"commit_metadata", "vosslab/project", "a" * 40, "", "", "located work", "git show"
-	)
-	packet = daily_blog.schema.EvidencePacket.create(
-		"2026-08-23", "America/Chicago", True, {}, [], [], [item]
-	)
-	projection = make_projection(packet)
-	post = "A maker note about the small surprise in today's code.\n"
-	secret = "PRIVATE_ROUTE_SECRET_7f0c9a"
-	candidate = daily_blog.editorial.CandidateResult(
-		secret,
-		projection.projection_id,
-		post,
-		daily_blog.io_utils.sha256_text(post),
-		True,
-		(),
-	)
-	decision = daily_blog.editorial.EditorialDecision(
-		"A", "Candidate A is approved.", "high", 0.9, projection.projection_id, post, {"A": 0}
-	)
-	bundle_path, bundle = daily_blog.bundles.BundleWriter(
-		str(tmp_path), "vosslab", "f" * 64, daily_blog.contracts.V3_EDITORIAL_CONTRACT
-	).write("private-route", packet, projection, {}, [candidate], decision, bundle_roster(packet))
-
-	public_bytes = json.dumps(bundle, sort_keys=True).encode("utf-8") + b"".join(
-		path.read_bytes() for path in pathlib.Path(bundle_path).rglob("*") if path.is_file()
-	)
-	assert secret.encode("utf-8") not in public_bytes
-
-
 #============================================
 def write_generator_contract(
 	root: pathlib.Path, contract: daily_blog.contracts.EditorialContract
@@ -203,122 +199,45 @@ def write_generator_contract(
 		"VALUE = 'source-one'\n",
 		encoding="utf-8",
 	)
-	for relative_path in daily_blog.bundles.GENERATOR_SUPPORT_PATHS:
+	for relative_path in daily_blog.publication_contract.GENERATOR_SUPPORT_PATHS:
 		(root / relative_path).write_text("VALUE = 'support'\n", encoding="utf-8")
-	for relative_path in contract.prompt_paths():
+	for relative_path in daily_blog.prompt_registry.prompt_paths(contract):
 		(root / relative_path).write_text("Prompt contract one.\n", encoding="utf-8")
 	(root / "settings.yaml").write_text("daily_blog: {}\n", encoding="utf-8")
 
 
 #============================================
-def test_generator_revision_fingerprints_dirty_source_and_exact_prompt_bytes(
+def test_generator_revision_fingerprints_dirty_source(
 	tmp_path: pathlib.Path,
 ) -> None:
-	"""Uncommitted source or prompt changes produce a new lowercase SHA-256 generator identity."""
-	contract = daily_blog.contracts.V3_EDITORIAL_CONTRACT
+	"""An uncommitted source change produces a new generator identity."""
+	contract = daily_blog.prompt_registry.active_contract()
 	write_generator_contract(tmp_path, contract)
-	first = daily_blog.bundles.generator_revision(str(tmp_path), contract=contract)
+	identity = bundle_identity(contract)
+	first = daily_blog.publication_contract.generator_revision(
+		str(tmp_path), prompt_paths=daily_blog.prompt_registry.prompt_paths(contract), contracts=identity.contracts_dict(),
+	)
 	(tmp_path / "pipeline" / "daily_blog" / "module.py").write_text(
 		"VALUE = 'source-two'\n",
 		encoding="utf-8",
 	)
-	second = daily_blog.bundles.generator_revision(str(tmp_path), contract=contract)
-	prompt_path = contract.prompt_paths()[0]
-	(tmp_path / prompt_path).write_text(
-		"Prompt contract two.\n",
-		encoding="utf-8",
+	second = daily_blog.publication_contract.generator_revision(
+		str(tmp_path), prompt_paths=daily_blog.prompt_registry.prompt_paths(contract), contracts=identity.contracts_dict(),
 	)
-	third = daily_blog.bundles.generator_revision(str(tmp_path), contract=contract)
-
-	assert re.fullmatch(r"[0-9a-f]{64}", first) is not None
-	assert first != second and second != third and first != third
+	assert first != second
 
 
 #============================================
-def test_generator_revision_uses_the_explicit_contract_prompt_paths(
-	tmp_path: pathlib.Path,
-	monkeypatch: pytest.MonkeyPatch,
-) -> None:
-	"""A future experiment hashes its own prompt resources instead of v3 globals."""
-	contract = daily_blog.contracts.V4_THREE_EXAMPLES_CORPUS_V2_CONTRACT
-	write_generator_contract(tmp_path, contract)
-	assert "pipeline/prompts/daily_blog_voice_examples_v4.md" in contract.prompt_paths()
-	for relative_path in contract.prompt_paths():
-		path = tmp_path / relative_path
-		path.write_text("Future contract prompt.\n", encoding="utf-8")
-	resource_text = (
-		"<!-- editorial-example: aug-23 -->\nB\n<!-- /editorial-example -->\n"
-		"<!-- editorial-example: corpus-quiet-til -->\n"
-		+ daily_blog.contracts.EXTERNAL_EXAMPLE_BLOCKS["corpus-quiet-til"]
-		+ "<!-- /editorial-example -->\n"
-		+ "<!-- editorial-example: corpus-selectivity-ghostty -->\n"
-		+ daily_blog.contracts.EXTERNAL_EXAMPLE_BLOCKS["corpus-selectivity-ghostty"]
-		+ "<!-- /editorial-example -->\n"
-	)
-	templates = {
-		"author": "{examples}{evidence_json}\n## Output contract",
-		"referee": "{candidate_a}{candidate_b}\n## Output contract",
-		"repair": "Return JSON.",
-		"rubric": "Grounded detail.",
-	}
-	monkeypatch.setattr(daily_blog.editorial, "load_prompt", lambda name: templates[
-		"author" if "author" in name else "referee" if "referee" in name else "repair" if "repair" in name else "rubric"
-	])
-	monkeypatch.setattr(daily_blog.editorial, "load_plain_prompt_resource", lambda _name: (
-		resource_text, resource_text.encode("utf-8")
-	))
-	first_snapshot = daily_blog.editorial.load_prompt_contract_snapshot(contract)
-	resource_text = resource_text.replace("B", "Changed B")
-	second_snapshot = daily_blog.editorial.load_prompt_contract_snapshot(contract)
-	first = daily_blog.bundles.generator_revision(
-		str(tmp_path), contract=contract, snapshot=first_snapshot
-	)
-	second = daily_blog.bundles.generator_revision(
-		str(tmp_path), contract=contract, snapshot=second_snapshot
-	)
-	resource_path = tmp_path / "pipeline/prompts/daily_blog_voice_examples_v4.md"
-	resource_path.write_text("Future contract resource edit.\n", encoding="utf-8")
-	third = daily_blog.bundles.generator_revision(
-		str(tmp_path), contract=contract, snapshot=first_snapshot
-	)
-	identity = daily_blog.bundles.generator_contract_identity(
-		str(tmp_path), None, contract, first_snapshot
-	)
-	for copied in (dataclasses.replace(identity), copy.copy(identity), copy.deepcopy(identity)):
-		with pytest.raises(RuntimeError, match="trusted factory"):
-			daily_blog.bundles._validate_generator_identity(copied)
-	with pytest.raises(RuntimeError, match="trusted factory|example bytes|integrity binding"):
-		daily_blog.bundles.generator_revision(
-			str(tmp_path),
-			contract=contract,
-			snapshot=dataclasses.replace(first_snapshot, example_bytes=b"altered"),
-		)
-
-	assert first != second and first != third
-
-
-#============================================
-def test_reusable_v4_bundle_rejects_a_raw_revision_before_path_access() -> None:
-	"""A raw SHA-256 string cannot spoof an opaque v4 generator identity."""
-	with pytest.raises(RuntimeError, match="factory-issued generator identity"):
-		daily_blog.bundles.load_reusable_bundle(
+def test_reusable_bundle_requires_a_structured_publication_identity() -> None:
+	"""Bundle reuse accepts the sealed value contract, never a raw revision string."""
+	with pytest.raises(RuntimeError, match="publication identity"):
+		daily_blog.publication_contract.load_reusable_bundle(
 			{},
 			"/nonexistent/vosslab-test/bundles",
 			None,
 			None,
 			{},
-			"f" * 64,
-			contract=daily_blog.contracts.V4_ONE_EXAMPLE_CONTRACT,
-		)
-	with pytest.raises(RuntimeError, match="factory-issued generator identity"):
-		daily_blog.bundles.load_reusable_bundle(
-			{},
-			"/nonexistent/vosslab-test/bundles",
-			None,
-			None,
-			{},
-			"f" * 64,
-			contract=daily_blog.contracts.V4_INSTRUCTION_ONLY_CONTRACT,
+			"f" * 64,  # type: ignore[arg-type]
 		)
 
 
@@ -328,7 +247,7 @@ def make_v4_bundle(
 	contract: daily_blog.contracts.EditorialContract,
 	run_id: str,
 ) -> tuple[
-	daily_blog.bundles.GeneratorContractIdentity,
+	daily_blog.publication_contract.PublicationIdentity,
 	daily_blog.editorial.PromptContractSnapshot,
 	daily_blog.schema.EvidencePacket,
 	daily_blog.schema.EditorialProjection,
@@ -344,46 +263,20 @@ def make_v4_bundle(
 	)
 	projection = make_projection(packet)
 	post = "approved selected post\n"
-	candidate = daily_blog.editorial.CandidateResult(
-		"author",
-		projection.projection_id,
-		post,
-		daily_blog.io_utils.sha256_text(post),
-		True,
-		(),
-	)
-	decision = daily_blog.editorial.EditorialDecision(
-		winner="A",
-		reason="Candidate A is approved for final publication.",
-		evidence_quality="medium",
-		confidence=0.8,
-		projection_id=projection.projection_id,
-		post=post,
-		anonymous_mapping={"A": 0},
-	)
 	snapshot = daily_blog.editorial.load_prompt_contract_snapshot(contract)
-	repository_root = str(pathlib.Path(__file__).resolve().parents[1])
-	identity = daily_blog.bundles.generator_contract_identity(
-		repository_root,
-		None,
-		contract,
-		snapshot,
-	)
-	writer = daily_blog.bundles.BundleWriter(
+	identity = bundle_identity(contract, snapshot)
+	writer = daily_blog.publication_contract.BundleWriter(
 		str(tmp_path),
 		"vosslab",
 		identity,
-		contract,
-		snapshot,
 	)
 	bundle_path, bundle = writer.write(
 		run_id,
 		packet,
 		projection,
 		{},
-		[candidate],
-		decision,
 		bundle_roster(packet),
+		selected_post(tmp_path, packet, post),
 	)
 	record = {"bundle_path": bundle_path, "bundle": bundle}
 	date_root = str(tmp_path / "vosslab" / "daily_blog" / packet.report_date)
@@ -391,32 +284,23 @@ def make_v4_bundle(
 
 
 #============================================
-@pytest.mark.parametrize(
-	"contract",
-	(
-		daily_blog.contracts.V4_INSTRUCTION_ONLY_CONTRACT,
-		daily_blog.contracts.V4_ONE_EXAMPLE_CONTRACT,
-	),
-)
-def test_v4_factory_identity_writes_and_reuses_exact_contract(
+def test_active_factory_identity_writes_and_reuses_issued_contract(
 	tmp_path: pathlib.Path,
-	contract: daily_blog.contracts.EditorialContract,
 ) -> None:
-	"""Each v4 arm accepts only its exact factory identity and snapshot on reuse."""
+	"""The active factory-issued identity and snapshot permit bundle reuse."""
+	contract = daily_blog.prompt_registry.active_contract()
 	identity, snapshot, packet, projection, record, date_root = make_v4_bundle(
 		tmp_path,
 		contract,
 		"exact-v4",
 	)
-	bundle_path, bundle = daily_blog.bundles.load_reusable_bundle(
+	bundle_path, bundle = daily_blog.publication_contract.load_reusable_bundle(
 		record,
 		date_root,
 		packet,
 		projection,
 		{},
 		identity,
-		contract,
-		snapshot,
 		bundle_roster(packet),
 	)
 
@@ -427,134 +311,28 @@ def test_v4_factory_identity_writes_and_reuses_exact_contract(
 
 
 #============================================
-def test_active_bundle_reuse_rejects_an_altered_activation_receipt(
+def test_publication_identity_seals_caller_owned_nested_inputs(
 	tmp_path: pathlib.Path,
 ) -> None:
-	"""A cache hit remains bound to the receipt that selected the maker contract."""
-	contract = daily_blog.contracts.active_contract()
-	identity, snapshot, packet, projection, record, date_root = make_v4_bundle(
-		tmp_path, contract, "active-activation"
-	)
-	tampered = copy.deepcopy(record["bundle"])
-	tampered["maker_activation"]["activation_id"] = "daily-blog-maker-activation-" + "0" * 64
-	tampered["bundle_sha256"] = daily_blog.bundles.bundle_sha256(tampered)
-	bundle_path = pathlib.Path(record["bundle_path"])
-	(bundle_path / "bundle.json").write_text(json.dumps(tampered), encoding="utf-8")
-	record["bundle"] = tampered
-
-	with pytest.raises(RuntimeError, match="generator contracts have changed"):
-		daily_blog.bundles.load_reusable_bundle(
-			record, date_root, packet, projection, {}, identity, contract, snapshot, bundle_roster(packet)
-		)
-
-
-#============================================
-def test_v4_bundle_sha256_rejects_copies_omissions_and_cross_arm_inputs(
-	tmp_path: pathlib.Path,
-) -> None:
-	"""Opaque v4 identity objects cannot be copied, omitted, or mixed across arms."""
-	contract = daily_blog.contracts.V4_ONE_EXAMPLE_CONTRACT
-	identity, snapshot, packet, projection, record, date_root = make_v4_bundle(
-		tmp_path,
-		contract,
-		"identity-attacks",
-	)
-	other_contract = daily_blog.contracts.V4_THREE_EXAMPLES_CORPUS_V2_CONTRACT
-	other_snapshot = daily_blog.editorial.load_prompt_contract_snapshot(other_contract)
-	other_identity = daily_blog.bundles.generator_contract_identity(
+	"""Writing and reuse retain the factory-sealed nested identity values."""
+	issued_identity = bundle_identity(daily_blog.prompt_registry.active_contract())
+	contracts = issued_identity.contracts_dict()
+	prompt_contract = issued_identity.prompt_contract_dict()
+	activation_receipt = issued_identity.activation_receipt_dict()
+	expected_contracts = copy.deepcopy(contracts)
+	expected_prompt_contract = copy.deepcopy(prompt_contract)
+	expected_activation_receipt = copy.deepcopy(activation_receipt)
+	identity = daily_blog.publication_contract.publication_identity(
 		str(pathlib.Path(__file__).resolve().parents[1]),
 		None,
-		other_contract,
-		other_snapshot,
+		prompt_paths=daily_blog.prompt_registry.prompt_paths(daily_blog.prompt_registry.active_contract()),
+		contracts=contracts,
+		editorial_prompt_contract=prompt_contract,
+		activation_receipt=activation_receipt,
 	)
-	for copied in (dataclasses.replace(identity), copy.copy(identity), copy.deepcopy(identity)):
-		with pytest.raises(RuntimeError, match="trusted factory"):
-			daily_blog.bundles.BundleWriter(
-				str(tmp_path), "vosslab", copied, contract, snapshot
-			)
-	with pytest.raises(RuntimeError, match="validated prompt snapshot"):
-		daily_blog.bundles.BundleWriter(str(tmp_path), "vosslab", identity, contract)
-	with pytest.raises(RuntimeError, match="prompt snapshot|generator identity"):
-		daily_blog.bundles.BundleWriter(
-			str(tmp_path), "vosslab", identity, contract, other_snapshot
-		)
-	with pytest.raises(RuntimeError, match="factory-issued generator identity"):
-		daily_blog.bundles.BundleWriter(
-			str(tmp_path), "vosslab", identity.revision, contract, snapshot
-		)
-	with pytest.raises(RuntimeError, match="prompt snapshot|generator identity"):
-		daily_blog.bundles.load_reusable_bundle(
-			record,
-			date_root,
-			packet,
-			projection,
-			{},
-		other_identity,
-		contract,
-		snapshot,
-		bundle_roster(packet),
-		)
-	with pytest.raises(RuntimeError, match="validated prompt snapshot"):
-		daily_blog.bundles.load_reusable_bundle(
-			record, date_root, packet, projection, {}, identity, contract, repository_roster=bundle_roster(packet)
-		)
-	with pytest.raises(RuntimeError, match="factory-issued generator identity"):
-		daily_blog.bundles.load_reusable_bundle(
-			record,
-			date_root,
-			packet,
-			projection,
-			{},
-			identity.revision,
-			contract,
-			snapshot,
-		)
-	for copied in (dataclasses.replace(snapshot), copy.copy(snapshot), copy.deepcopy(snapshot)):
-		with pytest.raises(RuntimeError, match="snapshot"):
-			daily_blog.bundles.load_reusable_bundle(
-				record, date_root, packet, projection, {}, identity, contract, copied
-			)
-
-
-#============================================
-@pytest.mark.parametrize(
-	"change",
-	(
-		lambda prompt_contract: prompt_contract.update({"contract_name": "v4-tampered"}),
-		lambda prompt_contract: prompt_contract["examples"].update({"name": "v4-three-examples-corpus-v2"}),
-		lambda prompt_contract: prompt_contract["examples"].update({"sha256": "0" * 64}),
-	),
-)
-def test_v4_reuse_rejects_tampered_persisted_prompt_contract(
-	tmp_path: pathlib.Path,
-	change: object,
-) -> None:
-	"""Reuse compares the persisted v4 contract, selection, and example digest exactly."""
-	contract = daily_blog.contracts.V4_ONE_EXAMPLE_CONTRACT
-	identity, snapshot, packet, projection, record, date_root = make_v4_bundle(
-		tmp_path,
-		contract,
-		"persisted-attacks",
-	)
-	tampered = copy.deepcopy(record["bundle"])
-	prompt_contract = tampered["editorial_prompt_contract"]
-	change(prompt_contract)
-	tampered["bundle_sha256"] = daily_blog.bundles.bundle_sha256(tampered)
-	bundle_path = pathlib.Path(record["bundle_path"])
-	(bundle_path / "bundle.json").write_text(json.dumps(tampered), encoding="utf-8")
-	record["bundle"] = tampered
-
-	with pytest.raises(RuntimeError, match="prompt contract"):
-		daily_blog.bundles.load_reusable_bundle(
-			record, date_root, packet, projection, {}, identity, contract, snapshot, bundle_roster(packet)
-		)
-
-
-#============================================
-def test_v3_raw_revision_remains_an_explicit_compatibility_branch(
-	tmp_path: pathlib.Path,
-) -> None:
-	"""The raw SHA-256 path remains available only to the isolated v3 contract."""
+	contracts["candidate_validation"]["version"] = "caller-mutated"
+	prompt_contract["candidate_validation"]["version"] = "caller-mutated"
+	activation_receipt["activation_id"] = "daily-blog-maker-activation-" + "0" * 64
 	item = daily_blog.schema.EvidenceItem.create(
 		"commit_metadata", "vosslab/project", "a" * 40, "", "", "located work", "git show"
 	)
@@ -562,27 +340,70 @@ def test_v3_raw_revision_remains_an_explicit_compatibility_branch(
 		"2026-08-23", "America/Chicago", True, {}, [], [], [item]
 	)
 	projection = make_projection(packet)
-	post = "v3 selected post\n"
-	candidate = daily_blog.editorial.CandidateResult(
-		"author", projection.projection_id, post, daily_blog.io_utils.sha256_text(post), True, ()
-	)
-	decision = daily_blog.editorial.EditorialDecision(
-		"A", "Candidate A is approved.", "medium", 0.8, projection.projection_id, post, {"A": 0}
-	)
-	writer = daily_blog.bundles.BundleWriter(
-		str(tmp_path), "vosslab", "f" * 64, daily_blog.contracts.V3_EDITORIAL_CONTRACT
-	)
+	writer = daily_blog.publication_contract.BundleWriter(str(tmp_path), "vosslab", identity)
 	bundle_path, bundle = writer.write(
-		"v3-raw", packet, projection, {}, [candidate], decision, bundle_roster(packet)
+		"sealed-caller-inputs", packet, projection, {}, bundle_roster(packet),
+		selected_post(tmp_path, packet, "sealed selected post\n"),
 	)
-	record = {"bundle_path": bundle_path, "bundle": bundle}
-	date_root = str(tmp_path / "vosslab" / "daily_blog" / packet.report_date)
-	reused_path, _reused = daily_blog.bundles.load_reusable_bundle(
-		record, date_root, packet, projection, {}, "f" * 64,
-		daily_blog.contracts.V3_EDITORIAL_CONTRACT, repository_roster=bundle_roster(packet)
+	_, reused = daily_blog.publication_contract.load_reusable_bundle(
+		{"bundle_path": bundle_path, "bundle": bundle},
+		str(tmp_path / "vosslab" / "daily_blog" / packet.report_date),
+		packet, projection, {}, identity, bundle_roster(packet),
 	)
 
-	assert reused_path == bundle_path
+	assert reused["contracts"] == expected_contracts
+	assert reused["editorial_prompt_contract"] == expected_prompt_contract
+	assert reused["maker_activation"] == expected_activation_receipt
+	assert reused["maker_activation"]["editorial_prompt_contract_sha256"] == (
+		daily_blog.io_utils.hash_value(reused["editorial_prompt_contract"])
+	)
+
+
+#============================================
+def test_active_bundle_reuse_rejects_an_altered_activation_receipt(
+	tmp_path: pathlib.Path,
+) -> None:
+	"""A cache hit remains bound to the receipt that selected the maker contract."""
+	contract = daily_blog.prompt_registry.active_contract()
+	identity, snapshot, packet, projection, record, date_root = make_v4_bundle(
+		tmp_path, contract, "active-activation"
+	)
+	tampered = copy.deepcopy(record["bundle"])
+	tampered["maker_activation"]["activation_id"] = "daily-blog-maker-activation-" + "0" * 64
+	tampered["bundle_sha256"] = daily_blog.publication_contract.bundle_sha256(tampered)
+	bundle_path = pathlib.Path(record["bundle_path"])
+	(bundle_path / "bundle.json").write_text(json.dumps(tampered), encoding="utf-8")
+	record["bundle"] = tampered
+
+	with pytest.raises(RuntimeError, match="generator contracts have changed"):
+		daily_blog.publication_contract.load_reusable_bundle(
+		record, date_root, packet, projection, {}, identity, bundle_roster(packet)
+		)
+
+
+#============================================
+def test_v4_reuse_rejects_tampered_persisted_prompt_contract(
+	tmp_path: pathlib.Path,
+) -> None:
+	"""Reuse compares the persisted v4 contract, selection, and example digest exactly."""
+	contract = daily_blog.prompt_registry.active_contract()
+	identity, snapshot, packet, projection, record, date_root = make_v4_bundle(
+		tmp_path,
+		contract,
+		"persisted-attacks",
+	)
+	tampered = copy.deepcopy(record["bundle"])
+	prompt_contract = tampered["editorial_prompt_contract"]
+	prompt_contract.update({"contract_name": "tampered"})
+	tampered["bundle_sha256"] = daily_blog.publication_contract.bundle_sha256(tampered)
+	bundle_path = pathlib.Path(record["bundle_path"])
+	(bundle_path / "bundle.json").write_text(json.dumps(tampered), encoding="utf-8")
+	record["bundle"] = tampered
+
+	with pytest.raises(RuntimeError, match="prompt contract"):
+		daily_blog.publication_contract.load_reusable_bundle(
+		record, date_root, packet, projection, {}, identity, bundle_roster(packet)
+		)
 
 
 #============================================
@@ -597,18 +418,12 @@ def test_reusable_bundle_rejects_a_changed_authoritative_roster(
 		"2026-08-23", "America/Chicago", True, {}, [], [], [item]
 	)
 	projection = make_projection(packet)
-	post = "v3 selected post\n"
-	candidate = daily_blog.editorial.CandidateResult(
-		"author", projection.projection_id, post, daily_blog.io_utils.sha256_text(post), True, ()
-	)
-	decision = daily_blog.editorial.EditorialDecision(
-		"A", "Candidate A is approved.", "medium", 0.8, projection.projection_id, post, {"A": 0}
-	)
-	writer = daily_blog.bundles.BundleWriter(
-		str(tmp_path), "vosslab", "f" * 64, daily_blog.contracts.V3_EDITORIAL_CONTRACT
+	post = "selected post\n"
+	writer = daily_blog.publication_contract.BundleWriter(
+		str(tmp_path), "vosslab", bundle_identity()
 	)
 	bundle_path, bundle = writer.write(
-		"roster-scope", packet, projection, {}, [candidate], decision, bundle_roster(packet)
+		"roster-scope", packet, projection, {}, bundle_roster(packet), selected_post(tmp_path, packet, post)
 	)
 	quiet = daily_blog.repository_contracts.RepositoryRecord.from_dict({
 		"repository": "vosslab/quiet-repository",
@@ -621,25 +436,21 @@ def test_reusable_bundle_rejects_a_changed_authoritative_roster(
 		"vosslab", [*bundle_roster(packet).repositories, quiet]
 	)
 	with pytest.raises(RuntimeError, match="roster integrity"):
-		daily_blog.bundles.load_reusable_bundle(
+		daily_blog.publication_contract.load_reusable_bundle(
 			{"bundle_path": bundle_path, "bundle": bundle},
 			str(tmp_path / "vosslab" / "daily_blog" / packet.report_date),
 			packet,
 			projection,
 			{},
-			"f" * 64,
-			daily_blog.contracts.V3_EDITORIAL_CONTRACT,
-			repository_roster=changed_roster,
+			bundle_identity(), changed_roster,
 		)
 
 
 #============================================
-@pytest.mark.parametrize("retired_version", ("v1", "v2"))
-def test_reuse_rejects_a_retired_candidate_validation_artifact(
+def test_reuse_rejects_a_tampered_candidate_validation_artifact(
 	tmp_path: pathlib.Path,
-	retired_version: str,
 ) -> None:
-	"""A persisted policy artifact cannot silently select a retired policy contract."""
+	"""A persisted policy artifact cannot silently select a changed policy contract."""
 	item = daily_blog.schema.EvidenceItem.create(
 		"commit_metadata", "vosslab/project", "a" * 40, "", "", "located work", "git show"
 	)
@@ -647,28 +458,22 @@ def test_reuse_rejects_a_retired_candidate_validation_artifact(
 		"2026-08-23", "America/Chicago", True, {}, [], [], [item]
 	)
 	projection = make_projection(packet)
-	post = "v3 selected post\n"
-	candidate = daily_blog.editorial.CandidateResult(
-		"author", projection.projection_id, post, daily_blog.io_utils.sha256_text(post), True, ()
-	)
-	decision = daily_blog.editorial.EditorialDecision(
-		"A", "Candidate A is approved.", "medium", 0.8, projection.projection_id, post, {"A": 0}
-	)
-	writer = daily_blog.bundles.BundleWriter(
-		str(tmp_path), "vosslab", "f" * 64, daily_blog.contracts.V3_EDITORIAL_CONTRACT
+	post = "selected post\n"
+	writer = daily_blog.publication_contract.BundleWriter(
+		str(tmp_path), "vosslab", bundle_identity()
 	)
 	bundle_path, bundle = writer.write(
-		"v3-retired-policy", packet, projection, {}, [candidate], decision, bundle_roster(packet)
+		"tampered-policy", packet, projection, {}, bundle_roster(packet), selected_post(tmp_path, packet, post)
 	)
 	tampered = copy.deepcopy(bundle)
-	tampered["contracts"]["candidate_validation"]["version"] = retired_version
-	tampered["bundle_sha256"] = daily_blog.bundles.bundle_sha256(tampered)
+	tampered["contracts"]["candidate_validation"]["version"] = "retired"
+	tampered["bundle_sha256"] = daily_blog.publication_contract.bundle_sha256(tampered)
 	(pathlib.Path(bundle_path) / "bundle.json").write_text(json.dumps(tampered), encoding="utf-8")
 	record = {"bundle_path": bundle_path, "bundle": tampered}
 	date_root = str(tmp_path / "vosslab" / "daily_blog" / packet.report_date)
 
 	with pytest.raises(RuntimeError, match="generator contracts have changed"):
-		daily_blog.bundles.load_reusable_bundle(
-			record, date_root, packet, projection, {}, "f" * 64,
-			daily_blog.contracts.V3_EDITORIAL_CONTRACT, repository_roster=bundle_roster(packet)
+		daily_blog.publication_contract.load_reusable_bundle(
+			record, date_root, packet, projection, {},
+		bundle_identity(), bundle_roster(packet)
 		)

@@ -3,17 +3,13 @@
 # Standard Library
 import dataclasses
 import json
-import os
 import pathlib
 import re
 
 # local repo modules
-import daily_blog.config
 import daily_blog.contracts
+import daily_blog.prompt_registry
 import daily_blog.editorial
-import daily_blog.experiment_attestation
-import daily_blog.experiment_capture_artifacts
-import daily_blog.experiment_review_artifacts
 import daily_blog.io_utils
 
 
@@ -49,7 +45,7 @@ class MakerActivation:
 	@property
 	def contract(self) -> daily_blog.contracts.EditorialContract:
 		"""Return the exact selected production contract."""
-		return daily_blog.contracts.V4_THREE_EXAMPLES_CORPUS_V2_CONTRACT
+		return daily_blog.prompt_registry.V4_THREE_EXAMPLES_CORPUS_V2_CONTRACT
 
 
 #============================================
@@ -112,7 +108,7 @@ def _require_sha256(value: object) -> str:
 def _expected_prompt_identity() -> dict[str, object]:
 	"""Load the current exact v4-three prompt snapshot identity."""
 	snapshot = daily_blog.editorial.load_prompt_contract_snapshot(
-		daily_blog.contracts.V4_THREE_EXAMPLES_CORPUS_V2_CONTRACT
+		daily_blog.prompt_registry.V4_THREE_EXAMPLES_CORPUS_V2_CONTRACT
 	)
 	return daily_blog.editorial.prompt_contract_identity(snapshot=snapshot)
 
@@ -136,7 +132,7 @@ def _validate_receipt(receipt: dict[str, object]) -> None:
 		raise RuntimeError("Daily-blog maker activation is invalid.")
 	if activation_id != _activation_id(receipt):
 		raise RuntimeError("Daily-blog maker activation integrity is invalid.")
-	contract = daily_blog.contracts.V4_THREE_EXAMPLES_CORPUS_V2_CONTRACT
+	contract = daily_blog.prompt_registry.V4_THREE_EXAMPLES_CORPUS_V2_CONTRACT
 	if receipt.get("selected_contract") != contract.name:
 		raise RuntimeError("Daily-blog maker activation does not select the production contract.")
 	prompt_identity = receipt.get("editorial_prompt_contract")
@@ -144,7 +140,7 @@ def _validate_receipt(receipt: dict[str, object]) -> None:
 		raise RuntimeError("Daily-blog maker activation prompt snapshot is invalid.")
 	if receipt.get("editorial_prompt_contract_sha256") != daily_blog.io_utils.hash_value(prompt_identity):
 		raise RuntimeError("Daily-blog maker activation prompt identity is invalid.")
-	policy = daily_blog.contracts.policy_for_contract(contract)
+	policy = daily_blog.prompt_registry.policy_for_contract(contract)
 	if receipt.get("candidate_validation") != {
 		"name": policy.name,
 		"version": policy.version,
@@ -178,114 +174,4 @@ def load_maker_activation(repository_root: str | None = None) -> MakerActivation
 	path = _receipt_path(repository_root)
 	receipt = _strict_json(path)
 	_validate_receipt(receipt)
-	return MakerActivation(path, receipt)
-
-
-#============================================
-def _verify_minting_evidence(
-	config: daily_blog.config.DailyBlogConfig,
-	manifest: dict[str, object],
-	prompt_identity: dict[str, object],
-) -> None:
-	"""Require one passing review to bind the selected arm and exact prompt snapshot."""
-	attestation_ref = manifest.get("attestation")
-	if not isinstance(attestation_ref, dict):
-		raise RuntimeError("Daily-blog maker activation evidence is invalid.")
-	attestation_id = attestation_ref.get("attestation_id")
-	if not isinstance(attestation_id, str):
-		raise RuntimeError("Daily-blog maker activation evidence is invalid.")
-	attestation_path = os.path.join(
-		config.output_root,
-		config.output_owner,
-		daily_blog.experiment_attestation.ATTESTATION_ROOT_NAME,
-		attestation_id,
-	)
-	attestation = daily_blog.experiment_attestation.load_attestation(config, attestation_path)
-	report = attestation.report
-	acceptance = report.get("acceptance") if isinstance(report, dict) else None
-	review_contract = report.get("review_contract") if isinstance(report, dict) else None
-	if (
-		not isinstance(acceptance, dict)
-		or not isinstance(review_contract, dict)
-		or acceptance.get("selected_arm")
-		!= daily_blog.contracts.V4_THREE_EXAMPLES_CORPUS_V2
-		or review_contract.get("selected_arm")
-		!= daily_blog.contracts.V4_THREE_EXAMPLES_CORPUS_V2
-	):
-		raise RuntimeError("Daily-blog maker activation evidence selected a different contract.")
-	capture_ref = report.get("capture")
-	if not isinstance(capture_ref, dict) or not isinstance(capture_ref.get("artifact"), str):
-		raise RuntimeError("Daily-blog maker activation evidence is invalid.")
-	capture_path = os.path.join(
-		config.output_root,
-		config.output_owner,
-		daily_blog.experiment_attestation.EXPERIMENT_ROOT_NAME,
-		capture_ref["artifact"],
-	)
-	capture = daily_blog.experiment_capture_artifacts.load_capture(capture_path)
-	records = capture.report.get("records") if isinstance(capture.report, dict) else None
-	selected_records = [
-		record for record in records or []
-		if isinstance(record, dict)
-		and record.get("arm") == daily_blog.contracts.V4_THREE_EXAMPLES_CORPUS_V2
-	]
-	if not selected_records or any(
-		record.get("prompt_identity") != prompt_identity for record in selected_records
-	):
-		raise RuntimeError("Daily-blog maker activation evidence prompt snapshot is invalid.")
-	calibration = report.get("calibration")
-	evidence = calibration.get("evidence") if isinstance(calibration, dict) else None
-	if (
-		not isinstance(evidence, dict)
-		or evidence.get("rubric_sha256") != prompt_identity["templates"]["rubric"]
-	):
-		raise RuntimeError("Daily-blog maker activation evidence validation policy is invalid.")
-
-
-#============================================
-def create_activation_receipt(
-	config: daily_blog.config.DailyBlogConfig,
-	review_evidence_path: str,
-	receipt_path: str,
-) -> MakerActivation:
-	"""Create a receipt only after revalidating the sealed accepted F4 artifact."""
-	evidence = daily_blog.experiment_review_artifacts.load_review_evidence(
-		config, review_evidence_path
-	)
-	manifest = evidence.manifest
-	aggregate = manifest.get("aggregate") if isinstance(manifest, dict) else None
-	if not isinstance(aggregate, dict) or aggregate.get("f4_accepted") is not True:
-		raise RuntimeError("Daily-blog maker activation requires accepted F4 evidence.")
-	attestation = manifest.get("attestation")
-	if not isinstance(attestation, dict):
-		raise RuntimeError("Daily-blog maker activation evidence is invalid.")
-	contract = daily_blog.contracts.V4_THREE_EXAMPLES_CORPUS_V2_CONTRACT
-	prompt_identity = _expected_prompt_identity()
-	_verify_minting_evidence(config, manifest, prompt_identity)
-	policy = daily_blog.contracts.policy_for_contract(contract)
-	receipt: dict[str, object] = {
-		"schema_version": ACTIVATION_SCHEMA_VERSION,
-		"selected_contract": contract.name,
-		"editorial_prompt_contract": prompt_identity,
-		"editorial_prompt_contract_sha256": daily_blog.io_utils.hash_value(prompt_identity),
-		"candidate_validation": {
-			"name": policy.name,
-			"version": policy.version,
-			"sha256": policy.sha256(),
-		},
-		"f4_evidence": {
-			"review_evidence_id": manifest.get("review_evidence_id"),
-			"review_evidence_report_sha256": manifest.get("report_sha256"),
-			"attestation_id": attestation.get("attestation_id"),
-			"attestation_report_sha256": attestation.get("report_sha256"),
-			"review_contract_sha256": manifest.get("review_contract_sha256"),
-			"f4_accepted": True,
-		},
-	}
-	receipt["activation_id"] = _activation_id(receipt)
-	_validate_receipt(receipt)
-	path = pathlib.Path(receipt_path)
-	if not path.is_absolute() or path.name != ACTIVATION_FILENAME:
-		raise RuntimeError("Daily-blog maker activation receipt path is invalid.")
-	daily_blog.io_utils.atomic_write_json(str(path), receipt)
 	return MakerActivation(path, receipt)

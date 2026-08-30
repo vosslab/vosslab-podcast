@@ -58,7 +58,7 @@ origin belongs there too. Rules: [REPO_STYLE.md](REPO_STYLE.md).
 - Review prompts from the perspective of a small model that may treat every named action as a
   request. Prefer short affirmative instructions and explicit output contracts.
 - On 2026-08-27, I explicitly approved the exact experimental v4 maker brief and central question
-  recorded in `docs/active_plans/reports/prompt_experiment_status.md`.
+  recorded in `docs/archive/PROMPT_EXPERIMENT_STATUS.md`.
 - That approval covers those exact words only; it is not a blanket approval for later prompt rewrites.
 - Keep the approved v4 maker brief and central question unchanged while agents complete the
   fixture-backed calibration, capture, attestation, review, activation, and publication path.

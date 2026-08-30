@@ -33,9 +33,6 @@ daily_blog:
     - "Dr. Neil R Voss"
   identity_emails:
     - "vosslab@users.noreply.github.com"
-  shadow_evaluation:
-    # Historical post text and exact-Git evidence cross the configured model route only by opt-in.
-    external_model_data_sharing: false
   routes:
     authors:
       - name: "author_one"
@@ -69,6 +66,119 @@ daily_blog:
         - "-"
         - "--ignore-rules"
         - "--quiet"
+  editorial_reliability:
+    candidate_count: 3
+    reviewer_count: 3
+    max_parallel_calls: 6
+    max_route_calls: 42
+    route_retry_attempts: 1
+  repository_outline:
+    generator_count: 2
+    merger_count: 2
+    reviewer_count: 1
+    maximum_parallel_calls: 6
+    route_retry_attempts: 1
+    routes:
+      generator:
+        name: "repository_outline_generator"
+        command: ["hermes", "chat", "--provider", "openai-codex", "--query-file", "-", "--ignore-rules", "--quiet"]
+      merger:
+        name: "repository_outline_merger"
+        command: ["hermes", "chat", "--provider", "openai-codex", "--query-file", "-", "--ignore-rules", "--quiet"]
+      reviewer:
+        name: "repository_outline_reviewer"
+        command: ["hermes", "chat", "--provider", "openai-codex", "--query-file", "-", "--ignore-rules", "--quiet"]
+    prompt_limits:
+      generator_chars: 48000
+      merger_chars: 64000
+      reviewer_chars: 72000
+      repair_chars: 72000
+  repository_story:
+    writer_count: 2
+    editor_count: 2
+    reviewer_count: 1
+    maximum_parallel_calls: 6
+    route_retry_attempts: 1
+    routes:
+      writer:
+        name: "repository_story_writer"
+        command: ["hermes", "chat", "--provider", "openai-codex", "--query-file", "-", "--ignore-rules", "--quiet"]
+      editor:
+        name: "repository_story_editor"
+        command: ["hermes", "chat", "--provider", "openai-codex", "--query-file", "-", "--ignore-rules", "--quiet"]
+      reviewer:
+        name: "repository_story_reviewer"
+        command: ["hermes", "chat", "--provider", "openai-codex", "--query-file", "-", "--ignore-rules", "--quiet"]
+    prompt_limits:
+      writer_chars: 64000
+      editor_chars: 72000
+      reviewer_chars: 84000
+      repair_chars: 84000
+  daily_outline:
+    ranker_count: 3
+    outline_writer_count: 3
+    reviewer_count: 2
+    maximum_parallel_calls: 6
+    max_route_calls: 84
+    route_retry_attempts: 1
+    routes:
+      ranking:
+        name: "daily_outline_ranking"
+        command: ["hermes", "chat", "--provider", "openai-codex", "--query-file", "-", "--ignore-rules", "--quiet"]
+      outline_writer:
+        name: "daily_outline_writer"
+        command: ["hermes", "chat", "--provider", "openai-codex", "--query-file", "-", "--ignore-rules", "--quiet"]
+      outline_reviewer:
+        name: "daily_outline_reviewer"
+        command: ["hermes", "chat", "--provider", "openai-codex", "--query-file", "-", "--ignore-rules", "--quiet"]
+    prompt_limits:
+      ranking_chars: 120000
+      writer_chars: 300000
+      reviewer_chars: 300000
+      repair_chars: 300000
+  final_synthesis:
+    synthesizer_count: 2
+    reviewer_count: 1
+    maximum_parallel_calls: 2
+    max_route_calls: 28
+    route_retry_attempts: 1
+    routes:
+      synthesis:
+        name: "final_synthesis_writer"
+        command: ["hermes", "chat", "--provider", "openai-codex", "--query-file", "-", "--ignore-rules", "--quiet"]
+      reviewer:
+        name: "final_synthesis_reviewer"
+        command: ["hermes", "chat", "--provider", "openai-codex", "--query-file", "-", "--ignore-rules", "--quiet"]
+    prompt_limits:
+      incumbent_chars: 120000
+      alternatives_chars: 180000
+      review_facts_chars: 30000
+      rubric_chars: 30000
+      evidence_chars: 90000
+      provenance_chars: 30000
+      rendered_prompt_chars: 470000
+  complete_post:
+    writer_count: 3
+    editor_count: 2
+    reviewer_count: 3
+    maximum_parallel_calls: 6
+    max_route_calls: 370
+    route_retry_attempts: 1
+    routes:
+      writer:
+        name: "complete_post_writer"
+        command: ["hermes", "chat", "--provider", "openai-codex", "--query-file", "-", "--ignore-rules", "--quiet"]
+      editor:
+        name: "complete_post_editor"
+        command: ["hermes", "chat", "--provider", "openai-codex", "--query-file", "-", "--ignore-rules", "--quiet"]
+      reviewer:
+        name: "complete_post_reviewer"
+        command: ["hermes", "chat", "--provider", "openai-codex", "--query-file", "-", "--ignore-rules", "--quiet"]
+    prompt_limits:
+      writer_chars: 72000
+      editor_chars: 185000
+      reviewer_chars: 88000
+      repair_chars: 88000
   collection_limits:
     changed_documentation_chars: 16000
     diff_chars: 24000

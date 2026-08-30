@@ -58,26 +58,42 @@ Start with the smallest relevant fast test, then widen coverage when a change
 crosses a contract or ownership boundary:
 
 ```bash
-source source_me.sh && pytest tests/test_daily_blog_candidates.py
-source source_me.sh && pytest tests/ -k daily_blog
+source source_me.sh && pytest tests/test_daily_blog_publication_validation.py
+source source_me.sh && python3 tests/e2e/e2e_daily_publication.py
+```
+
+Fast pytest is deterministic and offline. Use inline inputs and `tmp_path` for
+test-owned files; do not add network, model, real-process, or publisher calls
+to permanent pytest. [PYTEST_STYLE.md](PYTEST_STYLE.md) owns the test-design
+checklist and failure triage.
+
+Direct E2Es live in `tests/e2e/` and are excluded from pytest collection. The
+controlled daily-publication E2E is the durable reader-visible publication
+path; it uses fixed-date, synthetic evidence and a disposable publisher root:
+
+```bash
+source source_me.sh && python3 tests/e2e/e2e_daily_publication.py
+```
+
+Run focused tests and that controlled E2E for each coherent change group. Run
+the aggregate direct-E2E runner and the full fast suite once after a coordinated
+migration has removed its temporary harnesses:
+
+```bash
+source source_me.sh && bash tests/e2e/run_all.sh
 source source_me.sh && pytest tests/
 ```
 
-The `pytest tests/` lane is deterministic, offline, and quick. Use `tmp_path`
-for test-owned files. Its test-design rules and failure triage are in
-[PYTEST_STYLE.md](PYTEST_STYLE.md).
+The aggregate runner also covers separately-owned infrastructure E2Es. See
+[E2E_TESTS.md](E2E_TESTS.md) for the separation between the fast lane, direct
+E2Es, and browser E2Es.
 
-Direct E2Es live in `tests/e2e/` and are excluded from pytest collection. Run
-the smallest durable E2E that covers the changed boundary:
+`docs/BLOG_CONTRACT.md` is human-owned and byte-protected. The repository's
+Layer-2 hygiene configuration excludes it only from the ASCII and whitespace
+auto-fixers; do not edit it as part of ordinary pipeline work. Verify its
+recorded SHA-256 before and after a broad hygiene-bearing run.
 
-```bash
-source source_me.sh && python3 tests/e2e/e2e_daily_blog_evidence_git.py
-```
-
-See [E2E_TESTS.md](E2E_TESTS.md) for the separation between the fast lane,
-direct E2Es, and browser E2Es.
-
-## Verify private experiments
+## Daily publication work
 
 Read [DAILY_BLOG_OPERATIONS.md](DAILY_BLOG_OPERATIONS.md) before changing the
 daily-blog workflow. It owns the producer-to-publisher operational contract;
@@ -85,52 +101,47 @@ use [CODE_ARCHITECTURE.md](CODE_ARCHITECTURE.md) and
 [FILE_STRUCTURE.md](FILE_STRUCTURE.md) to locate the responsible module and its
 tests.
 
-The maker-voice experiment is a private verification workflow, not a
-publication workflow. Capture owns sealed fixture evidence and writes it below
-`out/<owner>/daily_blog_experiment_fixtures_v2/`. The experiment runner owns its
-private capture report below `out/<owner>/daily_blog_experiments/`. Neither
-artifact is a publication bundle or publisher input.
-
-Use Python 3.12 through `source_me.sh` for every check. Start with the focused
-permanent offline tests that cover prompt resources, capture validation,
-route-free calibration preparation, and attestation:
+The public entry point selects exactly one report date and delegates the
+date-owned workflow:
 
 ```bash
-source source_me.sh && python3 -m pytest \
-  tests/test_daily_blog_prompt_resources.py \
-  tests/test_daily_blog_rubric_calibration.py \
-  tests/test_daily_blog_prompt_experiment.py \
-  tests/test_daily_blog_experiment_attestation.py
+source source_me.sh && python3 make_blog.py --yesterday
+source source_me.sh && python3 make_blog.py --date YYYY-MM-DD
 ```
 
-The mandatory one-time evidence path is autonomous and uses the fixture Hermes
-shim through the exact configured command boundary without model egress:
+`report_date` remains the sole publication identity. The workflow records
+terminal date summaries, seals the selected eligible post, imports it, and
+verifies the rendered page. An editorial route failure may produce a degraded
+run while preserving eligible grounded work; typed pipeline faults stay visible
+and publish nothing.
+
+The production extension boundaries are deliberately narrow:
+
+- `PublicationRuntime` supplies controlled provider overrides for repository
+  loading, mirror refresh, activity location, evidence assembly, route calls,
+  publisher import, and page verification.
+- `DailyPublicationOrchestrator` owns the date lock and lifecycle order.
+- `publication_workflow.py` owns the typed editorial-stage handoffs.
+- `PublicationFinalizationCoordinator` owns bundle sealing, site import, and
+  rendered-page verification.
+
+Keep additions behind these owner boundaries rather than restoring retired
+experiment, calibration, attestation, fixture-runner, or shadow-evaluation
+commands. Prompt text and human approval remain outside routine implementation:
+mechanically verify retained prompt identities and resources, but do not edit,
+display, or approve prompt prose without the boundary in
+[HUMAN_GUIDANCE.md](HUMAN_GUIDANCE.md).
+
+For controlled no-egress publication evidence, use the permanent E2E rather
+than a private runner:
 
 ```bash
-source source_me.sh && python3 automation/run_daily_blog_fixture_capture.py
-source source_me.sh && python3 automation/run_daily_blog_fixture_calibration.py
+source source_me.sh && python3 tests/e2e/e2e_daily_publication.py
 ```
 
-Record their absolute artifact paths, then join them without invoking a route:
-
-```bash
-source source_me.sh && python3 automation/attest_daily_blog_prompt_experiment.py \
-  --capture /absolute/path/to/prompt-experiment-CAPTURE_ID \
-  --calibration /absolute/path/to/rubric-calibration-CALIBRATION_ID
-```
-
-Attestation re-reads descriptor-pinned source artifacts, recomputes the
-acceptance decision, and writes a content-addressed non-publishing record below
-`out/<owner>/daily_blog_experiment_attestations/`. It invokes no model route and
-does not create a bundle, import a site, or alter a publisher schedule. Fresh
-artifact-only reviewers judge the complete sealed posts, and
-`record_daily_blog_experiment_reviews.py` records their passage-grounded
-submissions before activation. Repetition counts, score tolerances, and reviewer
-counts are configurable one-time evidence settings rather than permanent pytest
-assertions. Live capture or calibration may be run separately with explicit
-data-sharing consent as optional corroboration; it never gates fixture-backed
-acceptance. Keep activation, publisher import, and timer ownership in
-[DAILY_BLOG_OPERATIONS.md](DAILY_BLOG_OPERATIONS.md).
+It proves same-date replacement, selected-artifact preservation, structured
+terminal faults, sealed-bundle integrity, and the reader-visible page without
+external route egress.
 
 ## Refresh screenshots
 

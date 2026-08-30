@@ -1,0 +1,192 @@
+"""Offline behavior for serial repository-editorial acceptance."""
+
+# Standard Library
+import dataclasses
+import threading
+from pathlib import Path
+
+# PIP3 modules
+import pytest
+
+# local repo modules
+import daily_blog.config
+import daily_blog.editorial_stage_config
+import daily_blog.editorial
+import daily_blog.locks
+import daily_blog.multi_repository_coordinator
+import daily_blog.recovery
+import daily_blog.repository_contracts
+import daily_blog.repository_editorial_workflow
+import daily_blog.route_cache
+import daily_blog.run_contracts
+import daily_blog.schema
+
+
+#============================================
+def _activity(repository: str, marker: str) -> daily_blog.schema.RepositoryActivity:
+	"""Return one immutable repository activity record."""
+	commit = daily_blog.schema.CommitActivity(
+		marker * 40, (), "Maker", "maker@example.com", "2026-08-29T12:00:00Z",
+		"2026-08-29T12:00:00Z", "Grounded work.",
+	)
+	creation = daily_blog.repository_contracts.RepositoryLifecycleEvent(
+		"repository_created", "2020-01-01T00:00:00Z", False, "github_owner_roster",
+	)
+	return daily_blog.schema.RepositoryActivity(
+		repository, "https://github.com/" + repository, "/cache/" + repository.replace("/", "_"),
+		marker * 40, (commit,), (daily_blog.schema.RevisionRange("", marker * 40),),
+		(marker * 40,), False, (creation,),
+	)
+
+
+#============================================
+def _packet() -> daily_blog.schema.EvidencePacket:
+	"""Build two frozen repository scopes with grounded evidence."""
+	activities = (_activity("owner/alpha", "a"), _activity("owner/beta", "b"))
+	items = tuple(daily_blog.schema.EvidenceItem.create(
+		"dated_changelog", activity.repository, activity.default_revision, "CHANGELOG.md",
+		activity.default_revision, "Grounded work in " + activity.repository + ".", "git show",
+	) for activity in activities)
+	return daily_blog.schema.EvidencePacket.create(
+		"2026-08-29", "America/Chicago", True, {},
+		[{"repository": activity.repository, "object_available": True} for activity in activities],
+		activities, items,
+	)
+
+
+#============================================
+def _config(tmp_path: Path) -> daily_blog.config.DailyBlogConfig:
+	"""Use compact explicit routes and a disposable physical output root."""
+	route = daily_blog.editorial_stage_config.RoleRoute("fixture", ("fixture",))
+	return daily_blog.config.DailyBlogConfig(
+		"settings.yaml", str(tmp_path), "owner", "America/Chicago", str(tmp_path),
+		str(tmp_path / "mirrors"), (), (), (route,), route, {},
+		{"context_chars": 8000, "excerpt_chars": 1000, "commit_subject_chars": 120},
+		{"author_chars": 8000, "referee_chars": 8000},
+		daily_blog.config.EditorialReliabilityConfig(2, 1, 1, 8),
+		repository_outline=daily_blog.editorial_stage_config.RepositoryOutlineConfig(
+			generator_count=2, merger_count=2, reviewer_count=1, maximum_parallel_calls=2,
+			route_retry_attempts=0,
+		),
+		repository_story=daily_blog.editorial_stage_config.RepositoryStoryConfig(
+			writer_count=2, editor_count=2, reviewer_count=1, maximum_parallel_calls=2,
+			route_retry_attempts=0,
+		),
+	)
+
+
+class _Runner:
+	"""Thread-safe deterministic route adapter with optional Stage-4 loss."""
+
+	#============================================
+	def __init__(self, packet: daily_blog.schema.EvidencePacket, lose_stories: bool = False) -> None:
+		self._evidence = {item.repository: item.evidence_id for item in packet.items}
+		self._lose_stories = lose_stories
+		self._lock = threading.Lock()
+
+	#============================================
+	def run(self, route: daily_blog.editorial_stage_config.RoleRoute, prompt: str, _working_directory: str) -> str:
+		with self._lock:
+			if self._lose_stories and route.name.startswith("repository_story_"):
+				return ""
+			if route.name.endswith("reviewer"):
+				return '{"winner":"A","reason":"grounded","evidence_quality":"high","confidence":1}'
+			repository = "owner/alpha" if "owner/alpha" in prompt else "owner/beta"
+			return "# Grounded\n\nEvidence-backed work. <!-- evidence: " + self._evidence[repository] + " -->\n"
+
+
+#============================================
+def _coordinator(
+	tmp_path: Path,
+	packet: daily_blog.schema.EvidencePacket,
+	runner: _Runner,
+) -> tuple[
+	daily_blog.repository_editorial_workflow.RepositoryEditorialCoordinator,
+	dict[str, dict[str, object]],
+	list[tuple[daily_blog.replication.StepReliability, daily_blog.run_contracts.IncumbentTransition]],
+	list[object],
+]:
+	"""Bind real cache and prompt identity with inline serial lifecycle fakes."""
+	artifacts: dict[str, dict[str, object]] = {}
+	summaries: list[tuple[
+		daily_blog.replication.StepReliability,
+		daily_blog.run_contracts.IncumbentTransition,
+	]] = []
+	completed: list[object] = []
+	dependencies = daily_blog.repository_editorial_workflow.RepositoryEditorialDependencies(
+		_config(tmp_path), packet.report_date, daily_blog.editorial.load_prompt_contract_snapshot(), runner,
+		daily_blog.route_cache.RouteResultCache(daily_blog.locks.PhaseCache(str(tmp_path / "cache"))),
+		str(tmp_path), lambda _phase, _value: "started",
+		lambda _phase, value, _reused: completed.append(value) or "completed",
+		lambda summary, transition: summaries.append((summary, transition)),
+		lambda name, value: artifacts.setdefault(name, value) and name,
+	)
+	return daily_blog.repository_editorial_workflow.RepositoryEditorialCoordinator(dependencies), artifacts, summaries, completed
+
+
+#============================================
+def test_eligible_paired_survivor_returns_stage5_input_and_only_observes_incumbent(tmp_path: Path) -> None:
+	"""A complete grounded repository join becomes a typed Stage-5 handoff."""
+	packet = _packet()
+	coordinator, artifacts, summaries, completed = _coordinator(tmp_path, packet, _Runner(packet))
+
+	result = coordinator.run(packet)
+
+	assert (
+		result.stage5_input.report_date == packet.report_date
+		and result.stage5_input.repositories
+		and artifacts["repository_editorial.json"]["survivor_packet_ids"]
+		and completed
+		and summaries
+		and all(type(transition) is daily_blog.run_contracts.ObserveIncumbent for _summary, transition in summaries)
+	)
+
+
+#============================================
+def test_unpaired_repository_fault_retains_strongest_grounded_outline(tmp_path: Path) -> None:
+	"""A failed pairing records bounded retained evidence without a Stage-5 value."""
+	packet = _packet()
+	coordinator, artifacts, summaries, completed = _coordinator(tmp_path, packet, _Runner(packet, lose_stories=True))
+
+	with pytest.raises(daily_blog.recovery.PipelineFaultError) as raised:
+		coordinator.run(packet)
+
+	fault = raised.value.fault
+	recovery = artifacts["recovery_fault.json"]
+	assert (
+		raised.value.category is daily_blog.recovery.TerminalFaultCategory.NO_ELIGIBLE_GENERATION
+		and fault.strongest_artifact_type == "RepoOutline"
+		and recovery["retained_artifact_id"] == fault.strongest_artifact_id
+		and recovery["retained_artifact_id"] in recovery["promoted_artifact_ids"]
+		and summaries
+		and not completed
+	)
+
+
+#============================================
+def test_typed_terminal_category_preserves_accepted_sibling_evidence_before_fault(
+	tmp_path: Path,
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""A typed terminal join remains a fault while preserving accepted healthy evidence."""
+	packet = _packet()
+	coordinator, artifacts, summaries, completed = _coordinator(tmp_path, packet, _Runner(packet))
+	original = daily_blog.multi_repository_coordinator.run_repository_editorial
+
+	def terminal_join(*args) -> daily_blog.multi_repository_coordinator.RepositoryEditorialJoin:
+		return dataclasses.replace(
+			original(*args),
+			terminal_fault=daily_blog.recovery.TerminalFaultCategory.CONFIGURATION,
+		)
+
+	monkeypatch.setattr(daily_blog.multi_repository_coordinator, "run_repository_editorial", terminal_join)
+	with pytest.raises(daily_blog.recovery.PipelineFaultError) as raised:
+		coordinator.run(packet)
+
+	assert (
+		raised.value.category is daily_blog.recovery.TerminalFaultCategory.CONFIGURATION
+		and artifacts["repository_editorial.json"]["survivor_packet_ids"]
+		and artifacts["recovery_fault.json"]["packets"]
+		and summaries
+		and not completed
+	)

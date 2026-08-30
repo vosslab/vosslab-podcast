@@ -1,4 +1,191 @@
+## 2026-08-30
+
+### Behavior or Interface Changes
+
+- Advanced the producer-to-publisher publication contract to
+  `vosslab.daily-blog.bundle.v7`. The sealed handoff now contains only the
+  validated Stage-8 selected post and its artifact identity; candidate and
+  referee topology remains in producer-owned run artifacts.
+- Completed the M15 ownership migration: the acquisition, repository editorial,
+  and publication-finalization modules now own their respective phases, with
+  typed incumbent establishment, replacement, and repair transitions.
+
+### Fixes and Maintenance
+
+- Removed retired experiment, calibration, attestation, shadow, and fixture-runner
+  paths after their replacement boundaries were verified.
+- Archived nine superseded plan and procedure records and reconciled the active
+  documentation with the current publication and CLI contracts.
+- Applied the six-pass pre-merge audit fixes: reconciled the stale index/worktree
+  mismatch so retired one-time harnesses and modules cannot be resurrected,
+  removed `test_checkout_disk_budget.py` and milestone
+  `test_daily_blog_m5_integration.py` under `PYTEST_STYLE.md`, corrected current
+  run-evidence documentation, archived the root-plan review and repaired its
+  tracker link, and removed the permanent M5 comment tag while adding the
+  required Stage-6 and Stage-7 function separators.
+
+### Decisions and Failures
+
+- Remaining review work requires design-level follow-up before merge: the
+  unreachable duplicate `editorial_workflow.py`, dead fixture-route and
+  atomic-path surfaces, prompt/topology/schema pytest pruning, and
+  daily-outline/config readability and ownership. These items are not fixed by
+  this record.
+
+### Developer Tests and Notes
+
+- Focused bundle, publication-state, publisher, and Stage-5 integration
+  coverage passed, followed by the controlled no-egress publication E2E.
+- The final M15 aggregate E2E passed 7/7. One full pytest run reported 3,513
+  passed and one stale transition failure; the stale test was corrected and a
+  focused closure passed 206 checks. No second broad run was performed.
+- The M16 fixture-backed, no-egress public `--yesterday` demonstration ran twice
+  for fixed `2026-08-28`; the second run automatically replaced the date and
+  reached a completed/degraded outcome with bundle-v7, publication-v4, sealed
+  reader-page integrity, and no external route. It is not a prose-quality claim.
+- `docs/BLOG_CONTRACT.md` remained byte-identical at SHA-256
+  `306674359d086e28a1b952da5b5774a23524eb2e424208dec8683da5d5378a00`.
+- Focused verification of the pre-merge audit fixes is pending; this record does
+  not add a test-result claim.
+
+## 2026-08-29 (M13 observability/retention and M14 validation acceptance)
+
+### Decisions and Failures
+
+- Corrected the remaining M14--M16 plan gates so completion is unattended: the required validation
+  evidence is a self-generated no-egress five-case matrix, optional local historical observations
+  have a structured unavailable disposition, and live model/network work is optional enrichment.
+  The M14 reviewer rule is now publication/page verification plus recorded evidence-tuple and
+  explanation parity, not a subjective prose-quality gate.
+- Sequenced M15 verification by test tier: record and remove temporary E2Es before the aggregate
+  runner, use focused checks and the controlled E2E per coherent group, then run aggregate E2E and
+  full pytest once after the coordinated migration. Retained prompt identities are mechanically
+  checked without editing or approving prompt prose; M16 will document automatic same-date
+  replacement using controlled E2E evidence.
+- Added M16's final reader-visible Aug. 28 demonstration: the public `make_blog.py --yesterday`
+  semantics must yield recorded terminal-summary, sealed-bundle, and published-page evidence.
+  Controlled self-generated no-egress evidence injection is the completion path; any live external
+  run is optional and provenance-labelled rather than a claim about synthetic prose quality.
+- Accepted M14's mechanically reviewed durable validation record: five self-generated fixed-date,
+  no-egress fixture cases reached verified pages with sealed provenance-to-publication evidence.
+  The accepted record distinguishes editorial degradation from typed pipeline faults, keeps local
+  historical and live external work non-gating, and leaves the Aug. 28 public-entrypoint proof to
+  M16.
+
+### Additions and New Features
+
+- Accepted direct date-owned run records with bounded redacted step events, terminal date summaries,
+  and an advisory reliability reporter that preserves raw counts and absent-population `n/a` values.
+
+### Behavior or Interface Changes
+
+- Run retention is now an explicit, command-start-age policy under the date lock. It retains the
+  date-level publication and summary while expiring only validated terminal receipted run children.
+  Descriptor-relative no-follow traversal prevents redirected deletion targets.
+
+### Developer Tests and Notes
+
+- Final security and permanent-test-policy re-reviews accepted the descriptor-pinned retention and
+  offline durable-behavior test boundary. Independent focused verification reported 71 checks; the
+  manager's M13 selection reported 127 focused tests and the sole controlled publication E2E
+  passing. No broad suite was run.
+- `docs/BLOG_CONTRACT.md` remained byte-identical at SHA-256
+  `306674359d086e28a1b952da5b5774a23524eb2e424208dec8683da5d5378a00`.
+- `pipeline/daily_blog/orchestrator.py` exceeds the repository source-size limit. M15 must split or
+  remove superseded paths before its full-suite removal gate; this acceptance grants no exception.
+- Matrix and RunStore source, security, and test-policy reviews accepted the bounded
+  descriptor/observability boundary. The durable record retains `detailed_retention_days: null`
+  because no grounded positive-day value exists and names every temporary M14 harness for deletion
+  before M15 aggregate E2E.
+
+## 2026-08-29 (M12 multi-repository acceptance)
+
+### Behavior or Interface Changes
+
+- Accepted the multi-repository editorial boundary: one frozen repository projection set drives
+  capacity, concurrent repository-isolated Stage 3/4 jobs share one run budget, and only validated
+  eligible work enters the serialized durable cache and canonical survivor join.
+- Cache fingerprints now use portable semantic input rather than transient run or filesystem
+  identity. Partial route failure preserves eligible grounded work; no surviving publishable pair
+  produces a typed evidence-grounded pipeline fault rather than assembled prose.
+
+### Fixes and Maintenance
+
+- Removed stale provider and executor-topology tests per `PYTEST_STYLE.md`; they encoded obsolete
+  implementation seams rather than durable user-visible behavior.
+
+### Developer Tests and Notes
+
+- Independent cache/capacity, source-ownership, adversarial-concurrency, and final acceptance
+  reviews accepted M12. The affected focused suite passed 174 tests in 3.54 seconds and the
+  controlled `tests/e2e/e2e_daily_publication.py` passed. No broad suite was run.
+- `docs/BLOG_CONTRACT.md` remained byte-identical at SHA-256
+  `306674359d086e28a1b952da5b5774a23524eb2e424208dec8683da5d5378a00`.
+
+## 2026-08-29 (M11 Stage 7 acceptance)
+
+### Behavior or Interface Changes
+
+- Accepted Stage 7 synthesis as an incumbent-preserving editorial decision. An eligible challenger
+  advances only on demonstrated direct improvement; synthesis loss or no demonstrated improvement
+  preserves the exact grounded Stage-6 post through Stage 8 and publication.
+- Recorded exact recovery-generation lineage, a truthful two-summary legacy importer projection,
+  and logical root-contained operational run-state paths. Existing evidence-v4 absolute cache
+  paths remain an explicit versioned producer/publisher migration boundary.
+
+### Developer Tests and Notes
+
+- Final behavior review accepted 133 lean focused tests and the controlled
+  `tests/e2e/e2e_daily_publication.py` path. `docs/BLOG_CONTRACT.md` remained byte-identical at
+  SHA-256 `306674359d086e28a1b952da5b5774a23524eb2e424208dec8683da5d5378a00`.
+- The Stage-7 and recovery E2Es remain one-time implementation evidence. M14 will record their
+  commands and results, then remove them; they are not permanent gates.
+
+## 2026-08-29 (M10 Stage 5 acceptance)
+
+### Additions and New Features
+
+- Accepted the Stage 5 daily-outline path: independent ranking and outline candidates, strict
+  reviewed promotion with bounded structured-verdict repair, scope-marked Stage 6 handoff, retained
+  low-ranked context, and typed terminal recovery without mechanical prose assembly.
+
+### Behavior or Interface Changes
+
+- Production now runs Stage 5 before Stage 6 with the same route-budget and cache objects. Its
+  sequential call capacity reserves Stage 5 plus Stage 6; Stage-5 summaries are non-incumbent and
+  Stage 6 alone may advance the publishable artifact.
+
+### Developer Tests and Notes
+
+- Final architect acceptance recorded 41 focused integration/recovery tests, 33 focused Stage-5
+  tests, the no-egress daily-outline E2E, and the controlled publication E2E. Compilation,
+  Pyflakes, and diff checks passed; no broad or static suite was run. `docs/BLOG_CONTRACT.md`
+  remained byte-identical at SHA-256
+  `306674359d086e28a1b952da5b5774a23524eb2e424208dec8683da5d5378a00`.
+
 ## 2026-08-29
+
+### Additions and New Features
+
+- Added independently resumable complete-post route calls, bounded parallel execution, replicated
+  pairwise review, strict structured-verdict repair, and pure incumbent-preserving promotion. The
+  coordinator retains eligible author work across retries and writes all shared cache and run state
+  serially.
+- Added run-state v5 editorial reliability summaries with raw attempt, success, failure, reuse,
+  repair, and disagreement counts plus one explicit `best_artifact_id`. Bounded lifecycle events
+  expose those facts without prompts, model output, or raw external diagnostics.
+
+### Behavior or Interface Changes
+
+- Production complete-post generation now requests three independent candidates and three reviews
+  per eligible pair, with at most six simultaneous calls and a 24-call run budget. Counts and limits
+  remain settings-owned and cache identities retain compatible ordinal work when they change.
+- Expected route and verdict failures now degrade the matching editorial step while eligible whole
+  posts continue. No eligible post records `editorial_blocked`; corrupted caches, unsafe identity or
+  path state, invalid configuration, and unexpected defects remain pipeline failures.
+- Replaced positional and all-or-nothing referee behavior with stable eligible-peer promotion.
+  Candidate order varies deterministically, duplicate alternatives are observable, one malformed
+  verdict receives a bounded repair attempt, and no fallback mechanically assembles final prose.
 
 ### Fixes and Maintenance
 
@@ -8,6 +195,13 @@
 
 ### Developer Tests and Notes
 
+- Replicated-editorial focused coverage passed 106 tests, including a coordinator-level degraded
+  author path through validation and promotion. The daily-blog pytest selection passed 1,158 tests;
+  its only two failures were established shebang/executable-bit findings outside this change.
+- The full suite passed 2,584 tests. Seven hygiene checks failed: six established findings in
+  unrelated automation/E2E files and one new-file Markdown-link visibility issue that was corrected
+  and then passed with the 64-test Markdown/reliability selection. The controlled publication E2E
+  could not start because its sealed `out/` fixture is absent from this checkout.
 - F7 accepted: Python 3.12.13 producer suite 2,450 passed with 0 failures; Python 3.13.5 publisher
   suite 1,362 passed with 0 failures; publisher hygiene 310 passed; strict disposable MkDocs build;
   publication, 12-case crash, and schedule E2Es; and four independent requirements, security,

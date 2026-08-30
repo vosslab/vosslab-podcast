@@ -1,4 +1,23 @@
 Codex Project Transcript
+
+---
+Session Update: 2026-08-30 (M15 direct bundle-v7 boundary)
+
+What changed
+- Advanced the paired producer/publisher handoff to the sole
+  `vosslab.daily-blog.bundle.v7` contract.
+- Kept the selected Stage-8 post, its artifact identity, and sealed evidence,
+  projection, roster, asset, activation, prompt-contract, and digest bindings.
+- Removed candidate/referee topology from the publisher import boundary.
+
+What was tested
+- Focused producer bundle, state, publisher, and M5 integration tests.
+- Focused publisher bundle-import and roster-validation tests.
+- Controlled no-egress daily-publication E2E.
+
+Next actions
+1. Complete the remaining M15 removal and documentation sweep.
+2. Run aggregate verification only after temporary E2Es are removed.
 Date: 2026-02-20
 Location: /Users/pierre/job_campus/vosslab_podcast
 
@@ -2688,3 +2707,269 @@ What was tested
 
 Next actions
 1. None. The daily-blog maker-voice fixup is complete.
+
+---
+Session Update: 2026-08-29 (Replicated complete-post reliability vertical slice)
+
+What changed
+- Preserved the activated V4 prompt, rubric, repair, example, evidence, bundle, and Hermes route
+  bytes while replacing production's all-or-nothing two-author/referee execution with independently
+  resumable complete-post calls, bounded parallelism, replicated pairwise review, and stable
+  eligible-artifact promotion.
+- Added typed route timeout, startup, process, and empty-response outcomes. Expected external and
+  structured-verdict failures become categorical editorial observations; corrupted cache state,
+  unsafe identity/path state, invalid configuration, and unexpected defects remain pipeline faults.
+- Added run-state v5 with `succeeded`, `degraded`, and `failed` outcomes, ordered factual editorial
+  summaries, explicit `best_artifact_id`, bounded step events, and `editorial_blocked` as the distinct
+  terminal category when no mechanically eligible complete post exists.
+- Added per-call SHA-256-verified cache entries. The coordinator alone writes shared cache and run
+  state, eligible author responses survive retries, failed or ineligible calls remain retryable, and
+  increasing configured replication retains compatible ordinal work.
+- Configured production for three complete-post candidates, three reviewers per eligible pair, six
+  simultaneous calls, and a 24-call run-wide budget. No fallback assembles final prose; review
+  outage can select only an intact mechanically eligible peer.
+- Updated README, architecture, file-structure, file-format, operations, and changelog documentation.
+  Human-owned `docs/BLOG_CONTRACT.md` and all approved production prompt resources remain unchanged.
+
+What was tested
+- The replicated-editorial, existing editorial/evidence/contract/route, and bundle selection passed
+  106 focused tests. A coordinator-level test forced one author process failure and still completed
+  validation, review, and promotion with a durable degraded outcome and incumbent identity.
+- The daily-blog pytest selection passed 1,158 tests. Its two failures were established
+  shebang/executable-bit findings in unrelated automation scripts.
+- The full suite passed 2,584 tests. Seven hygiene checks failed: six established findings in
+  unrelated automation/E2E files and one untracked-new-file Markdown-link visibility finding. The
+  documentation link was corrected and the 64-test Markdown/reliability selection then passed.
+- Python compilation, Pyflakes, changed-source line length, source-file size, diff whitespace, cache
+  hash rejection, partial route failure, total review outage, unknown-artifact rejection, incumbent
+  preservation, and run-state round trips passed.
+- The controlled producer-to-publisher E2E could not start because its required sealed `out/`
+  fixture is absent from this checkout; it failed before exercising changed code.
+
+Next actions
+1. Obtain explicit human approval to author the genuinely new production prompt and rubric assets
+   required for repository outlines, repository stories, ranking, daily outlines, editing, and final
+   synthesis. The approved V4 complete-post package remains frozen.
+2. Reuse the new route, cache, promotion, and reliability contracts to add those Stage 3-5 and Stage
+   7 editorial paths, always comparing later complete-post work against the incumbent.
+3. Restore the sealed E2E fixture or provide its approved path, then rerun the controlled publication
+   proof and the existing aggregate E2E suite.
+
+---
+Session Update: 2026-08-29 (M10 Stage 5 final acceptance)
+
+What changed
+- Accepted M10 Stage 5: independently replicated rankers and outline writers, strict reviewed
+  promotion with bounded repair, retained low-ranked context, scope-marked Stage-6 input, typed
+  terminal recovery, and the real Stage-5-to-Stage-6 orchestrator handoff.
+- Stage-5 run-state summaries remain non-incumbent; shared run-owned budget/cache objects span the
+  sequential Stage 5 and Stage 6 production path.
+
+What was tested
+- Final architect gate accepted 41 focused integration/recovery tests and 33 focused Stage-5 tests.
+  The no-egress daily-outline E2E and controlled-publication E2E passed. Compilation, Pyflakes, and
+  diff whitespace passed; no broad or static suite was run.
+- `docs/BLOG_CONTRACT.md` remained byte-identical at SHA-256
+  `306674359d086e28a1b952da5b5774a23524eb2e424208dec8683da5d5378a00`.
+
+Next actions
+1. Start M11 P and C in parallel: final-synthesis prompt contract and standalone configuration.
+2. Join W, J, and G in order: synthesis/incumbent comparison, production integration, and final gate.
+
+---
+Session Update: 2026-08-29 (M11 Stage 7 final acceptance)
+
+What changed
+- Accepted M11 Stage 7 as an incumbent-preserving editorial path. A synthesis challenger advances
+  only after demonstrated direct improvement; synthesis loss or no improvement preserves the exact
+  grounded Stage-6 incumbent through Stage 8 and publication.
+- Recorded exact recovery-generation provenance, the truthful two-summary legacy importer bridge,
+  and logical, root-contained operational run-state references. Evidence-v4 cache-path semantics
+  remain a deliberate versioned migration boundary rather than a partial redaction change.
+
+What was tested
+- Final behavior review accepted 133 lean focused tests and the controlled
+  `tests/e2e/e2e_daily_publication.py` path. No broad or static suite was run.
+- `docs/BLOG_CONTRACT.md` remained byte-identical at SHA-256
+  `306674359d086e28a1b952da5b5774a23524eb2e424208dec8683da5d5378a00`.
+- The Stage-7 and recovery E2Es are recorded one-time implementation evidence, not permanent test
+  gates; M14 will preserve their commands and results before removing them.
+
+Next actions
+1. Start M12 at its single multi-repository concurrency boundary: one route budget,
+   repository-isolated complete cache fingerprints, and coordinator-serialized durable writes.
+
+---
+Session Update: 2026-08-29 (M12 multi-repository final acceptance)
+
+What changed
+- Accepted M12: one frozen repository projection set now drives capacity planning and concurrent,
+  repository-isolated Stage 3/4 editorial jobs under one run-owned route budget.
+- Accepted portable semantic cache fingerprints, validated cache admission, canonical survivor
+  joining, serialized durable effects, partial-failure preservation, and typed evidence-grounded
+  zero-survivor faults. Stale provider/topology tests were removed under `PYTEST_STYLE.md` rather
+  than preserved as compatibility requirements.
+
+What was tested
+- Package A cache/capacity review, B/C source review, adversarial concurrency review, and the
+  independent final acceptance review accepted the M12 behavior.
+- The affected focused suite passed 174 tests in 3.54 seconds. The controlled
+  `source source_me.sh && python3 tests/e2e/e2e_daily_publication.py` passed. No broad suite ran.
+- `docs/BLOG_CONTRACT.md` remained byte-identical at SHA-256
+  `306674359d086e28a1b952da5b5774a23524eb2e424208dec8683da5d5378a00`.
+
+Next actions
+1. Begin M13: add bounded factual event summaries, an advisory reporter, and retention derived
+   from measured run evidence without turning observations into arbitrary publication gates.
+
+---
+Session Update: 2026-08-29 (M13 observability and retention acceptance)
+
+What changed
+- Accepted M13's direct date-owned run layout, bounded redacted step events, terminal summaries,
+  advisory raw-count reporter, and closed distinction between editorial degradation, pipeline
+  faults, and incomplete operational failure.
+- Accepted optional creation-time retention under the held date lock. It preserves the publication
+  and date summary, and uses descriptor-relative no-follow removal only for validated terminal,
+  receipted direct run children.
+- Kept the advisory reporter observational: it reports raw numerators and denominators without
+  turning reliability observations into an arbitrary publication threshold.
+
+What was tested
+- Independent final acceptance reported 71 focused checks. The manager's M13 selection reported
+  127 focused tests and the sole controlled `tests/e2e/e2e_daily_publication.py` passing.
+- Final security review accepted the parent-swap retention repair and bounded journal reads; the
+  test-policy re-review accepted the offline durable-behavior suite. No broad suite ran.
+- `docs/BLOG_CONTRACT.md` remained byte-identical at SHA-256
+  `306674359d086e28a1b952da5b5774a23524eb2e424208dec8683da5d5378a00`.
+
+Next actions
+1. Run M14 fixture-to-publication and historical-date evidence, record one-time harness commands
+   and artifact digests, and measure retained run footprint before choosing any retention default.
+2. In M15, split or remove superseded paths from `pipeline/daily_blog/orchestrator.py` so it again
+   satisfies the repository source-size limit before the full-suite removal gate.
+
+---
+Session Update: 2026-08-29 (Unattended M14--M16 completion correction)
+
+What changed
+- Updated the remaining plan and active tracker so M14 requires five self-generated no-egress
+  fixture cases, including busy and quiet, rather than any manual artifact transfer or live service.
+- Made local historical capture optional corroboration with a structured unavailable result; live
+  `--yesterday`, model, network, and credentials are optional `not_run` enrichment.
+- Defined the M14 reviewer gate mechanically: recorded integrity, verified publication/page, and
+  evidence-tuple/explanation parity. Editorial prose quality remains outside this completion gate.
+- Replaced repeated broad-test requirements with focused checks plus the controlled E2E per
+  coherent M15 group, followed by aggregate E2E and full pytest once after the coordinated sweep.
+- Required mechanical retained-prompt identity checks without prompt edits or approval, and M16
+  documentation of verified automatic same-date replacement.
+
+What was tested
+- Read the unattended-completion audit, current plan/tracker, repository test policy, and Human
+  Guidance; preserved the protected blog contract hash.
+- Verified Markdown patch structure and planned a whitespace diff check; no source or test files
+  were changed.
+
+Next actions
+1. Complete the five-case no-egress M14 matrix and record its mechanically reviewable report.
+2. Remove recorded temporary E2Es before the M15 aggregate E2E, then complete the coordinated
+   migration and documentation close-out without human, credential, network, or commit gates.
+
+---
+Session Update: 2026-08-29 (Aug. 28 final public-entrypoint demonstration plan)
+
+What changed
+- Added a bounded M16 final demonstration: show a reader-visible `report_date=2026-08-28`
+  publication through public `make_blog.py --yesterday` semantics with terminal-summary, sealed
+  bundle, and published-page evidence.
+- The required unattended path is controlled/self-generated no-egress evidence injection when an
+  external route is unavailable. A live model/network run is optional, records `not_run` or its
+  unavailable reason without credentials or human action, and is clearly labelled fixture-backed
+  or live; synthetic prose is not presented as editorial-quality proof.
+
+What was tested
+- Checked Markdown patch structure and `docs/BLOG_CONTRACT.md` protection before documentation-only
+  planning changes.
+
+Next actions
+1. Complete M14 and M15; then execute and record the controlled Aug. 28 public-entrypoint
+   demonstration as part of M16 without making live external access a completion dependency.
+
+---
+Session Update: 2026-08-29 (M14 automated validation acceptance)
+
+What changed
+- Accepted M14's durable mechanical record in
+  `docs/active_plans/reports/daily_blog_rebuild_validation.md`.
+- The accepted matrix contains five self-generated fixed-date no-egress cases: quiet, busy,
+  single-repository, screenshot-bearing, and degraded-dependency. Each records provenance,
+  terminal evidence, sealed bundle, and verified reader page.
+- The record separates editorial degradation from typed pipeline faults, preserves the retention
+  setting as `null` absent grounded positive-day capacity evidence, and records temporary-harness
+  deletion obligations for M15. Local historical material and live external `--yesterday` remain
+  non-gating; M16 still owns the Aug. 28 public-entrypoint demonstration.
+
+What was tested
+- Final durable-report evidence and governance/test-policy rereviews accepted the five-case record,
+  its no-egress integrity/publication/page checks, and the M15 disposition inventory.
+- Matrix and RunStore source, security, and test-policy reviews accepted their respective bounded
+  descriptor/observability and permanent-test boundaries. `git diff --check` passed, and
+  `docs/BLOG_CONTRACT.md` remained SHA-256
+  `306674359d086e28a1b952da5b5774a23524eb2e424208dec8683da5d5378a00`.
+
+Next actions
+1. Start M15's coordinated consumer migration and remove the recorded temporary E2Es before its
+   aggregate E2E run. Preserve prompt text and resolve the `orchestrator.py` source-size follow-on.
+2. Keep M16 pending for the controlled Aug. 28 `make_blog.py --yesterday` demonstration and final
+   documentation closure.
+
+---
+Session Update: 2026-08-30 (M15--M16 daily-blog rebuild closeout)
+
+Change
+- Closed the robust nine-stage editorial pipeline: independent editorial paths, typed
+  incumbent/recovery transitions, and v7 bundle / publication-v4 publication integrity now replace
+  the retired experiment paths.
+- Updated the current documentation and archived superseded planning and bring-up material; the
+  current interface and operational records describe the active pipeline rather than retired
+  calibration, shadow, or attestation routes.
+- Recorded the fixed-clock, fixture-backed, no-egress public `--yesterday` demonstration for
+  2026-08-28. It completed twice against a disposable publisher; the second invocation replaced
+  the same-date publication and produced a disposable reader page. This is not a live
+  prose-quality claim.
+- Preserved the protected contract byte-for-byte at SHA-256
+  `306674359d086e28a1b952da5b5774a23524eb2e424208dec8683da5d5378a00`.
+
+Tests
+- M15 aggregate controlled E2E: 7/7 passed.
+- M15 full suite was run once: 3513 passed and 1 stale transition assertion failed; its narrow
+  focused closure passed 206 checks. No broad suite was rerun.
+- M15 final observational hygiene preflight: 1328 passed.
+- M16 pre-final checks passed: 64 Markdown-link checks, `git diff --check`, and the protected
+  contract hash verification.
+
+Next actions
+1. No required daily-blog rebuild milestone remains.
+2. Optional live-route corroboration may be added later as non-gating evidence; it must remain
+   distinct from the completed fixture-backed publication proof.
+
+---
+Session Update: 2026-08-30 (repository-wide audit closeout)
+
+Change
+- Completed six independent audit passes across the repository.
+- Repaired the index-resurrection blocker, removed two invalid permanent pytests, corrected
+  run-path documentation, archived the stale plan review, fixed comments and visual separators,
+  and updated the changelog.
+
+Tests
+- Focused read-only audit-fix gate: 1386 passed in 6.09s.
+- Staged and unstaged diff checks were clean; the protected contract SHA remained exact.
+- No full pytest or E2E suite was rerun.
+
+Next actions
+1. Resolve the remaining design-level findings before merge: the duplicate dead
+   `editorial_workflow` Stage 6 path; dead fixture-route and `atomic_paths` surfaces; prompt,
+   topology, and schema pytest pruning under `docs/PYTEST_STYLE.md`; daily-outline readability;
+   and config-facade ownership.
+2. This audit does not claim the repository is merge-ready.

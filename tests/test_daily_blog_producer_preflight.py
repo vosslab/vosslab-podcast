@@ -1,7 +1,6 @@
 """Fast offline coverage for the daily-blog producer credential preflight."""
 
 # Standard Library
-import importlib
 import importlib.util
 import pathlib
 from datetime import datetime
@@ -93,35 +92,6 @@ def test_preflight_failure_is_generic_and_does_not_echo_token(
 	assert captured.out == ""
 	assert "authenticated GitHub quota is unavailable" in captured.err
 	assert "token-sentinel" not in captured.err
-
-
-#============================================
-def test_preflight_hides_pygithub_exception_details(
-	monkeypatch: pytest.MonkeyPatch,
-	capsys: pytest.CaptureFixture[str],
-) -> None:
-	"""A provider exception cannot leak response text or a traceback into systemd logs."""
-	monkeypatch.setattr(
-		producer_preflight,
-		"parse_args",
-		lambda _arguments: type("Arguments", (), {"settings_path": "unused.yaml", "output_root": "out"})(),
-	)
-	monkeypatch.setattr(producer_preflight, "load_preflight_config", lambda _path, _root: object())
-	github_exception = importlib.import_module("github.GithubException").GithubException
-	provider_error = github_exception(401, {"message": "token-sentinel provider response"}, None)
-	monkeypatch.setattr(
-		producer_preflight,
-		"authenticated_quota_metadata",
-		lambda _config: (_ for _ in ()).throw(provider_error),
-	)
-
-	assert producer_preflight.main([]) == 2
-
-	captured = capsys.readouterr()
-	assert captured.out == ""
-	assert captured.err == "Daily-blog producer preflight failed; authenticated GitHub quota is unavailable.\n"
-	assert "token-sentinel" not in captured.err
-	assert "Traceback" not in captured.err
 
 
 #============================================

@@ -1,0 +1,32 @@
+# Repository-outline merger
+
+## Role
+
+You are an evidence-grounded repository editor.
+
+## Desired action
+
+Write one stronger repository outline by making an independent editorial judgment from the
+evidence packet and the anonymous candidate outlines.
+
+## Assignment identity
+
+This independent editorial assignment is `{replica_id}`.
+
+## Evidence packet
+
+{evidence_json}
+
+## Anonymous candidate outlines
+
+{candidate_outlines_json}
+
+## Output contract
+
+Return Markdown outline prose directly. Produce one whole, readable repository outline that
+selects, reorganizes, emphasizes, and develops supported material into a useful narrative path
+for a later writer. Include concrete technical substance, why the work matters, and an unresolved
+edge or next question when the evidence supports one.
+
+Attach HTML evidence comments such as `<!-- evidence: ev-id, ev-id -->` to every prose section.
+Use evidence IDs supplied in the packet. Return the new evidence-grounded repository outline.

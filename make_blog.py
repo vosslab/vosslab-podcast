@@ -3,7 +3,9 @@
 
 # Standard Library
 import argparse
+import collections.abc
 import datetime
+import json
 import os
 import pathlib
 import re
@@ -66,6 +68,7 @@ if str(PIPELINE_DIR) not in sys.path:
 # local repo modules
 import automation.publish_daily_blog  # type: ignore[import-untyped]  # noqa: E402
 import daily_blog.config  # type: ignore[import-untyped]  # noqa: E402
+import daily_blog.recovery  # type: ignore[import-untyped]  # noqa: E402
 
 
 #============================================
@@ -114,7 +117,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 	Returns:
 		Validated command-line arguments with any explicit date canonicalized.
 	"""
-	parser = argparse.ArgumentParser(description=__doc__)
+	parser = argparse.ArgumentParser(description=__doc__, allow_abbrev=False)
 	# ASVS 2.3.1: one mutually exclusive selector prevents a skipped or conflicting date flow.
 	date_group = parser.add_mutually_exclusive_group(required=True)
 	date_group.add_argument(
@@ -134,10 +137,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 	parser.add_argument(
 		"-y",
 		"--yes",
+		dest="yes",
 		action="store_true",
-		help="Replace an occupied publication date without an interactive prompt.",
+		help="Replace an existing explicitly selected date without prompting.",
 	)
 	args = parser.parse_args(argv)
+	if args.yesterday and args.yes:
+		parser.error("--yes applies only with --date; --yesterday replaces automatically.")
 	return args
 
 
@@ -168,48 +174,112 @@ def selected_report_date(args: argparse.Namespace, timezone_name: str) -> str:
 
 
 #============================================
-def confirm_replacement(report_date: str) -> bool:
-	"""Ask a terminal operator to replace one existing publication, defaulting to preserve.
+def _prepare_publication(argv: list[str] | None) -> tuple[object, str, argparse.Namespace]:
+	"""Parse one command selection and report the canonical date before publishing.
 
 	Args:
-		report_date: Sole identity of the existing publication.
+		argv: Optional explicit argument list for tests and command callers.
 
 	Returns:
-		True only for one explicit ``y`` response from an interactive terminal.
-	"""
-	if not sys.stdin.isatty():
-		print("Existing publication detected; non-interactive run preserves it.")
-		return False
-	response = input(f"Overwrite {report_date}? [N/y]: ")
-	# ASVS 2.2.1: replacement has one intentionally narrow affirmative value.
-	return response == "y"
-
-
-#============================================
-def preauthorized_replacement(_report_date: str) -> bool:
-	"""Authorize an explicitly requested replacement without terminal input."""
-	# ASVS 2.3.1: this callback is selected only from the parsed --yes intent.
-	return True
-
-
-#============================================
-def main(argv: list[str] | None = None) -> None:
-	"""Select one date and run the date-owned publication workflow.
-
-	Args:
-		argv: Optional explicit argument list for tests and programmatic callers.
+		The loaded configuration, canonical selected report date, and validated CLI request.
 	"""
 	args = parse_args(argv)
 	config = daily_blog.config.load_config(str(SETTINGS_PATH), output_root=str(OUTPUT_ROOT))
 	report_date = selected_report_date(args, config.report_timezone)
 	print(f"Selected report date: {report_date}")
-	replacement_decider = preauthorized_replacement if args.yes else confirm_replacement
-	automation.publish_daily_blog.publish_report_date(
-		config,
-		report_date,
-		replacement_decider=replacement_decider,
+	return config, report_date, args
+
+
+#============================================
+def _publish(
+	config: object,
+	report_date: str,
+	runtime: object | None,
+	*,
+	replace_existing: bool,
+	confirm_replace: collections.abc.Callable[[str], str] | None,
+) -> bool:
+	"""Run the configured date-owned publication service under one replacement policy."""
+	if runtime is None:
+		return automation.publish_daily_blog.publish_report_date(
+			config, report_date, replace_existing=replace_existing, confirm_replace=confirm_replace,
+		)
+	return automation.publish_daily_blog.publish_report_date(
+		config, report_date, runtime=runtime, replace_existing=replace_existing,
+		confirm_replace=confirm_replace,
 	)
 
 
+#============================================
+def _replacement_policy(
+	args: argparse.Namespace,
+	confirmation: collections.abc.Callable[[str], str] | None,
+) -> tuple[bool, collections.abc.Callable[[str], str] | None]:
+	"""Return the date-selection-owned authorization policy for an occupied publication."""
+	if args.yesterday or args.yes:
+		return True, None
+	return False, confirmation if confirmation is not None else input
+
+
+#============================================
+def main(
+	argv: list[str] | None = None,
+	*,
+	runtime: object | None = None,
+	confirmation: collections.abc.Callable[[str], str] | None = None,
+) -> None:
+	"""Select one date and run the date-owned publication workflow.
+
+	Args:
+		argv: Optional explicit argument list for tests and programmatic callers.
+	"""
+	config, report_date, args = _prepare_publication(argv)
+	replace_existing, confirm_replace = _replacement_policy(args, confirmation)
+	_publish(
+		config, report_date, runtime, replace_existing=replace_existing, confirm_replace=confirm_replace,
+	)
+
+
+#============================================
+def command(
+	argv: list[str] | None = None,
+	*,
+	runtime: object | None = None,
+	confirmation: collections.abc.Callable[[str], str] | None = None,
+) -> int:
+	"""Run the public command and serialize only a diagnosed terminal pipeline fault.
+
+	Args:
+		argv: Optional explicit argument list for command callers.
+		runtime: Optional deterministic runtime for tests and controlled execution.
+
+	Returns:
+		Zero after publication or a declined replacement, or two after one typed terminal pipeline fault.
+
+	Raises:
+		SystemExit: The argparse parser retains its native validation status.
+		Exception: Unexpected configuration and implementation defects remain visible.
+	"""
+	config, report_date, args = _prepare_publication(argv)
+	replace_existing, confirm_replace = _replacement_policy(args, confirmation)
+	try:
+		_publish(
+			config, report_date, runtime, replace_existing=replace_existing,
+			confirm_replace=confirm_replace,
+		)
+	except daily_blog.recovery.PipelineFaultError as error:
+		# The fault object has already validated every field below. This is the sole CLI projection.
+		payload = {
+			"artifact_name": error.artifact_name,
+			"category": error.category.value,
+			"digest_sha256": error.digest_sha256,
+			"report_date": report_date,
+			"status": "pipeline_fault",
+		}
+		print(json.dumps(payload, sort_keys=True, separators=(",", ":")), file=sys.stderr)
+		return 2
+	return 0
+
+
 if __name__ == "__main__":
-	main()
+	raise SystemExit(command())

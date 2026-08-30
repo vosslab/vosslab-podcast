@@ -34,12 +34,14 @@ integrity without defining a second publication identity.
 **Why.** A daily report has one natural identity. Keeping its artifacts date-owned makes inspection,
 replacement, and recovery direct while preserving a clear checksum for independent validation.
 
-**Consequence.** One per-date lock covers receipt inspection, generation, and import. An interactive
-root command confirms replacement for an existing date; non-interactive runs preserve a coherent
-existing publication. Confirmed replacement exchanges each stable directory without a visibility
-gap and writes the publication record last as the authoritative transaction commit.
+**Consequence.** One per-date lock covers receipt inspection, generation, and import. The unattended
+`--yesterday` selector automatically replaces an occupied date. An occupied explicit `--date`
+selector asks for confirmation unless `--yes` preauthorizes replacement; a declined confirmation
+leaves the existing publication unchanged. Each replacement exchanges stable directories without a
+visibility gap and writes the publication record last as the authoritative transaction commit.
 
-**Owner.** `make_blog.py`, `daily_blog.orchestrator`, `daily_blog.bundles`,
+**Owner.** `make_blog.py`, `daily_blog.orchestrator`,
+`daily_blog.publication_contract`, `daily_blog.publication_storage`,
 `daily_blog.publication_state`, and the publisher import contract.
 
 ### systemd schedules and Hermes executes models
@@ -91,27 +93,27 @@ text changes require a separate plan; live routes remain optional corroboration.
 **Owner.** `docs/HUMAN_GUIDANCE.md`, `pipeline/prompts/`, and
 `daily_blog.editorial.prompt_contract_identity()`.
 
-### Prompt-quality evidence has two immutable stages
+### Historical prompt-quality acceptance had two immutable stages
 
-**Decision.** Prompt-quality evidence is owned as two independently immutable stages. A fresh
-experiment capture establishes the candidate result without historical-context sharing. A
-deterministic, non-publishing attestation then verifies that capture against a passing historical
-rubric calibration and records their exact identities. Activation is a separate producer-and-
-publisher change that names the exact passing attestation it adopts.
+**Decision.** Before the v4 maker activation, prompt-quality acceptance used two independently
+immutable stages. A fixture-backed experiment capture established a candidate result without
+historical-context sharing. A deterministic, non-publishing attestation then verified that capture
+against a passing historical rubric calibration and recorded their exact identities. Activation was
+a separate producer-and-publisher change that named the passing attestation it adopted.
 
 **Why.** Fresh candidate evaluation and historical rubric calibration answer different questions
 and carry different sharing authority. Binding them only through deterministic attestation makes
 the approval evidence inspectable, reproducible, and unable to turn a historical-sharing approval
 into permission for capture or publication.
 
-**Consequence.** The pre-production cutover adopts the two-stage contract cleanly: no legacy
-evidence format, inferred calibration, compatibility alias, or implicit activation remains.
-Producer and publisher activation changes cite and verify one immutable passing attestation before
-they make the selected prompt contract active.
+**Consequence.** This process remains historical acceptance provenance, not a current production
+path. Its capture, calibration, and attestation runners are retired and are not operational
+commands or ownership boundaries. Production validates the active immutable prompt registry and
+sealed maker activation without reopening the historical procedure.
 
-**Owner.** `pipeline/daily_blog/experiment_capture_artifacts.py`,
-`pipeline/daily_blog/rubric_calibration.py`, and
-`pipeline/daily_blog/experiment_attestation.py`.
+**Owner.** `daily_blog_maker_activation.json` and
+`pipeline/daily_blog/prompt_registry.py`; historical evidence remains recorded in
+`docs/active_plans/reports/`.
 
 ### Experimental examples bind identity
 
@@ -128,11 +130,12 @@ turning a scorecard into prose instructions.
 `v4-three-examples-corpus-v2`. Active v4-maker policy v3 uses immutable validation-policy digest
 `3a4b7148579e509b6c32fa19b31d107dc4278eb5f721b2a01353a1a9a51264ee` with
 `projected_repositories` and `reader_visible_markdown`. Policy versions 1 and 2 fail closed. The
-producer binds snapshot, generator identity, bundle, and reuse identity; the publisher independently
-recomputes and enforces the active bundle v5 import contract.
+producer seals the snapshot, generator identity, and selected artifact in the bundle-v7 boundary;
+the sibling publisher independently validates that boundary and records a publication-v4 receipt.
 
-**Owner.** `pipeline/daily_blog/contracts.py`, `pipeline/daily_blog/editorial.py`, and
-`pipeline/prompts/daily_blog_voice_examples_v4.md`.
+**Owner.** `pipeline/daily_blog/prompt_registry.py`, `pipeline/daily_blog/editorial.py`,
+`daily_blog_maker_activation.json`, `pipeline/daily_blog/publication_contract.py`, and
+`pipeline/daily_blog/publication_storage.py`.
 
 ### Propagation records consumer maintenance
 

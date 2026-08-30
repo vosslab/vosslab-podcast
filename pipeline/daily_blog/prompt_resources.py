@@ -37,3 +37,25 @@ def load_allowlisted_instruction_prompt(
 		raise RuntimeError(f"Prompt template is empty: {name}")
 	text = podlib.prompt_loader.validate_positive_instructions(text, name)
 	return text
+
+
+#============================================
+def load_allowlisted_instruction_prompt_with_bytes(
+	name: str,
+	names: frozenset[str],
+	role: str,
+) -> tuple[str, bytes]:
+	"""Read one trusted prompt while retaining exact bytes for its identity."""
+	if name not in names:
+		raise RuntimeError(f"Prompt template name is not allowlisted for {role}.")
+	path = prompt_resource_path(name)
+	with open(path, "rb") as handle:
+		contents = handle.read()
+	try:
+		text = contents.decode("utf-8").strip()
+	except UnicodeDecodeError as error:
+		raise RuntimeError(f"Prompt template is not UTF-8: {name}") from error
+	if not text:
+		raise RuntimeError(f"Prompt template is empty: {name}")
+	text = podlib.prompt_loader.validate_positive_instructions(text, name)
+	return text, contents

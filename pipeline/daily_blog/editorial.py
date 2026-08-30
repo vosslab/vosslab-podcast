@@ -8,10 +8,12 @@ import dataclasses
 
 # local repo modules
 import daily_blog.config
+import daily_blog.editorial_stage_config
 import daily_blog.schema
 import daily_blog.routes
 import daily_blog.candidates
 import daily_blog.contracts
+import daily_blog.prompt_registry
 import daily_blog.io_utils
 import daily_blog.prompt_resources
 import podlib.prompt_loader
@@ -21,24 +23,15 @@ MAX_FAILURE_CHARS = 1000
 MAX_REFEREE_RESPONSE_CHARS = 4000
 MAX_REFEREE_REASON_CHARS = 500
 GENERATOR_RUN_RE = re.compile(r"^generator_run:\s*(\S+)\s*$", re.MULTILINE)
-EDITORIAL_TEMPLATE_NAMES = frozenset(
-	name
-	for contract in daily_blog.contracts.EDITORIAL_CONTRACTS.values()
-	for name in (
-		contract.author_template,
-		contract.referee_template,
-		contract.repair_template,
-		contract.rubric,
-	)
-)
-SHADOW_EVALUATION_TEMPLATE_NAMES = frozenset({
-	"daily_blog_shadow_evaluator_v1.txt",
-	"daily_blog_shadow_evaluator_repair_v1.txt",
-})
+EDITORIAL_TEMPLATE_NAMES = daily_blog.prompt_registry.contract_template_names()
 
 
 class EditorialBlockedError(RuntimeError):
 	"""Editorial approval did not produce one final publishable candidate."""
+
+
+class RefereeVerdictParseError(RuntimeError):
+	"""A referee response does not satisfy the bounded verdict contract."""
 
 
 @dataclasses.dataclass(frozen=True)
@@ -159,8 +152,8 @@ def _rebind_post_run(post: str, source_run_id: str, target_run_id: str) -> str:
 #============================================
 def validate_raw_candidates(value: object) -> list[dict]:
 	"""Verify cached isolated-author outputs before reuse."""
-	if not isinstance(value, list) or len(value) != 2:
-		raise RuntimeError("Cached author generation requires exactly two candidates.")
+	if not isinstance(value, list) or len(value) < 2:
+		raise RuntimeError("Cached author generation requires multiple candidates.")
 	validated = []
 	for item in value:
 		if not isinstance(item, dict):
@@ -250,21 +243,10 @@ def load_prompt(name: str) -> str:
 
 
 #============================================
-def load_evaluation_prompt(name: str) -> str:
-	"""Read one allowlisted shadow-evaluation template."""
-	text = daily_blog.prompt_resources.load_allowlisted_instruction_prompt(
-		name,
-		SHADOW_EVALUATION_TEMPLATE_NAMES,
-		"shadow evaluation",
-	)
-	return text
-
-
-#============================================
 def load_plain_prompt_resource(name: str) -> tuple[str, bytes]:
 	"""Read an approved exemplar resource without applying instruction validation."""
 	resource_names = {
-		resource.filename for resource in daily_blog.contracts.EXAMPLE_RESOURCES.values()
+		resource.filename for resource in daily_blog.prompt_registry.example_resources()
 	}
 	if name not in resource_names:
 		raise RuntimeError("Plain prompt resource name is not allowlisted for editorial examples.")
@@ -317,7 +299,7 @@ def _example_resource_blocks(
 		if block_id in blocks:
 			raise RuntimeError("Editorial example resource block IDs must be unique.")
 		blocks[block_id] = body
-	daily_blog.contracts.validate_example_resource_blocks(resource, blocks)
+	daily_blog.prompt_registry.validate_example_resource_blocks(resource, blocks)
 	return blocks
 
 
@@ -358,12 +340,14 @@ def _selected_examples(
 	selection: daily_blog.contracts.ExampleSelection | None,
 ) -> tuple[str, bytes, bytes, daily_blog.contracts.ExampleSelection | None]:
 	"""Read and select exact trusted example blocks once in registered order."""
-	resolved_selection = daily_blog.contracts.resolve_selection(contract, selection)
+	resolved_selection = daily_blog.prompt_registry.resolve_selection(contract, selection)
 	if resolved_selection is None:
 		return "", b"", b"", resolved_selection
 	if resolved_selection.resource_name is None:
 		raise RuntimeError("Editorial selection resource is unavailable.")
-	resource = daily_blog.contracts.EXAMPLE_RESOURCES[resolved_selection.resource_name]
+	resource = daily_blog.prompt_registry.resolve_example_resource(
+		resolved_selection.resource_name,
+	)
 	text, contents = load_plain_prompt_resource(resource.filename)
 	blocks = _example_resource_blocks(resource, text)
 	selected_text = "\n\n".join(blocks[block_id] for block_id in resolved_selection.block_ids)
@@ -380,7 +364,7 @@ def load_prompt_contract_snapshot(
 	selection: daily_blog.contracts.ExampleSelection | None = None,
 ) -> PromptContractSnapshot:
 	"""Load one immutable contract snapshot for identity and all prompt renderings."""
-	resolved = daily_blog.contracts.resolve_contract(contract)
+	resolved = daily_blog.prompt_registry.resolve_contract(contract)
 	templates = {
 		"author": load_prompt(resolved.author_template),
 		"referee": load_prompt(resolved.referee_template),
@@ -406,7 +390,7 @@ def load_prompt_contract_snapshot(
 		frozen_templates,
 		bytes(resource_bytes),
 		bytes(example_bytes),
-		daily_blog.contracts.policy_for_contract(resolved),
+		daily_blog.prompt_registry.policy_for_contract(resolved),
 	)
 	snapshot = PromptContractSnapshot(
 		resolved,
@@ -415,9 +399,9 @@ def load_prompt_contract_snapshot(
 		frozen_templates,
 		bytes(resource_bytes),
 		bytes(example_bytes),
-		daily_blog.contracts.policy_for_contract(resolved).name,
-		daily_blog.contracts.policy_for_contract(resolved).version,
-		daily_blog.contracts.policy_for_contract(resolved).sha256(),
+		daily_blog.prompt_registry.policy_for_contract(resolved).name,
+		daily_blog.prompt_registry.policy_for_contract(resolved).version,
+		daily_blog.prompt_registry.policy_for_contract(resolved).sha256(),
 		integrity,
 		_SNAPSHOT_TOKEN,
 	)
@@ -470,13 +454,13 @@ def validate_snapshot(snapshot: PromptContractSnapshot) -> PromptContractSnapsho
 		raise RuntimeError("Editorial prompt snapshot is not trusted.")
 	if _SNAPSHOT_REGISTRY.get(id(snapshot)) is not snapshot:
 		raise RuntimeError("Editorial prompt snapshot was not issued by the trusted factory.")
-	contract = daily_blog.contracts.resolve_contract(snapshot.contract)
+	contract = daily_blog.prompt_registry.resolve_contract(snapshot.contract)
 	if contract is not snapshot.contract:
 		raise RuntimeError("Editorial prompt snapshot contract is not the registered object.")
-	selection = daily_blog.contracts.resolve_selection(contract, snapshot.selection)
+	selection = daily_blog.prompt_registry.resolve_selection(contract, snapshot.selection)
 	if selection is not snapshot.selection:
 		raise RuntimeError("Editorial prompt snapshot selection is not the registered object.")
-	policy = daily_blog.contracts.policy_for_contract(contract)
+	policy = daily_blog.prompt_registry.policy_for_contract(contract)
 	if (
 		snapshot.validation_policy_name != policy.name
 		or snapshot.validation_policy_version != policy.version
@@ -500,7 +484,9 @@ def validate_snapshot(snapshot: PromptContractSnapshot) -> PromptContractSnapsho
 	else:
 		if selection.resource_name is None:
 			raise RuntimeError("Editorial prompt snapshot example resource is unavailable.")
-		resource = daily_blog.contracts.EXAMPLE_RESOURCES[selection.resource_name]
+		resource = daily_blog.prompt_registry.resolve_example_resource(
+			selection.resource_name,
+		)
 		try:
 			resource_text = snapshot.example_resource_bytes.decode("utf-8")
 		except UnicodeDecodeError as error:
@@ -556,7 +542,7 @@ def resolve_run_snapshot(
 	else:
 		resolved = validate_snapshot(snapshot)
 		if contract is not None:
-			selected_contract = daily_blog.contracts.resolve_contract(contract)
+			selected_contract = daily_blog.prompt_registry.resolve_contract(contract)
 			if resolved.contract is not selected_contract:
 				raise RuntimeError("Editorial contract does not match the supplied prompt snapshot.")
 	return resolved
@@ -657,7 +643,7 @@ def render_author_prompt(
 #============================================
 def _run_route(
 	runner: object,
-	route: daily_blog.config.RoleRoute,
+	route: daily_blog.editorial_stage_config.RoleRoute,
 	prompt: str,
 	generator_repository: str,
 ) -> str:
@@ -685,10 +671,10 @@ def generate_candidates(
 		raise EditorialBlockedError("Editorial projection does not match the evidence packet.")
 	if snapshot is not None:
 		resolved_snapshot = resolve_snapshot(contract, selection, snapshot)
-		resolved_policy = daily_blog.contracts.policy_for_contract(resolved_snapshot.contract)
+		resolved_policy = daily_blog.prompt_registry.policy_for_contract(resolved_snapshot.contract)
 	else:
-		resolved_contract = daily_blog.contracts.resolve_contract(contract)
-		resolved_policy = daily_blog.contracts.policy_for_contract(resolved_contract)
+		resolved_contract = daily_blog.prompt_registry.resolve_contract(contract)
+		resolved_policy = daily_blog.prompt_registry.policy_for_contract(resolved_contract)
 	route_runner = runner if runner is not None else daily_blog.routes.CommandRouteRunner()
 	try:
 		prompt = render_author_prompt(
@@ -741,16 +727,16 @@ def validate_candidates(
 		resolved_snapshot = validate_snapshot(snapshot)
 		if contract is not None and contract is not resolved_snapshot.contract:
 			raise RuntimeError("Candidate validation contract conflicts with prompt snapshot.")
-		resolved_policy = daily_blog.contracts.policy_for_contract(resolved_snapshot.contract)
+		resolved_policy = daily_blog.prompt_registry.policy_for_contract(resolved_snapshot.contract)
 		if policy is not None and policy is not resolved_policy:
 			raise RuntimeError("Candidate validation policy conflicts with prompt snapshot.")
 	elif contract is not None:
-		resolved_contract = daily_blog.contracts.resolve_contract(contract)
-		resolved_policy = daily_blog.contracts.policy_for_contract(resolved_contract)
+		resolved_contract = daily_blog.prompt_registry.resolve_contract(contract)
+		resolved_policy = daily_blog.prompt_registry.policy_for_contract(resolved_contract)
 		if policy is not None and policy is not resolved_policy:
 			raise RuntimeError("Candidate validation policy conflicts with editorial contract.")
 	else:
-		resolved_policy = daily_blog.contracts.resolve_validation_policy(policy)
+		resolved_policy = daily_blog.prompt_registry.resolve_validation_policy(policy)
 	results = []
 	for candidate in raw_candidates:
 		issues = daily_blog.candidates.validate_candidate(
@@ -804,32 +790,42 @@ def _bounded_referee_reason(reason: str) -> str:
 
 
 #============================================
-def _parse_verdict(response: str, allowed_labels: set[str]) -> dict:
+def parse_referee_verdict(response: str, allowed_labels: set[str]) -> dict:
 	"""Parse one exact structured referee verdict."""
 	if len(response) > MAX_REFEREE_RESPONSE_CHARS:
-		raise RuntimeError("Referee response exceeds the structured response budget.")
-	value = json.loads(response.strip())
+		raise RefereeVerdictParseError(
+			"Referee response exceeds the structured response budget."
+		)
+	try:
+		value = json.loads(response.strip())
+	except json.JSONDecodeError as error:
+		raise RefereeVerdictParseError("Referee verdict is not valid JSON.") from error
 	if not isinstance(value, dict):
-		raise RuntimeError("Referee verdict must be one JSON object.")
+		raise RefereeVerdictParseError("Referee verdict must be one JSON object.")
 	for key in ("winner", "reason", "evidence_quality", "confidence"):
 		if key not in value:
-			raise RuntimeError(f"Referee verdict is missing {key}.")
+			raise RefereeVerdictParseError(f"Referee verdict is missing {key}.")
 	if not isinstance(value["winner"], str):
-		raise RuntimeError("Referee winner must be text.")
+		raise RefereeVerdictParseError("Referee winner must be text.")
 	if not isinstance(value["reason"], str):
-		raise RuntimeError("Referee reason must be text.")
+		raise RefereeVerdictParseError("Referee reason must be text.")
 	if not isinstance(value["evidence_quality"], str):
-		raise RuntimeError("Referee evidence_quality must be text.")
+		raise RefereeVerdictParseError("Referee evidence_quality must be text.")
 	winner = value["winner"]
-	reason = _bounded_referee_reason(value["reason"])
+	try:
+		reason = _bounded_referee_reason(value["reason"])
+	except RuntimeError as error:
+		raise RefereeVerdictParseError(str(error)) from error
 	evidence_quality = value["evidence_quality"]
 	confidence = value["confidence"]
 	if winner not in allowed_labels | {"NONE"}:
-		raise RuntimeError("Referee winner is unavailable or unsupported.")
+		raise RefereeVerdictParseError("Referee winner is unavailable or unsupported.")
 	if evidence_quality not in {"high", "medium", "low"}:
-		raise RuntimeError("Referee evidence_quality is unsupported.")
+		raise RefereeVerdictParseError("Referee evidence_quality is unsupported.")
 	if type(confidence) not in {int, float} or not 0 <= confidence <= 1:
-		raise RuntimeError("Referee confidence must be a number from zero through one.")
+		raise RefereeVerdictParseError(
+			"Referee confidence must be a number from zero through one."
+		)
 	verdict = {
 		"winner": winner,
 		"reason": reason,
@@ -883,8 +879,8 @@ def _referee_verdict(
 	except RuntimeError as error:
 		raise EditorialBlockedError("The referee route failed.") from error
 	try:
-		return _parse_verdict(response, set(mapping))
-	except (json.JSONDecodeError, RuntimeError):
+		return parse_referee_verdict(response, set(mapping))
+	except RefereeVerdictParseError:
 		repair_prompt = templates["repair"].format(
 			response=response[:MAX_REFEREE_RESPONSE_CHARS]
 		)
@@ -897,8 +893,8 @@ def _referee_verdict(
 		except RuntimeError as error:
 			raise EditorialBlockedError("The referee repair route failed.") from error
 		try:
-			return _parse_verdict(repaired, set(mapping))
-		except (json.JSONDecodeError, RuntimeError) as error:
+			return parse_referee_verdict(repaired, set(mapping))
+		except RefereeVerdictParseError as error:
 			raise EditorialBlockedError(
 				"The referee result did not satisfy the structured decision contract."
 			) from error

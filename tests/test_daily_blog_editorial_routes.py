@@ -8,6 +8,7 @@ import pytest
 
 # local repo modules
 import daily_blog.config
+import daily_blog.editorial_stage_config
 
 
 #============================================
@@ -98,19 +99,19 @@ def test_hermes_route_leaves_model_selection_to_hermes(
 )
 def test_hermes_route_rejects_every_extra_modifier(modifier: tuple[str, ...]) -> None:
 	"""The project has no route-level configuration beyond the sealed transport."""
-	command = (*daily_blog.config.HERMES_EDITORIAL_ROUTE, *modifier)
+	command = (*daily_blog.editorial_stage_config.HERMES_EDITORIAL_ROUTE, *modifier)
 
 	with pytest.raises(RuntimeError, match="sealed Hermes editorial route"):
-		daily_blog.config._validate_role_command(command, "test")
+		daily_blog.editorial_stage_config._validate_role_command(command, "test")
 
 
 #============================================
 def test_hermes_route_requires_quiet_programmatic_stdout() -> None:
 	"""The structured-response parser receives only the final model response on stdout."""
 	command = tuple(
-		argument for argument in daily_blog.config.HERMES_EDITORIAL_ROUTE
+		argument for argument in daily_blog.editorial_stage_config.HERMES_EDITORIAL_ROUTE
 		if argument != "--quiet"
 	)
 
 	with pytest.raises(RuntimeError, match="sealed Hermes editorial route"):
-		daily_blog.config._validate_role_command(command, "test")
+		daily_blog.editorial_stage_config._validate_role_command(command, "test")

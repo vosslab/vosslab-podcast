@@ -1,310 +1,331 @@
 #!/usr/bin/env python3
-"""Prove one sealed maker post reaches a strict disposable MkDocs release.
+"""Controlled end-to-end proof of daily publication behavior.
 
-This is one-time implementation evidence, not a pytest module. It intentionally
-uses the accepted August 26 fixture/capture rather than inventing an article or
-calling a live model.
+This uses disposable local roots and a fail-closed model fixture. It protects
+reader-visible publication behavior, not editorial implementation topology.
 """
 
 # Standard Library
+import contextlib
+import hashlib
+import io
 import json
-import os
 import pathlib
+import re
 import shutil
 import subprocess
+import sys
 import tempfile
-
-# local repo modules
-import daily_blog.activation
-import daily_blog.bundles
-import daily_blog.config
-import daily_blog.contracts
-import daily_blog.editorial
-import daily_blog.evidence
-import daily_blog.experiment_capture_artifacts
-import daily_blog.io_utils
-import daily_blog.private_artifacts
-import daily_blog.publisher
-import daily_blog.roster_snapshots
-
+import unittest.mock
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
+if str(REPO_ROOT) not in sys.path:
+	sys.path.insert(0, str(REPO_ROOT))
+
+# local repo modules
+import make_blog
+import daily_blog.artifacts
+import daily_blog.daily_outline_workflow
+import daily_blog.publication_workflow
+import daily_blog.publisher
+import daily_blog.recovery
+import daily_blog.repository_contracts
+import daily_blog.schema
+
+
 PUBLISHER_ROOT = REPO_ROOT.parent / "vosslab-daily-blog"
-FIXTURE_PATH = (
-	REPO_ROOT
-	/ "out/vosslab/daily_blog_experiment_fixtures_v2"
-	/ "2026-08-26--04fd7a045538662e5c6b48ad79e08dd608de1b5a10c1c8857c7b12042bad41da"
-)
-CAPTURE_PATH = REPO_ROOT / "out/vosslab/daily_blog_experiments/prompt-experiment-fixture-maker-v10"
-ROSTER_PATH = (
-	REPO_ROOT
-	/ "out/vosslab/daily_blog_repository_rosters"
-	/ "0f79bcfea4d3fb783258df4a37effef5996b6fdb9736ff6944fd17051570b8a1"
-	/ "repository_roster.json"
-)
-EXPECTED_POST_HASH = "52d796534299f2a52db265b6b3bba091cb4cd5729e549f3e4ba8a32d8d997d42"
-EXPECTED_TITLE = "Letting Cancer Clicker show its mutations"
-EXPECTED_PASSAGES = (
-	"the game answered with a wonderfully messy endless tumor.",
-	"The Playwright pass supplied the less glamorous but equally useful surprises.",
-	"Next I want to price the weak upgrades against the newly visible mutation bursts",
-)
-EXPECTED_ROUTE = (
-	"hermes", "chat", "--provider", "openai-codex", "--query-file", "-",
-	"--ignore-rules", "--quiet",
-)
+REPORT_DATE = "2026-08-23"
+REVISION = "a" * 40
 
 
 #============================================
-def selected_busy_record(capture: daily_blog.experiment_capture_artifacts.ExperimentCapture) -> dict:
-	"""Return the exact accepted busy arm without depending on experiment counts."""
-	records = capture.report.get("records")
-	if not isinstance(records, list):
-		raise RuntimeError("Sealed capture records are unavailable.")
-	matches = [
-		record for record in records
-		if isinstance(record, dict)
-		and record.get("fixture") == "busy"
-		and record.get("arm") == "v4-three-examples-corpus-v2"
-		and record.get("repetition") == 0
-	]
-	if len(matches) != 1:
-		raise RuntimeError("Sealed capture does not contain the accepted busy post.")
-	record = matches[0]
-	selected = record.get("selected")
-	if not isinstance(selected, dict) or selected.get("post_hash") != EXPECTED_POST_HASH:
-		raise RuntimeError("Sealed capture selected-post identity is invalid.")
-	return record
-
-
-#============================================
-def read_selected_post(capture: daily_blog.experiment_capture_artifacts.ExperimentCapture, record: dict) -> str:
-	"""Read the already-validated selected post through the sealed capture descriptor."""
-	selected = record["selected"]
-	if not isinstance(selected, dict) or selected.get("path") != "selected.md":
-		raise RuntimeError("Sealed capture selected post declaration is invalid.")
-	root_fd = daily_blog.private_artifacts.open_physical_directory(
-		str(capture.path), create=False, intermediate_mode=0o755, leaf_mode=0o700
-	)
-	try:
-		child_fd = daily_blog.private_artifacts.open_directory_at(
-			root_fd, "busy-v4-three-examples-corpus-v2-0"
-		)
-		try:
-			contents = daily_blog.private_artifacts.read_regular_bytes_at(
-				child_fd, "selected.md", 4_000_000, 0o077
-			)
-		finally:
-			os.close(child_fd)
-	finally:
-		os.close(root_fd)
-	try:
-		post = contents.decode("utf-8")
-	except UnicodeDecodeError as error:
-		raise RuntimeError("Sealed capture selected post is not UTF-8.") from error
-	if daily_blog.io_utils.sha256_text(post) != EXPECTED_POST_HASH:
-		raise RuntimeError("Sealed capture selected post bytes do not match its identity.")
-	return post
-
-
-#============================================
-def fixture_assets(fixture: daily_blog.experiment_capture_artifacts.ExperimentFixture) -> dict[str, bytes]:
-	"""Recover only screenshot blobs already pinned by the sealed evidence packet."""
-	activities = {activity.repository: activity for activity in fixture.packet.activity}
-	assets = {}
-	for item in fixture.packet.items:
-		if not item.asset_path:
-			continue
-		activity = activities.get(item.repository)
-		if activity is None or item.kind != "screenshot":
-			raise RuntimeError("Fixture screenshot evidence has no matching activity record.")
-		snapshot = daily_blog.evidence.GitSnapshot(activity)
-		if (
-			not snapshot.object_exists(item.commit, item.path)
-			or snapshot.blob_hash(item.commit, item.path) != item.blob_hash
-		):
-			raise RuntimeError("Fixture screenshot blob no longer matches its sealed provenance.")
-		assets[item.asset_path] = snapshot.read_bytes(item.commit, item.path)
-	return assets
-
-
-#============================================
-def initialize_publisher(root: pathlib.Path) -> None:
-	"""Create a disposable publisher root using its tracked public importer."""
-	shutil.copytree(PUBLISHER_ROOT / "scripts", root / "scripts")
-	for name in ("source_me.sh", "mkdocs.yml", "daily_blog_maker_activation.json"):
-		shutil.copy2(PUBLISHER_ROOT / name, root / name)
-	(root / "docs" / "blog" / "posts").mkdir(parents=True)
-	(root / "docs" / "stylesheets").mkdir()
-	for name, contents in {
-		"index.md": "# Daily work log\n",
-		"status.md": "# Publication status\n",
-		"operations.md": "# Operations\n",
-		"CODE_ARCHITECTURE.md": "# Code architecture\n",
-		"blog/index.md": "# Work log\n",
-		"stylesheets/extra.css": "body {}\n",
-	}.items():
-		(root / "docs" / name).write_text(contents, encoding="utf-8")
+def _initialize_publisher(root: pathlib.Path) -> None:
+	"""Copy the tracked publisher into a disposable import target."""
+	shutil.copytree(PUBLISHER_ROOT, root, ignore=shutil.ignore_patterns(
+		".git", ".venv", "generated", "site", "data", "__pycache__",
+	))
+	prior_post = root / "docs" / "blog" / "posts" / (REPORT_DATE + ".md")
+	if prior_post.exists():
+		prior_post.unlink()
 	(root / "data" / "publications").mkdir(parents=True)
+	(root / "data" / "publication_bundles").mkdir()
 	(root / "generated" / "staging").mkdir(parents=True)
-	(root / "generated" / "releases" / "old").mkdir(parents=True)
-	(root / "generated" / "releases" / "old" / "index.html").write_text("old", encoding="utf-8")
-	(root / "site").symlink_to("generated/releases/old")
-	subprocess.run(
-		["git", "init", "--quiet", str(root)], check=True,
-		stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+	(root / "generated" / "releases" / "prior").mkdir(parents=True)
+	(root / "generated" / "releases" / "prior" / "index.html").write_text("prior", encoding="utf-8")
+	(root / "site").symlink_to("generated/releases/prior")
+	result = subprocess.run(["git", "init", "--quiet", str(root)], check=False, text=True,
+		stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+	if result.returncode:
+		raise RuntimeError("Could not initialize the disposable publisher repository.")
+
+
+#============================================
+def _write_settings(path: pathlib.Path, publisher: pathlib.Path, mirrors: pathlib.Path) -> None:
+	"""Write the smallest legal public-command configuration."""
+	path.write_text(
+		"github:\n  username: vosslab\n  identity_login: vosslab\n  allowed_emails: []\n"
+		"daily_blog:\n"
+		f"  repository_path: {json.dumps(str(publisher))}\n"
+		f"  mirror_cache_root: {json.dumps(str(mirrors))}\n"
+		"  report_timezone: America/Chicago\n  identity_names: [vosslab]\n  identity_emails: []\n",
+		encoding="utf-8",
 	)
 
 
 #============================================
-def rendered_article(release: pathlib.Path) -> pathlib.Path:
-	"""Find the dated reader page by its published title and substantive passages."""
-	matches = []
-	for page in release.rglob("*.html"):
-		contents = page.read_text(encoding="utf-8")
-		if EXPECTED_TITLE in contents and all(passage in contents for passage in EXPECTED_PASSAGES):
-			matches.append(page)
-	if len(matches) != 1:
-		raise RuntimeError("Strict MkDocs release does not contain one rendered maker article.")
-	page = matches[0]
-	relative = page.relative_to(release).as_posix()
-	if not all(part in relative.split("/") for part in ("2026", "08", "26")):
-		raise RuntimeError("Rendered maker article is not published at its dated page route.")
-	return page
+def _source(root: pathlib.Path) -> tuple[
+	daily_blog.repository_contracts.RepositoryRoster,
+	list[dict],
+	list[daily_blog.schema.RepositoryActivity],
+	daily_blog.schema.EvidencePacket,
+]:
+	"""Build complete global evidence for two independently edited repositories."""
+	repositories = tuple(daily_blog.repository_contracts.RepositoryRecord.from_dict({
+		"repository": repository, "repository_url": "https://github.com/" + repository,
+		"clone_url": "https://github.com/" + repository + ".git", "created_at": "2020-01-01T00:00:00Z", "is_fork": False,
+	}) for repository in ("vosslab/fixture", "vosslab/second-fixture"))
+	roster = daily_blog.repository_contracts.RepositoryRoster.create("vosslab", repositories)
+	mirrors, activities, items = [], [], []
+	for index, repository in enumerate(repositories):
+		revision = ("a" if index == 0 else "d") * 40
+		mirror = {"repository": repository.repository, "repository_url": repository.repository_url,
+			"clone_url": repository.clone_url, "created_at": repository.created_at, "is_fork": False,
+			"roster_id": roster.roster_id, "cache_path": str(root / "mirrors" / repository.repository),
+			"default_revision": revision, "object_available": True, "ref_fingerprint": ("b" if index == 0 else "e") * 64,
+			"refresh_result": "refreshed", "refresh_error": "", "refreshed_at": "2026-08-23T12:00:00Z"}
+		commit = daily_blog.schema.CommitActivity(revision, (), "vosslab", "vosslab@example.test",
+			"2026-08-23T12:00:00Z", "2026-08-23T12:00:00Z", "Fixture evidence-grounded work")
+		activity = daily_blog.schema.RepositoryActivity(repository.repository, repository.repository_url,
+			mirror["cache_path"], revision, (commit,), (daily_blog.schema.RevisionRange("", revision),), (revision,), False,
+			(daily_blog.repository_contracts.RepositoryLifecycleEvent(
+				"repository_created", repository.created_at, False, "github_owner_roster"),))
+		item = daily_blog.schema.EvidenceItem.create("dated_changelog", repository.repository, revision,
+			"docs/CHANGELOG.md", ("c" if index == 0 else "f") * 40,
+			"Fixture change: daily publication is observable.", "fixture")
+		mirrors.append(mirror)
+		activities.append(activity)
+		items.append(item)
+	packet = daily_blog.schema.EvidencePacket.create(REPORT_DATE, "America/Chicago", True, {}, mirrors, activities, items)
+	return roster, mirrors, activities, packet
 
 
 #============================================
-def verify_published_assets(
-	bundle_path: pathlib.Path,
-	bundle: dict,
-	publisher_root: pathlib.Path,
-	archive: pathlib.Path,
-) -> None:
-	"""Prove every validated asset survives archive and public-source installation."""
-	post_source = publisher_root / "docs" / "blog" / "posts" / f"{bundle['report_date']}.md"
-	docs_root = (publisher_root / "docs").resolve()
-	assets = bundle.get("assets")
-	if not isinstance(assets, list):
-		raise RuntimeError("Bundle asset declaration is unavailable.")
-	for asset in assets:
-		if not isinstance(asset, dict):
-			raise RuntimeError("Bundle asset declaration is invalid.")
-		relative_path = pathlib.PurePosixPath(str(asset.get("path") or ""))
-		publish_path = pathlib.PurePosixPath(str(asset.get("publish_path") or ""))
-		if relative_path.is_absolute() or ".." in relative_path.parts or publish_path.is_absolute():
-			raise RuntimeError("Bundle asset paths are invalid.")
-		producer_asset = bundle_path.joinpath(*relative_path.parts)
-		archive_asset = archive.joinpath(*relative_path.parts)
-		public_asset = (post_source.parent / pathlib.Path(*publish_path.parts)).resolve()
+def _post(title: str, evidence_ids: tuple[str, ...]) -> str:
+	"""Return a publisher-valid grounded post for the sealed offline runner."""
+	paragraph = " ".join("I checked the dated changelog and kept the reader-visible result concrete." for _ in range(36))
+	citations = " ".join("<!-- evidence: " + item + " -->" for item in evidence_ids)
+	return ("---\ndate: 2026-08-23\nslug: " + title.lower().replace(" ", "-")
+		+ "\ngenerator_run: controlled-e2e\nevidence_manifest: evidence.json\neditorial_projection: editorial_projection.json\n---\n"
+		+ f"# {title}\n\nOn {REPORT_DATE} I opened [vosslab/fixture](https://github.com/vosslab/fixture) and traced the durable publication seam. {citations}\n\n"
+		"<!-- more -->\n\n"
+		f"## What I followed\n\n{paragraph} {citations}\n\n"
+		"## Project coverage\n\n- vosslab/fixture\n- vosslab/second-fixture\n")
+
+
+class _OfflineRunner:
+	"""Deterministic local substitute for the model response boundaries."""
+
+	def __init__(self, evidence_ids: tuple[str, ...]) -> None:
+		self.evidence_ids = evidence_ids
+
+	def _evidence_id(self, prompt: str) -> str:
+		match = re.search(r"ev-[0-9a-f]+", prompt)
+		return match.group(0) if match is not None else self.evidence_ids[0]
+
+	def _story_ids(self, prompt: str) -> tuple[str, ...]:
+		"""Decode the supplied story boundary without assuming editorial order."""
+		marker = "<<BEGIN_UNTRUSTED_REPOSITORY_STORIES_DATA>>\n"
+		if marker not in prompt:
+			raise RuntimeError("Controlled response lacks the required story boundary.")
+		payload = prompt.split(marker, 1)[1].split("\n", 1)[0]
 		try:
-			public_asset.relative_to(docs_root)
-		except ValueError as error:
-			raise RuntimeError("Bundle asset publication path escapes the docs tree.") from error
-		contents = producer_asset.read_bytes()
-		if daily_blog.io_utils.sha256_bytes(contents) != asset.get("sha256"):
-			raise RuntimeError("Producer bundle asset bytes do not match their declaration.")
-		if archive_asset.read_bytes() != contents or public_asset.read_bytes() != contents:
-			raise RuntimeError("Publisher did not preserve a declared asset byte-for-byte.")
+			stories = json.loads(json.loads(payload)["literal_content"])["stories"]
+		except (KeyError, TypeError, json.JSONDecodeError) as error:
+			raise RuntimeError("Controlled response has an invalid story boundary.") from error
+		return tuple(item["artifact_id"] for item in stories)
+
+	def _all_citations(self) -> str:
+		return " ".join("<!-- evidence: " + item + " -->" for item in self.evidence_ids)
+
+	def run(self, _route: object, prompt: str, _working: str) -> str:
+		"""Return a valid response from the requested result form, never a route name."""
+		evidence_id = self._evidence_id(prompt)
+		if all(token in prompt for token in ("`artifact_ids`", "`scores`", "`rationale`")):
+			identifiers = self._story_ids(prompt)
+			return json.dumps({"artifact_ids": list(identifiers), "scores": {item: 90 for item in identifiers}, "rationale": "grounded"})
+		if all(token in prompt for token in ("`winner`", "`evidence_quality`", "`confidence`")):
+			return '{"winner":"A","reason":"grounded","evidence_quality":"high","confidence":1}'
+		if all(token in prompt for token in ("`decision`", "`score`", "`reason`")):
+			return '{"decision":"ACCEPT","score":90,"reason":"grounded"}'
+		if (
+			"eligible CompletePost" in prompt
+			or all(token in prompt for token in (
+				"generator_run:", "evidence_manifest:", "editorial_projection:",
+			))
+		):
+			return _post("Publication fixture", self.evidence_ids)
+		if "daily-outline-scope:" in prompt:
+			return "<!-- daily-outline-scope: [\"vosslab/fixture\",\"vosslab/second-fixture\"] -->\n# Fixture outline\n\n" + self._all_citations() + "\n"
+		if "<!-- evidence:" in prompt:
+			return "# Grounded repository material\n\nConcrete work. <!-- evidence: " + evidence_id + " -->\n"
+		raise RuntimeError("Controlled response lacks a mechanically valid result boundary.")
 
 
 #============================================
-def main() -> None:
-	"""Run the fixture-backed producer-to-publisher release proof once."""
-	if tuple(daily_blog.config.HERMES_EDITORIAL_ROUTE) != EXPECTED_ROUTE:
-		raise RuntimeError("The producer Hermes author route no longer matches the approved boundary.")
-	if not (PUBLISHER_ROOT / "scripts" / "import_publication_bundle.py").is_file():
-		raise RuntimeError("Sibling daily-blog importer is unavailable.")
-	fixture = daily_blog.experiment_capture_artifacts.load_fixture(str(FIXTURE_PATH))
-	capture = daily_blog.experiment_capture_artifacts.load_capture(str(CAPTURE_PATH))
-	if capture.manifest.get("execution_mode") != "fixture_hermes_shim" or capture.manifest.get("external_route_used") is not False:
-		raise RuntimeError("Sealed capture does not prove the required no-egress Hermes route.")
-	record = selected_busy_record(capture)
-	if record.get("fixture_identity", {}).get("packet_id") != fixture.packet.packet_id:
-		raise RuntimeError("Sealed capture busy record does not bind the loaded fixture evidence.")
-	post = read_selected_post(capture, record)
-	assets = fixture_assets(fixture)
-	run_id = record.get("run_id")
-	if not isinstance(run_id, str):
-		raise RuntimeError("Sealed capture selected post run identity is invalid.")
-	roster, roster_identity = daily_blog.roster_snapshots.load_repository_roster_snapshot(
-		str(REPO_ROOT / "out"), "vosslab", str(ROSTER_PATH.parent)
-	)
-	if roster.roster_id != fixture.roster_id or roster_identity["roster_id"] != fixture.roster_id:
-		raise RuntimeError("Sealed roster does not match the captured busy fixture.")
-	contract = daily_blog.contracts.active_contract()
-	snapshot = daily_blog.editorial.load_prompt_contract_snapshot(contract)
-	if contract is not daily_blog.contracts.V4_THREE_EXAMPLES_CORPUS_V2_CONTRACT:
-		raise RuntimeError("Maker v4 contract is not active for the publication proof.")
-	raw_candidates = [
-		{
-			"private_route": str(record["selected"]["route"]),
-			"projection_id": fixture.projection.projection_id,
-			"post": post,
-			"post_hash": EXPECTED_POST_HASH,
-			"generation_error": "",
-		},
-		{
-			"private_route": "author_two",
-			"projection_id": fixture.projection.projection_id,
-			"post": post,
-			"post_hash": EXPECTED_POST_HASH,
-			"generation_error": "",
-		},
-	]
-	candidates = daily_blog.editorial.validate_candidates(
-		raw_candidates, fixture.packet, fixture.projection, run_id,
-		contract=contract, snapshot=snapshot,
-	)
-	if not all(candidate.valid for candidate in candidates):
-		raise RuntimeError("Accepted complete maker post no longer satisfies the active policy.")
-	decision = daily_blog.editorial.EditorialDecision(
-		winner="A", reason=str(record["selection"]["reason"]), evidence_quality="high",
-		confidence=float(record["selection"]["confidence"]),
-		projection_id=fixture.projection.projection_id, post=post,
-		anonymous_mapping={"A": 0, "B": 1},
-	)
+def _page_fault() -> daily_blog.recovery.PipelineFaultError:
+	"""Return the public structured fault used for the controlled failure branch."""
+	category = daily_blog.recovery.TerminalFaultCategory.IMPLEMENTATION_DEFECT
+	observation = daily_blog.recovery.GenerationObservation("page_verification", 0, 0, (), category)
+	fault = daily_blog.recovery.PipelineFault(category, 1, "", "", (observation,))
+	return daily_blog.recovery.PipelineFaultError(fault, "d" * 64)
+
+
+#============================================
+def _runtime(
+	root: pathlib.Path, publisher: pathlib.Path, fail_page: bool,
+) -> tuple[daily_blog.publication_workflow.PublicationRuntime, _OfflineRunner]:
+	"""Bind the public command to controlled external dependencies only."""
+	roster, mirrors, activities, packet = _source(root)
+	runner = _OfflineRunner(tuple(item.evidence_id for item in packet.items))
+
+	def page_verifier(repository: str, receipt: dict) -> dict:
+		if fail_page:
+			raise _page_fault()
+		return daily_blog.publisher.verify_published_page(repository, receipt)
+
+	return daily_blog.publication_workflow.PublicationRuntime(
+		repository_loader=lambda _owner, _output: roster,
+		mirror_refresh=lambda *_args: mirrors, activity_locator=lambda *_args: activities,
+		evidence_assembler=lambda *_args: (packet, {}),
+		route_runner=runner,
+		publisher_function=lambda repository, bundle_path, **kwargs: daily_blog.publisher.import_bundle(
+			repository, bundle_path, replace_existing=kwargs["replace_existing"]),
+		page_verifier=page_verifier,
+	), runner
+
+
+#============================================
+def _run_record(root: pathlib.Path, run_id: str) -> dict:
+	"""Read one immutable record from the controlled run directory."""
+	path = root / "out" / "vosslab" / "daily_blog" / REPORT_DATE / "runs" / run_id / "run_state.json"
+	return json.loads(path.read_text(encoding="utf-8"))
+
+
+#============================================
+def _assert_date_summary_retains_run(root: pathlib.Path, run_id: str) -> None:
+	"""Require the date-level operational summary to retain this terminal run."""
+	path = root / "out" / "vosslab" / "daily_blog" / REPORT_DATE / "summary.jsonl"
+	if not path.is_file():
+		raise RuntimeError("Terminal run did not produce a date summary.")
+	if not any(json.loads(line).get("run_id") == run_id for line in path.read_text(encoding="utf-8").splitlines()):
+		raise RuntimeError("Date summary does not retain the terminal run.")
+
+
+#============================================
+def _assert_published(root: pathlib.Path, publisher: pathlib.Path, record: dict) -> None:
+	"""Check selected editorial identity through the imported reader page."""
+	post = root / "out" / "vosslab" / "daily_blog" / REPORT_DATE / "post.md"
+	bundle = json.loads((post.parent / "publication" / "bundle.json").read_text(encoding="utf-8"))
+	if {"candidates", "referee"} & set(bundle):
+		raise RuntimeError("Publication bundle retains retired editorial topology.")
+	receipt = record["publication_bundle"]["site_import"]
+	page = record["publication_bundle"]["page_verification"]
+	artifact_id = record["best_artifact_id"]
+	if not artifact_id or artifact_id != bundle["best_artifact_id"] or artifact_id != bundle["post"]["artifact_id"]:
+		raise RuntimeError("Publication does not preserve its selected editorial artifact.")
+	if artifact_id != receipt["best_artifact_id"] or artifact_id != page["best_artifact_id"]:
+		raise RuntimeError("Publisher receipts do not bind the selected editorial artifact.")
+	if receipt["bundle_sha256"] != bundle["bundle_sha256"]:
+		raise RuntimeError("Import receipt does not bind the sealed publication bundle.")
+	if bundle["post"]["sha256"] != hashlib.sha256(post.read_bytes()).hexdigest():
+		raise RuntimeError("Producer bundle digest does not bind the selected post.")
+	installed = publisher / receipt["post_path"]
+	rendered = publisher / receipt["rendered_page_path"]
+	if not (installed.is_file() and rendered.is_file()):
+		raise RuntimeError("Imported publication is not available to readers.")
+	if hashlib.sha256(installed.read_bytes()).hexdigest() != bundle["post"]["sha256"]:
+		raise RuntimeError("Publisher receipt does not preserve selected post bytes.")
+	if page["rendered_page_sha256"] != hashlib.sha256(rendered.read_bytes()).hexdigest():
+		raise RuntimeError("Page verification receipt does not bind its rendered page.")
+
+
+#============================================
+def _success_and_overwrite() -> None:
+	"""Publish once, then replace the same fixed date."""
 	with tempfile.TemporaryDirectory(prefix="daily-publication-e2e-") as temporary:
-		root = pathlib.Path(temporary)
-		identity = daily_blog.bundles.generator_contract_identity(str(REPO_ROOT), None, contract, snapshot)
-		writer = daily_blog.bundles.BundleWriter(str(root / "output"), "vosslab", identity, contract, snapshot)
-		bundle_path, bundle = writer.write(
-			run_id, fixture.packet, fixture.projection, assets, candidates, decision, roster
-		)
-		activation = daily_blog.activation.load_maker_activation()
-		if bundle.get("maker_activation", {}).get("activation_id") != activation.activation_id:
-			raise RuntimeError("Bundle is not bound to the active maker activation receipt.")
-		publisher_root = root / "publisher"
-		publisher_root.mkdir()
-		initialize_publisher(publisher_root)
-		result = daily_blog.publisher.import_bundle(str(publisher_root), bundle_path)
-		if result["bundle_sha256"] != bundle["bundle_sha256"] or result["report_date"] != fixture.date:
-			raise RuntimeError("Publisher receipt does not match the created v4 bundle.")
-		archive = publisher_root / "data" / "publication_bundles" / fixture.date
-		for name in (
-			"bundle.json", "evidence.json", "repository_roster.json",
-			"editorial_projection.json", "post.md",
-		):
-			if (archive / name).read_bytes() != (pathlib.Path(bundle_path) / name).read_bytes():
-				raise RuntimeError("Publisher archive does not preserve the verified bundle artifact.")
-		verify_published_assets(pathlib.Path(bundle_path), bundle, publisher_root, archive)
-		if (publisher_root / "docs" / "blog" / "posts" / f"{fixture.date}.md").read_bytes() != post.encode("utf-8"):
-			raise RuntimeError("Publisher source post does not preserve the accepted complete post bytes.")
-		release = publisher_root / "generated" / "releases" / fixture.date
-		if not (publisher_root / "site").is_symlink() or (publisher_root / "site").resolve() != release.resolve():
-			raise RuntimeError("Publisher did not atomically point the site at the dated release.")
-		page = rendered_article(release)
-		evidence = {
-			"status": "passed",
-			"fixture": {"id": fixture.fixture_id, "packet_id": fixture.packet.packet_id},
-			"capture": {"id": capture.manifest["capture_id"], "execution_mode": capture.manifest["execution_mode"], "route": list(EXPECTED_ROUTE)},
-			"post": {"sha256": EXPECTED_POST_HASH, "title": EXPECTED_TITLE},
-			"bundle": {"sha256": bundle["bundle_sha256"], "report_date": fixture.date},
-			"asset_count": len(bundle["assets"]),
-			"activation_id": activation.activation_id,
-			"rendered_page": page.relative_to(release).as_posix(),
-		}
-		print(json.dumps(evidence, sort_keys=True))
+		root, publisher = pathlib.Path(temporary), pathlib.Path(temporary) / "publisher"
+		_initialize_publisher(publisher)
+		(root / "out").mkdir()
+		_write_settings(root / "settings.yaml", publisher, root / "mirrors")
+		with contextlib.ExitStack() as stack:
+			stack.enter_context(unittest.mock.patch.object(make_blog, "SETTINGS_PATH", root / "settings.yaml"))
+			stack.enter_context(unittest.mock.patch.object(make_blog, "OUTPUT_ROOT", root / "out"))
+			first_runtime, _first_runner = _runtime(root, publisher, False)
+			with unittest.mock.patch("daily_blog.orchestrator.new_run_id", return_value="controlled-first"):
+				if make_blog.command(["--date", REPORT_DATE], runtime=first_runtime) != 0:
+					raise RuntimeError("Controlled publication command failed.")
+			_assert_published(root, publisher, _run_record(root, "controlled-first"))
+			_assert_date_summary_retains_run(root, "controlled-first")
+			replacement_root = root / "replacement"
+			replacement_root.mkdir()
+			(replacement_root / "out").mkdir()
+			_write_settings(replacement_root / "settings.yaml", publisher, replacement_root / "mirrors")
+			replacement_runtime, _replacement_runner = _runtime(replacement_root, publisher, False)
+			stack.enter_context(unittest.mock.patch.object(make_blog, "SETTINGS_PATH", replacement_root / "settings.yaml"))
+			stack.enter_context(unittest.mock.patch.object(make_blog, "OUTPUT_ROOT", replacement_root / "out"))
+			with unittest.mock.patch("daily_blog.orchestrator.new_run_id", return_value="controlled-replacement"):
+				if make_blog.command(["--date", REPORT_DATE, "--yes"], runtime=replacement_runtime) != 0:
+					raise RuntimeError("Same-date replacement command failed.")
+			replacement = _run_record(replacement_root, "controlled-replacement")
+			if replacement["publication_bundle"]["site_import"]["status"] != "replaced":
+				raise RuntimeError("Same-date publication was not replaced.")
+			_assert_published(replacement_root, publisher, replacement)
+			_assert_date_summary_retains_run(replacement_root, "controlled-replacement")
+
+
+#============================================
+def _post_import_failure() -> None:
+	"""Require one typed verification failure to retain the committed publication."""
+	with tempfile.TemporaryDirectory(prefix="daily-publication-e2e-") as temporary:
+		root, publisher = pathlib.Path(temporary), pathlib.Path(temporary) / "publisher"
+		_initialize_publisher(publisher)
+		(root / "out").mkdir()
+		_write_settings(root / "settings.yaml", publisher, root / "mirrors")
+		runtime, _runner = _runtime(root, publisher, True)
+		with contextlib.ExitStack() as stack:
+			stack.enter_context(unittest.mock.patch.object(make_blog, "SETTINGS_PATH", root / "settings.yaml"))
+			stack.enter_context(unittest.mock.patch.object(make_blog, "OUTPUT_ROOT", root / "out"))
+			stack.enter_context(unittest.mock.patch("daily_blog.orchestrator.new_run_id", return_value="controlled-page-failure"))
+			with contextlib.redirect_stderr(io.StringIO()) as stderr:
+				status = make_blog.command(["--date", REPORT_DATE], runtime=runtime)
+		if status != 2:
+			raise RuntimeError("Post-import verification failure did not return the public nonzero status.")
+		fault = json.loads(stderr.getvalue())
+		if fault["status"] != "pipeline_fault" or fault["report_date"] != REPORT_DATE:
+			raise RuntimeError("Post-import verification failure did not return a structured fault.")
+		record = _run_record(root, "controlled-page-failure")
+		if record["state"] != "failed" or record["phases"]["page_verification"]["status"] != "failed":
+			raise RuntimeError("Post-import verification failure did not persist its failed phase.")
+		_assert_date_summary_retains_run(root, "controlled-page-failure")
+		post = root / "out" / "vosslab" / "daily_blog" / REPORT_DATE / "post.md"
+		bundle = publisher / "data" / "publication_bundles" / REPORT_DATE / "bundle.json"
+		publication = publisher / "data" / "publications" / (REPORT_DATE + ".json")
+		if not (post.is_file() and bundle.is_file() and publication.is_file()):
+			raise RuntimeError("Post-import verification failure did not retain the committed artifact.")
+
+
+#============================================
+def main() -> int:
+	"""Run the single permanent controlled publication E2E."""
+	try:
+		_success_and_overwrite()
+		_post_import_failure()
+	except (AssertionError, OSError, RuntimeError, TypeError, ValueError, json.JSONDecodeError):
+		print("Daily publication E2E failed.", file=sys.stderr)
+		return 2
+	print("Daily publication E2E passed.")
+	return 0
 
 
 if __name__ == "__main__":
-	main()
+	raise SystemExit(main())

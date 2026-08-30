@@ -3,6 +3,7 @@
 # Standard Library
 import dataclasses
 import collections.abc
+import pathlib
 
 # local repo modules
 import daily_blog.io_utils
@@ -10,7 +11,7 @@ import daily_blog.json_contracts
 import daily_blog.repository_contracts
 
 
-BUNDLE_SCHEMA_VERSION = "vosslab.daily-blog.bundle.v5"
+BUNDLE_SCHEMA_VERSION = "vosslab.daily-blog.bundle.v7"
 EVIDENCE_SCHEMA_VERSION = "vosslab.daily-blog.evidence.v4"
 PROJECTION_SCHEMA_VERSION = "vosslab.daily-blog.editorial-projection.v2"
 GENERATOR_VERSION = "daily-blog-generator-v2"
@@ -33,6 +34,70 @@ AUTHORITY_LEVELS = {
 	"screenshot": "visual_support",
 	"commit_metadata": "locator_provenance",
 }
+
+
+#============================================
+def validate_bundle_asset_path(value: object) -> str:
+	"""Return one confined bundle asset name in the sole supported spelling."""
+	if not isinstance(value, str):
+		raise RuntimeError("Evidence asset path is invalid.")
+	if not value:
+		return ""
+	pure = pathlib.PurePosixPath(value)
+	if (
+		pure.is_absolute() or pure.as_posix() != value or len(pure.parts) != 2
+		or pure.parts[0] != "assets" or not pure.parts[1]
+		or pure.parts[1] in {".", ".."} or "\\" in pure.parts[1]
+		or any(ord(character) < 32 or ord(character) == 127 for character in value)
+	):
+		raise RuntimeError("Evidence asset path is invalid.")
+	return value
+
+
+#============================================
+def model_cache_evidence(value: object) -> object:
+	"""Project evidence for model/cache use without host-local mirror locations.
+
+	This does not alter the authoritative EvidencePacket v4 content or identity.
+	It is solely the portable editorial view used for prompts and route caching.
+	"""
+	if type(value) is dict:
+		return {
+			key: model_cache_evidence(item)
+			for key, item in value.items()
+			if key != "cache_path"
+		}
+	if type(value) is list:
+		return [model_cache_evidence(item) for item in value]
+	return value
+
+
+#============================================
+def model_cache_packet_content(packet: "EvidencePacket") -> dict:
+	"""Return the portable semantic projection of one authoritative packet."""
+	if type(packet) is not EvidencePacket:
+		raise RuntimeError("Model/cache evidence projection requires EvidencePacket.")
+	value = model_cache_evidence(packet.content_dict())
+	if type(value) is not dict:
+		raise RuntimeError("Model/cache evidence projection is invalid.")
+	return value
+
+
+#============================================
+def model_cache_packet_identity(packet: "EvidencePacket") -> str:
+	"""Return the portable evidence identity used by editorial route requests."""
+	return daily_blog.io_utils.hash_value(model_cache_packet_content(packet))
+
+
+#============================================
+def model_cache_artifact(value: collections.abc.Mapping[str, object]) -> dict[str, object]:
+	"""Project typed editorial artifact data without packet-derived identifiers."""
+	projected = model_cache_evidence(dict(value))
+	if type(projected) is not dict:
+		raise RuntimeError("Model/cache artifact projection is invalid.")
+	projected.pop("packet_ids", None)
+	projected.pop("artifact_id", None)
+	return projected
 
 #============================================
 def validate_site_import_result(value: object, bundle_sha256: str, report_date: str) -> dict:
@@ -257,6 +322,7 @@ class EvidenceItem:
 		"""Create an evidence item with deterministic identity and authority."""
 		if kind not in AUTHORITY_ORDER:
 			raise RuntimeError(f"Unsupported evidence kind: {kind}")
+		asset_path = validate_bundle_asset_path(asset_path)
 		identity_value = {
 			"kind": kind,
 			"repository": repository,
@@ -301,6 +367,7 @@ class EvidenceItem:
 			raise RuntimeError("Evidence authority rank does not match its kind.")
 		if type(item.truncated) is not bool:
 			raise RuntimeError("Evidence truncation state must be Boolean.")
+		validate_bundle_asset_path(item.asset_path)
 		if item.content_hash != daily_blog.io_utils.sha256_text(item.content):
 			raise RuntimeError("Evidence content hash does not match its content.")
 		expected = cls.create(

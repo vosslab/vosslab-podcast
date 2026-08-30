@@ -10,6 +10,7 @@ import pytest
 # local repo modules
 import daily_blog.locks
 import daily_blog.config
+import daily_blog.editorial_stage_config
 import daily_blog.orchestrator
 import daily_blog.mirrors
 import daily_blog.schema
@@ -109,10 +110,10 @@ def test_per_date_lock_rejects_overlapping_publication_owner(tmp_path: pathlib.P
 		identity_names=("Author",),
 		identity_emails=(),
 		author_routes=(
-			daily_blog.config.RoleRoute("one", ("fake",)),
-			daily_blog.config.RoleRoute("two", ("fake",)),
+			daily_blog.editorial_stage_config.RoleRoute("one", ("fake",)),
+			daily_blog.editorial_stage_config.RoleRoute("two", ("fake",)),
 		),
-		referee_route=daily_blog.config.RoleRoute("judge", ("fake",)),
+		referee_route=daily_blog.editorial_stage_config.RoleRoute("judge", ("fake",)),
 		collection_limits={},
 		projection_limits={},
 		prompt_limits={},

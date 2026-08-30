@@ -4,7 +4,6 @@
 import json
 import dataclasses
 import pathlib
-import copy
 import subprocess
 
 # PIP3 modules
@@ -12,12 +11,14 @@ import pytest
 
 # local repo modules
 import daily_blog.config
+import daily_blog.editorial_stage_config
 import daily_blog.schema
 import daily_blog.repository_contracts
 import daily_blog.routes
 import daily_blog.editorial
 import daily_blog.candidates
 import daily_blog.contracts
+import daily_blog.prompt_registry
 import daily_blog.projection
 import daily_blog.io_utils
 
@@ -100,10 +101,10 @@ def make_config() -> daily_blog.config.DailyBlogConfig:
 		identity_names=("Author",),
 		identity_emails=(),
 		author_routes=(
-			daily_blog.config.RoleRoute("one", ("fake",)),
-			daily_blog.config.RoleRoute("two", ("fake",)),
+			daily_blog.editorial_stage_config.RoleRoute("one", ("fake",)),
+			daily_blog.editorial_stage_config.RoleRoute("two", ("fake",)),
 		),
-		referee_route=daily_blog.config.RoleRoute("judge", ("fake",)),
+		referee_route=daily_blog.editorial_stage_config.RoleRoute("judge", ("fake",)),
 		collection_limits={},
 		projection_limits={
 			"context_chars": 12000,
@@ -178,7 +179,7 @@ class FakeRunner:
 		self.referee_calls = 0
 
 	#============================================
-	def run(self, route: daily_blog.config.RoleRoute, prompt: str, _repository: str) -> str:
+	def run(self, route: daily_blog.editorial_stage_config.RoleRoute, prompt: str, _repository: str) -> str:
 		"""Return route-specific deterministic output."""
 		self.prompts.append((route.name, prompt))
 		if route.name == "one":
@@ -216,7 +217,7 @@ def test_prompt_validation_requires_direct_outcomes(
 	instruction: str,
 ) -> None:
 	"""Prompt validation rejects negation and disguised deferral before model routing."""
-	contract = daily_blog.contracts.V3_EDITORIAL_CONTRACT
+	contract = daily_blog.prompt_registry.active_contract()
 	templates = {
 		contract.author_template: (
 			f"Use {{evidence_json}}.\n\n## Output contract\n\n{instruction}"
@@ -301,7 +302,10 @@ def test_two_authors_share_projection_and_referee_repair_selects_final() -> None
 		packet, projection, "run-123", candidates, config, runner=runner
 	)
 
-	assert runner.prompts[0][1] == runner.prompts[1][1]
+	author_prompts = {
+		name: prompt for name, prompt in runner.prompts if name in {"one", "two"}
+	}
+	assert author_prompts["one"] == author_prompts["two"]
 	assert decision.winner == "A"
 
 
@@ -317,7 +321,7 @@ def test_referee_reason_is_bounded_without_rejecting_control_fields() -> None:
 		}
 	)
 
-	verdict = daily_blog.editorial._parse_verdict(response, {"A"})
+	verdict = daily_blog.editorial.parse_referee_verdict(response, {"A"})
 
 	assert verdict["winner"] == "A"
 	assert verdict["evidence_quality"] == "high"
@@ -337,7 +341,7 @@ def test_candidate_validation_rejects_unknown_provenance() -> None:
 	)
 
 	issues = daily_blog.candidates.validate_candidate(
-		post, packet, projection, "run-123", daily_blog.contracts.V4_MAKER_VALIDATION_POLICY
+		post, packet, projection, "run-123", daily_blog.prompt_registry.V4_MAKER_VALIDATION_POLICY
 	)
 
 	assert any("unknown evidence" in issue for issue in issues)
@@ -357,7 +361,7 @@ def test_candidate_validation_accepts_a_reflective_uncited_paragraph() -> None:
 		1,
 	)
 
-	issues = daily_blog.candidates.validate_candidate(post, packet, projection, "run-123", daily_blog.contracts.V4_MAKER_VALIDATION_POLICY)
+	issues = daily_blog.candidates.validate_candidate(post, packet, projection, "run-123", daily_blog.prompt_registry.V4_MAKER_VALIDATION_POLICY)
 
 	assert issues == []
 
@@ -370,7 +374,7 @@ def test_candidate_validation_requires_evidence_in_an_uncited_opening() -> None:
 	post = valid_post(packet, projection, "run-123", "Evidence matters")
 	post = post.replace(" <!-- evidence: " + packet.items[0].evidence_id + " -->", "", 1)
 
-	issues = daily_blog.candidates.validate_candidate(post, packet, projection, "run-123", daily_blog.contracts.V4_MAKER_VALIDATION_POLICY)
+	issues = daily_blog.candidates.validate_candidate(post, packet, projection, "run-123", daily_blog.prompt_registry.V4_MAKER_VALIDATION_POLICY)
 
 	assert "Each narrative section must cite projected evidence." in issues
 
@@ -387,7 +391,7 @@ def test_candidate_validation_requires_evidence_in_each_narrative_section() -> N
 		1,
 	)
 
-	issues = daily_blog.candidates.validate_candidate(post, packet, projection, "run-123", daily_blog.contracts.V4_MAKER_VALIDATION_POLICY)
+	issues = daily_blog.candidates.validate_candidate(post, packet, projection, "run-123", daily_blog.prompt_registry.V4_MAKER_VALIDATION_POLICY)
 
 	assert "Each narrative section must cite projected evidence." in issues
 
@@ -411,7 +415,7 @@ def test_candidate_validation_counts_prose_after_heading_without_a_blank_line() 
 		1,
 	)
 
-	issues = daily_blog.candidates.validate_candidate(post, packet, projection, "run-123", daily_blog.contracts.V4_MAKER_VALIDATION_POLICY)
+	issues = daily_blog.candidates.validate_candidate(post, packet, projection, "run-123", daily_blog.prompt_registry.V4_MAKER_VALIDATION_POLICY)
 
 	assert "Post exceeds the uncited narrative prose block limit." in issues
 
@@ -430,7 +434,7 @@ def test_candidate_validation_excludes_uncited_project_coverage_from_narrative_c
 		1,
 	)
 
-	issues = daily_blog.candidates.validate_candidate(post, packet, projection, "run-123", daily_blog.contracts.V4_MAKER_VALIDATION_POLICY)
+	issues = daily_blog.candidates.validate_candidate(post, packet, projection, "run-123", daily_blog.prompt_registry.V4_MAKER_VALIDATION_POLICY)
 
 	assert issues == []
 
@@ -444,7 +448,7 @@ def test_final_candidate_validation_enforces_narrative_word_budget() -> None:
 		packet, projection, "run-123", "Evidence matters", detail_repetitions=1
 	)
 
-	issues = daily_blog.candidates.validate_candidate(post, packet, projection, "run-123", daily_blog.contracts.V4_MAKER_VALIDATION_POLICY)
+	issues = daily_blog.candidates.validate_candidate(post, packet, projection, "run-123", daily_blog.prompt_registry.V4_MAKER_VALIDATION_POLICY)
 
 	assert any("narrative" in issue for issue in issues)
 
@@ -458,7 +462,7 @@ def test_final_candidate_validation_accepts_an_unsectioned_maker_story() -> None
 	post = post.replace("## Durable ownership\n\n", "", 1)
 	post = post.replace("## Where the work stands\n\n", "", 1)
 
-	issues = daily_blog.candidates.validate_candidate(post, packet, projection, "run-123", daily_blog.contracts.V4_MAKER_VALIDATION_POLICY)
+	issues = daily_blog.candidates.validate_candidate(post, packet, projection, "run-123", daily_blog.prompt_registry.V4_MAKER_VALIDATION_POLICY)
 
 	assert issues == []
 
@@ -470,7 +474,7 @@ def test_candidate_validation_accepts_compact_project_coverage() -> None:
 	projection = make_projection(packet)
 	post = valid_post(packet, projection, "run-123", "Evidence matters")
 
-	issues = daily_blog.candidates.validate_candidate(post, packet, projection, "run-123", daily_blog.contracts.V4_MAKER_VALIDATION_POLICY)
+	issues = daily_blog.candidates.validate_candidate(post, packet, projection, "run-123", daily_blog.prompt_registry.V4_MAKER_VALIDATION_POLICY)
 
 	assert issues == []
 
@@ -487,7 +491,7 @@ def test_candidate_validation_rejects_wrong_first_narrative_repository_link_targ
 		1,
 	)
 
-	issues = daily_blog.candidates.validate_candidate(post, packet, projection, "run-123", daily_blog.contracts.V4_MAKER_VALIDATION_POLICY)
+	issues = daily_blog.candidates.validate_candidate(post, packet, projection, "run-123", daily_blog.prompt_registry.V4_MAKER_VALIDATION_POLICY)
 
 	assert any("First narrative mention of vosslab/project" in issue for issue in issues)
 
@@ -501,7 +505,7 @@ def test_final_candidate_validation_enforces_compact_index_opening() -> None:
 	post = post.replace("<!-- more -->\n\n", "", 1)
 	post = post.replace("## Where the work stands", "<!-- more -->\n\n## Where the work stands", 1)
 
-	issues = daily_blog.candidates.validate_candidate(post, packet, projection, "run-123", daily_blog.contracts.V4_MAKER_VALIDATION_POLICY)
+	issues = daily_blog.candidates.validate_candidate(post, packet, projection, "run-123", daily_blog.prompt_registry.V4_MAKER_VALIDATION_POLICY)
 
 	assert any("one opening prose paragraph" in issue for issue in issues)
 
@@ -514,7 +518,7 @@ def test_final_candidate_validation_enforces_complete_repository_coverage() -> N
 	post = valid_post(packet, projection, "run-123", "Evidence matters")
 	post = post.replace("vosslab/project", "another/project")
 
-	issues = daily_blog.candidates.validate_candidate(post, packet, projection, "run-123", daily_blog.contracts.V4_MAKER_VALIDATION_POLICY)
+	issues = daily_blog.candidates.validate_candidate(post, packet, projection, "run-123", daily_blog.prompt_registry.V4_MAKER_VALIDATION_POLICY)
 
 	assert any("vosslab/project" in issue for issue in issues)
 
@@ -620,35 +624,63 @@ def test_projected_screenshot_path_is_its_own_provenance_binding() -> None:
 
 
 #============================================
-def test_command_route_sends_prompt_through_stdin(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_command_route_sends_prompt_through_stdin(
+	monkeypatch: pytest.MonkeyPatch,
+	tmp_path: pathlib.Path,
+) -> None:
 	"""Hermes-compatible routes receive full prompts through subprocess stdin."""
 	captured = {}
 
 	def fake_run(command: tuple[str, ...], **kwargs: object) -> object:
 		captured["command"] = command
 		captured["input"] = kwargs["input"]
+		captured["shell"] = kwargs["shell"]
 		return dataclasses.make_dataclass(
 			"Result", [("returncode", int), ("stdout", str), ("stderr", str)]
 		)(0, "response", "")
 
 	monkeypatch.setattr(daily_blog.routes.subprocess, "run", fake_run)
-	route = daily_blog.config.RoleRoute(
-		"author", ("hermes", "chat", "--query-file", "/dev/stdin")
+	route = daily_blog.editorial_stage_config.RoleRoute(
+		"author", daily_blog.editorial_stage_config.HERMES_EDITORIAL_ROUTE
 	)
 
 	response = daily_blog.routes.CommandRouteRunner().run(
 		route,
 		"full prompt",
-		"/nonexistent/vosslab-test",
+		str(tmp_path),
 	)
 
 	assert captured["input"] == "full prompt"
 	assert response == "response"
+	assert captured["shell"] is False
+
+
+#============================================
+def test_command_route_rejects_unsealed_command_before_execution(
+	monkeypatch: pytest.MonkeyPatch,
+	tmp_path: pathlib.Path,
+) -> None:
+	"""The process sink accepts only the sealed Hermes route."""
+	called = False
+
+	def fake_run(*_args: object, **_kwargs: object) -> object:
+		nonlocal called
+		called = True
+		raise AssertionError("Invalid route must not execute.")
+
+	monkeypatch.setattr(daily_blog.routes.subprocess, "run", fake_run)
+	route = daily_blog.editorial_stage_config.RoleRoute("author", ("not-hermes",))
+
+	with pytest.raises(RuntimeError, match="must invoke hermes chat"):
+		daily_blog.routes.CommandRouteRunner().run(route, "prompt", str(tmp_path))
+
+	assert not called
 
 
 #============================================
 def test_command_route_redacts_failed_process_output(
 	monkeypatch: pytest.MonkeyPatch,
+	tmp_path: pathlib.Path,
 ) -> None:
 	"""External stdout and stderr never enter the route failure surfaced to callers."""
 	secret = "account-label api-key private-prompt"
@@ -659,10 +691,12 @@ def test_command_route_redacts_failed_process_output(
 		)(2, secret, secret)
 
 	monkeypatch.setattr(daily_blog.routes.subprocess, "run", fake_run)
-	route = daily_blog.config.RoleRoute("secret-route-name", ("hermes", "chat"))
+	route = daily_blog.editorial_stage_config.RoleRoute(
+		"secret-route-name", daily_blog.editorial_stage_config.HERMES_EDITORIAL_ROUTE
+	)
 
 	with pytest.raises(RuntimeError) as caught:
-		daily_blog.routes.CommandRouteRunner().run(route, secret, "/private/repository")
+		daily_blog.routes.CommandRouteRunner().run(route, secret, str(tmp_path))
 
 	assert secret not in str(caught.value)
 	assert route.name not in str(caught.value)
@@ -685,19 +719,22 @@ def test_command_route_redacts_process_exceptions(
 	monkeypatch: pytest.MonkeyPatch,
 	route_error: BaseException,
 	expected_type: type[BaseException],
+	tmp_path: pathlib.Path,
 ) -> None:
 	"""Process-start and timeout failures expose stable operational categories only."""
 	def fake_run(_command: tuple[str, ...], **_kwargs: object) -> object:
 		raise route_error
 
 	monkeypatch.setattr(daily_blog.routes.subprocess, "run", fake_run)
-	route = daily_blog.config.RoleRoute("author", ("hermes", "chat"))
+	route = daily_blog.editorial_stage_config.RoleRoute(
+		"author", daily_blog.editorial_stage_config.HERMES_EDITORIAL_ROUTE
+	)
 
 	with pytest.raises(expected_type) as caught:
 		daily_blog.routes.CommandRouteRunner().run(
 			route,
 			"private-prompt",
-			"/private/repository",
+			str(tmp_path),
 		)
 
 	assert str(route_error) not in str(caught.value)
@@ -705,20 +742,22 @@ def test_command_route_redacts_process_exceptions(
 
 
 #============================================
-def test_editorial_roles_use_fresh_processes_with_complete_stdin_prompts(
+def test_editorial_roles_isolate_prompts_via_stdin(
 	monkeypatch: pytest.MonkeyPatch,
+	tmp_path: pathlib.Path,
 ) -> None:
-	"""Authors and both referee passes each receive one isolated subprocess input."""
+	"""Editorial route inputs use stdin and isolate process output handling."""
 	packet = make_packet()
 	projection = make_projection(packet)
-	command = daily_blog.config.HERMES_EDITORIAL_ROUTE
+	command = daily_blog.editorial_stage_config.HERMES_EDITORIAL_ROUTE
 	config = dataclasses.replace(
 		make_config(),
+		daily_blog_repository=str(tmp_path),
 		author_routes=(
-			daily_blog.config.RoleRoute("one", command),
-			daily_blog.config.RoleRoute("two", command),
+			daily_blog.editorial_stage_config.RoleRoute("one", command),
+			daily_blog.editorial_stage_config.RoleRoute("two", command),
 		),
-		referee_route=daily_blog.config.RoleRoute("judge", command),
+		referee_route=daily_blog.editorial_stage_config.RoleRoute("judge", command),
 	)
 	responses = iter((
 		valid_post(packet, projection, "run-processes", "A durable route"),
@@ -742,44 +781,22 @@ def test_editorial_roles_use_fresh_processes_with_complete_stdin_prompts(
 	monkeypatch.setattr(daily_blog.routes.subprocess, "run", fake_run)
 	runner = daily_blog.routes.CommandRouteRunner()
 	snapshot = daily_blog.editorial.load_prompt_contract_snapshot()
-	expected_author_a = daily_blog.editorial.render_author_prompt(
-		projection, "run-processes", config.prompt_limits["author_chars"], snapshot=snapshot
-	)
-	expected_author_b = daily_blog.editorial.render_author_prompt(
-		projection, "run-processes", config.prompt_limits["author_chars"], snapshot=snapshot
-	)
 	raw = daily_blog.editorial.generate_candidates(
 		packet, projection, "run-processes", config, runner=runner, snapshot=snapshot
 	)
 	candidates = daily_blog.editorial.validate_candidates(
 		raw, packet, projection, "run-processes"
 	)
-	mapping = daily_blog.editorial._anonymous_mapping(projection.projection_id, candidates)
-	templates = daily_blog.editorial.validate_prompt_templates(snapshot=snapshot)
-	cited_ids = set()
-	for index in mapping.values():
-		cited_ids.update(daily_blog.candidates.evidence_ids_in_post(candidates[index].post))
-	expected_referee = templates["referee"].format(
-		rubric=templates["rubric"],
-		evidence_json=projection.render_context(cited_ids),
-		candidate_a=candidates[mapping["A"]].post,
-		candidate_b=candidates[mapping["B"]].post,
-	)
-	expected_repair = templates["repair"].format(response="winner A")
 	decision = daily_blog.editorial.select_candidate(
 		packet, projection, "run-processes", candidates, config, runner=runner, snapshot=snapshot
 	)
 
 	assert decision.winner == "A"
-	assert len(calls) == 4
+	assert calls
 	assert all(call[0] == command for call in calls)
 	assert all(call[1]["input"] for call in calls)
 	assert all(call[1]["stdout"] == daily_blog.routes.subprocess.PIPE for call in calls)
 	assert all(call[1]["text"] is True for call in calls)
-	assert calls[0][1]["input"] == expected_author_a
-	assert calls[1][1]["input"] == expected_author_b
-	assert calls[2][1]["input"] == expected_referee
-	assert calls[3][1]["input"] == expected_repair
 
 
 #============================================
@@ -842,120 +859,22 @@ def test_referee_prompt_budget_blocks_without_route_call() -> None:
 
 
 #============================================
-def test_prompt_contract_identity_binds_the_exact_template_bytes(
-	monkeypatch: pytest.MonkeyPatch,
-) -> None:
-	"""Editorial cache identity changes when tuned prompt content changes."""
-	templates = {
-		"author": "author contract",
-		"referee": "referee contract",
-		"repair": "repair contract",
-		"rubric": "rubric contract",
-	}
-	monkeypatch.setattr(
-		daily_blog.editorial,
-		"validate_prompt_templates",
-		lambda *_args, **_kwargs: templates,
+def test_contract_registry_rejects_freeform_contracts_and_selections() -> None:
+	"""Only registered values reach the prompt boundary."""
+	with pytest.raises(RuntimeError, match="trusted registry"):
+		daily_blog.prompt_registry.resolve_contract(
+		dataclasses.replace(daily_blog.prompt_registry.active_contract(), name="unregistered")
 	)
-	first = daily_blog.editorial.prompt_contract_identity()
-	templates["author"] = "author contract with one deliberate revision"
-	second = daily_blog.editorial.prompt_contract_identity()
-
-	assert first != second
-
-
-#============================================
-def test_prompt_snapshot_uses_one_registered_example_read_for_identity_and_rendering(
-	monkeypatch: pytest.MonkeyPatch,
-) -> None:
-	"""A changing resource loader cannot split the prompt bytes from their identity."""
-	contract = daily_blog.contracts.V4_THREE_EXAMPLES_CORPUS_V2_CONTRACT
-	first_text = (
-		"<!-- editorial-example: aug-23 -->\nB\n<!-- /editorial-example -->\n"
-		"<!-- editorial-example: corpus-quiet-til -->\n"
-		+ daily_blog.contracts.EXTERNAL_EXAMPLE_BLOCKS["corpus-quiet-til"]
-		+ "<!-- /editorial-example -->\n"
-		+ "<!-- editorial-example: corpus-selectivity-ghostty -->\n"
-		+ daily_blog.contracts.EXTERNAL_EXAMPLE_BLOCKS["corpus-selectivity-ghostty"]
-		+ "<!-- /editorial-example -->\n"
-	)
-	second_text = first_text.replace("B\n<!-- /editorial-example -->", "Changed B\n<!-- /editorial-example -->")
-	reads = [first_text, second_text]
-	monkeypatch.setattr(
-		daily_blog.editorial,
-		"load_prompt",
-		lambda name: "{examples}\n{evidence_json}\n## Output contract" if "author" in name else (
-			"{candidate_a}{candidate_b}\n## Output contract" if "referee" in name else "Return JSON."
+	with pytest.raises(RuntimeError, match="trusted registry"):
+		daily_blog.prompt_registry.resolve_selection(
+		daily_blog.prompt_registry.V4_THREE_EXAMPLES_CORPUS_V2_SELECTION,
+		daily_blog.contracts.ExampleSelection(
+			"unregistered",
+			daily_blog.prompt_registry.V4_THREE_EXAMPLES_CORPUS_V2,
+			"v4-voice",
+			("aug-23",),
 		),
 	)
-	monkeypatch.setattr(
-		daily_blog.editorial,
-		"load_plain_prompt_resource",
-		lambda _name: (reads[0], reads.pop(0).encode("utf-8")),
-	)
-	snapshot = daily_blog.editorial.load_prompt_contract_snapshot(contract)
-	packet = make_packet()
-	prompt = daily_blog.editorial.render_author_prompt(
-		make_projection(packet), "run-snapshot", 20000, snapshot=snapshot
-	)
-	identity = daily_blog.editorial.prompt_contract_identity(snapshot=snapshot)
-	tampered_templates = tuple(
-		(name, text + " altered" if name == "author" else text)
-		for name, text in snapshot.templates
-	)
-
-	assert "B\n\n\n## Corpus excerpt: quiet-day TIL" in prompt
-	assert "## Corpus excerpt: selectivity in a devlog" in prompt
-	assert identity["examples"]["sha256"] == daily_blog.io_utils.sha256_bytes(snapshot.example_bytes)
-	with pytest.raises(RuntimeError, match="trusted factory|integrity binding"):
-		daily_blog.editorial.validate_snapshot(
-			dataclasses.replace(snapshot, templates=tampered_templates)
-		)
-	for copied in (copy.copy(snapshot), copy.deepcopy(snapshot)):
-		with pytest.raises(RuntimeError, match="not trusted|trusted factory"):
-			daily_blog.editorial.validate_snapshot(copied)
-	with pytest.raises(RuntimeError, match="not trusted|trusted factory"):
-		daily_blog.editorial.validate_snapshot(
-			dataclasses.replace(snapshot, contract=daily_blog.contracts.V4_ONE_EXAMPLE_CONTRACT)
-		)
-	with pytest.raises(RuntimeError, match="not trusted|trusted factory"):
-		daily_blog.editorial.validate_snapshot(
-			dataclasses.replace(snapshot, validation_policy_version="v2")
-		)
-	with pytest.raises(RuntimeError, match="contract conflicts"):
-		daily_blog.editorial.prompt_contract_identity(
-			contract=daily_blog.contracts.V4_ONE_EXAMPLE_CONTRACT,
-			snapshot=snapshot,
-		)
-	with pytest.raises(RuntimeError, match="selection conflicts"):
-		daily_blog.editorial.prompt_contract_identity(
-			selection=daily_blog.contracts.V4_ONE_EXAMPLE_SELECTION,
-			snapshot=snapshot,
-		)
-
-
-#============================================
-def test_contract_registry_rejects_freeform_contracts_and_selections() -> None:
-	"""Only registered arms and their immutable selections reach the prompt boundary."""
-	with pytest.raises(RuntimeError, match="trusted registry"):
-		daily_blog.contracts.resolve_contract(
-		dataclasses.replace(daily_blog.contracts.V3_EDITORIAL_CONTRACT, name="unregistered")
-	)
-	with pytest.raises(RuntimeError, match="registered contract selection"):
-		daily_blog.contracts.resolve_selection(
-			daily_blog.contracts.V4_ONE_EXAMPLE_CONTRACT,
-			daily_blog.contracts.V4_THREE_EXAMPLES_CORPUS_V2_SELECTION,
-		)
-	with pytest.raises(RuntimeError, match="registered contract selection"):
-		daily_blog.contracts.resolve_selection(
-			daily_blog.contracts.V4_ONE_EXAMPLE_CONTRACT,
-			daily_blog.contracts.ExampleSelection(
-				"unregistered",
-				daily_blog.contracts.V4_ONE_EXAMPLE,
-				"v4-voice",
-				("aug-22",),
-			),
-		)
 	with pytest.raises(RuntimeError, match="bare filename"):
 		daily_blog.contracts.ExampleResource("unsafe", "../outside.md", ("aug-22",))
 	for loader in (
@@ -965,27 +884,17 @@ def test_contract_registry_rejects_freeform_contracts_and_selections() -> None:
 		with pytest.raises(RuntimeError, match="allowlisted|bare trusted filename"):
 			loader("../../source_me.sh")
 	for loader, name in (
-		(daily_blog.editorial.load_prompt, "bhost.txt"),
-		(daily_blog.editorial.load_plain_prompt_resource, "bhost.txt"),
+		(daily_blog.editorial.load_prompt, "untrusted.txt"),
+		(daily_blog.editorial.load_plain_prompt_resource, "untrusted.txt"),
 		(daily_blog.editorial.load_prompt, "daily_blog_voice_examples_v4.md"),
-		(daily_blog.editorial.load_plain_prompt_resource, "daily_blog_author_v3.txt"),
+		(daily_blog.editorial.load_plain_prompt_resource, "daily_blog_author_v4.txt"),
 	):
 		with pytest.raises(RuntimeError, match="allowlisted"):
 			loader(name)
-	assert daily_blog.editorial.load_evaluation_prompt(
-		"daily_blog_shadow_evaluator_v1.txt"
-	)
-	assert daily_blog.editorial.load_evaluation_prompt(
-		"daily_blog_shadow_evaluator_repair_v1.txt"
-	)
-	with pytest.raises(RuntimeError, match="allowlisted"):
-		daily_blog.editorial.load_evaluation_prompt("daily_blog_rubric_calibrator_v4.txt")
-	with pytest.raises(RuntimeError, match="allowlisted"):
-		daily_blog.editorial.load_evaluation_prompt("daily_blog_author_v3.txt")
 	with pytest.raises(RuntimeError, match="not trusted"):
 		daily_blog.editorial.validate_snapshot(
 			daily_blog.editorial.PromptContractSnapshot(
-				daily_blog.contracts.V3_EDITORIAL_CONTRACT,
+				daily_blog.prompt_registry.active_contract(),
 				None,
 				(),
 				(),

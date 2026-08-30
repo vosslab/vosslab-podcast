@@ -3,6 +3,7 @@
 # Standard Library
 import argparse
 import builtins
+import contextlib
 import types
 
 # PIP3 modules
@@ -10,6 +11,8 @@ import pytest
 
 # local repo modules
 import make_blog
+import automation.publish_daily_blog
+import daily_blog.publication_state
 
 
 #============================================
@@ -56,17 +59,16 @@ def test_parse_args_requires_exactly_one_date_selector() -> None:
 
 
 #============================================
-def test_parse_args_keeps_yesterday_and_replacement_authorization_distinct() -> None:
-	"""The short flags select a date and authorize replacement without ambiguity."""
-	args = make_blog.parse_args(["-Y", "-y"])
+def test_parse_args_accepts_yesterday_without_replacement_authorization() -> None:
+	"""Yesterday remains the only short date-selection flag for a scheduled run."""
+	args = make_blog.parse_args(["-Y"])
 
 	assert args.yesterday is True
-	assert args.yes is True
 
 
 #============================================
-def test_parse_args_keeps_explicit_date_and_replacement_authorization_distinct() -> None:
-	"""The explicit-date selector and the replacement override retain separate short flags."""
+def test_parse_args_normalizes_an_explicit_date_with_overwrite_authorization() -> None:
+	"""The lower-case replacement flag is distinct from the upper-case date selector."""
 	args = make_blog.parse_args(["-d", "2026-27-08", "-y"])
 
 	assert args.report_date == "2026-08-27"
@@ -74,10 +76,12 @@ def test_parse_args_keeps_explicit_date_and_replacement_authorization_distinct()
 
 
 #============================================
-def test_parse_args_rejects_date_selector_collisions_with_yes() -> None:
-	"""Replacement authorization cannot make two date selectors valid together."""
+def test_parse_args_rejects_date_selector_collisions() -> None:
+	"""The command still rejects conflicting date selectors."""
 	with pytest.raises(SystemExit):
-		make_blog.parse_args(["-Y", "-d", "2026-08-27", "-y"])
+		make_blog.parse_args(["-Y", "-d", "2026-08-27"])
+	with pytest.raises(SystemExit):
+		make_blog.parse_args(["-Y", "--yes"])
 
 
 #============================================
@@ -106,59 +110,159 @@ def test_selected_report_date_uses_configured_timezone_for_yesterday(
 	monkeypatch.setattr(make_blog, "yesterday_for_timezone", yesterday)
 
 	assert make_blog.selected_report_date(args, "America/Chicago") == "2026-08-27"
-#============================================
-def test_noninteractive_confirmation_preserves_without_reading_input(
+def test_yesterday_uses_automatic_replacement_without_terminal_input(
 	monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-	"""A systemd run preserves an existing date without waiting for terminal input."""
-	monkeypatch.setattr(make_blog.sys, "stdin", types.SimpleNamespace(isatty=lambda: False))
+	"""The unattended selector owns replacement without needing a terminal callback."""
+	config = types.SimpleNamespace(report_timezone="America/Chicago")
+	observed: list[dict[str, object]] = []
+	monkeypatch.setattr(make_blog.daily_blog.config, "load_config", lambda *_args, **_kwargs: config)
+	monkeypatch.setattr(builtins, "input", lambda _prompt: (_ for _ in ()).throw(AssertionError()))
 	monkeypatch.setattr(
-		builtins,
-		"input",
-		lambda _prompt: (_ for _ in ()).throw(AssertionError("input must stay unused")),
+		make_blog.automation.publish_daily_blog,
+		"publish_report_date",
+		lambda _config, _date, **kwargs: observed.append(kwargs) or True,
 	)
 
-	assert make_blog.confirm_replacement("2026-08-27") is False
+	make_blog.main(["--yesterday"])
+
+	assert observed == [{"replace_existing": True, "confirm_replace": None}]
 
 
 #============================================
-@pytest.mark.parametrize("response", ("Y", " y", "y ", "yes", ""))
-def test_confirmation_requires_literal_lowercase_y(
-	monkeypatch: pytest.MonkeyPatch,
-	response: str,
-) -> None:
-	"""Only the documented literal terminal response authorizes replacement."""
-	monkeypatch.setattr(make_blog.sys, "stdin", types.SimpleNamespace(isatty=lambda: True))
-	monkeypatch.setattr(builtins, "input", lambda _prompt: response)
-
-	assert make_blog.confirm_replacement("2026-08-27") is False
-
-
-#============================================
-def test_confirmation_accepts_literal_lowercase_y(
+def test_explicit_date_passes_the_narrow_confirmation_callback(
 	monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-	"""The interactive confirmation accepts the one documented affirmative response."""
-	monkeypatch.setattr(make_blog.sys, "stdin", types.SimpleNamespace(isatty=lambda: True))
-	monkeypatch.setattr(builtins, "input", lambda _prompt: "y")
-
-	assert make_blog.confirm_replacement("2026-08-27") is True
-
-
-#============================================
-def test_yes_preauthorizes_replacement_without_terminal_input(
-	monkeypatch: pytest.MonkeyPatch,
-) -> None:
-	"""The unattended override reaches the date-owned workflow as an affirmative decider."""
+	"""An explicit date delegates its occupied-date decision to the lock-owning service."""
 	config = types.SimpleNamespace(report_timezone="America/Chicago")
-	observed = []
+	observed: list[dict[str, object]] = []
+	confirmation = lambda _prompt: "y"
 	monkeypatch.setattr(make_blog.daily_blog.config, "load_config", lambda *_args, **_kwargs: config)
 	monkeypatch.setattr(
 		make_blog.automation.publish_daily_blog,
 		"publish_report_date",
-		lambda _config, date, replacement_decider: observed.append((date, replacement_decider(date))),
+		lambda _config, _date, **kwargs: observed.append(kwargs) or True,
+	)
+
+	make_blog.main(["--date", "2026-08-27"], confirmation=confirmation)
+
+	assert observed == [{"replace_existing": False, "confirm_replace": confirmation}]
+
+
+#============================================
+def test_yes_authorizes_an_explicit_date_without_confirmation(
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""The explicit noninteractive replacement flag reaches the lock-owning service."""
+	config = types.SimpleNamespace(report_timezone="America/Chicago")
+	observed: list[dict[str, object]] = []
+	monkeypatch.setattr(make_blog.daily_blog.config, "load_config", lambda *_args, **_kwargs: config)
+	monkeypatch.setattr(
+		make_blog.automation.publish_daily_blog,
+		"publish_report_date",
+		lambda _config, _date, **kwargs: observed.append(kwargs) or True,
 	)
 
 	make_blog.main(["--date", "2026-08-27", "--yes"])
 
-	assert observed == [("2026-08-27", True)]
+	assert observed == [{"replace_existing": True, "confirm_replace": None}]
+
+
+#============================================
+def test_occupied_explicit_date_requires_exact_y_without_running_generation(
+	monkeypatch: pytest.MonkeyPatch,
+	capsys: pytest.CaptureFixture[str],
+) -> None:
+	"""Default denial preserves the occupied date after inspection under its same lock."""
+	config = types.SimpleNamespace(output_root="/out", output_owner="owner")
+	generated: list[str] = []
+	prompts: list[str] = []
+	monkeypatch.setattr(
+		automation.publish_daily_blog.daily_blog.orchestrator,
+		"publication_date_lock",
+		lambda _config, _date: contextlib.nullcontext(),
+	)
+	monkeypatch.setattr(
+		automation.publish_daily_blog.daily_blog.publication_state,
+		"inspect_publication",
+		lambda _config, _date: daily_blog.publication_state.PublicationInspection("current"),
+	)
+	monkeypatch.setattr(
+		automation.publish_daily_blog.daily_blog.orchestrator,
+		"run_daily_publication_locked",
+		lambda *_args, **_kwargs: generated.append("ran"),
+	)
+
+	result = automation.publish_daily_blog.publish_report_date(
+		config, "2026-08-27", replace_existing=False,
+		confirm_replace=lambda prompt: prompts.append(prompt) or "Y",
+	)
+
+	assert result is False
+	assert generated == []
+	assert prompts == ["Overwrite 2026-08-27? [N/y]: "]
+	assert capsys.readouterr().out == "Publication cancelled: 2026-08-27 remains unchanged.\n"
+
+
+#============================================
+def test_occupied_explicit_date_accepts_only_exact_y(
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""The exact documented reply permits an occupied date to regenerate."""
+	config = types.SimpleNamespace(output_root="/out", output_owner="owner")
+	observed: list[bool] = []
+	monkeypatch.setattr(
+		automation.publish_daily_blog.daily_blog.orchestrator,
+		"publication_date_lock",
+		lambda _config, _date: contextlib.nullcontext(),
+	)
+	monkeypatch.setattr(
+		automation.publish_daily_blog.daily_blog.publication_state,
+		"inspect_publication",
+		lambda _config, _date: daily_blog.publication_state.PublicationInspection("current"),
+	)
+	monkeypatch.setattr(
+		automation.publish_daily_blog.daily_blog.orchestrator,
+		"run_daily_publication_locked",
+		lambda *_args, **kwargs: observed.append(kwargs["force_regeneration"]) or ("/bundle", {}),
+	)
+
+	result = automation.publish_daily_blog.publish_report_date(
+		config, "2026-08-27", replace_existing=False,
+		confirm_replace=lambda prompt: "y" if prompt == "Overwrite 2026-08-27? [N/y]: " else "",
+	)
+
+	assert result is True
+	assert observed == [True]
+
+
+#============================================
+def test_missing_date_publishes_without_a_confirmation_callback(
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""A missing date enters generation directly and never asks an overwrite question."""
+	config = types.SimpleNamespace(output_root="/out", output_owner="owner")
+	observed: list[bool] = []
+	monkeypatch.setattr(
+		automation.publish_daily_blog.daily_blog.orchestrator,
+		"publication_date_lock",
+		lambda _config, _date: contextlib.nullcontext(),
+	)
+	monkeypatch.setattr(
+		automation.publish_daily_blog.daily_blog.publication_state,
+		"inspect_publication",
+		lambda _config, _date: daily_blog.publication_state.PublicationInspection("missing"),
+	)
+	monkeypatch.setattr(
+		automation.publish_daily_blog.daily_blog.orchestrator,
+		"run_daily_publication_locked",
+		lambda *_args, **kwargs: observed.append(kwargs["force_regeneration"]) or ("/bundle", {}),
+	)
+
+	result = automation.publish_daily_blog.publish_report_date(
+		config, "2026-08-27", replace_existing=False,
+		confirm_replace=lambda _prompt: (_ for _ in ()).throw(AssertionError()),
+	)
+
+	assert result is True
+	assert observed == [False]

@@ -1,0 +1,44 @@
+# Repository-story comparison
+
+## Role
+
+You are an anonymous comparative reviewer for evidence-grounded repository stories.
+
+## Desired action
+
+Choose the candidate that better satisfies the supplied repository-story rubric. Start with the
+rubric, then compare the two anonymous whole stories using concise reasons connected to their cited
+evidence and maker substance.
+
+## Repository-story rubric
+
+Rubric identity: `{rubric_identity}`
+
+{rubric}
+
+## Promoted repository outline
+
+{repo_outline_json}
+
+## Authoritative evidence packets
+
+{evidence_json}
+
+## Candidate A
+
+{candidate_a}
+
+## Candidate B
+
+{candidate_b}
+
+## Output contract
+
+Return one JSON object with these fields:
+
+- `winner`: `A`, `B`, or `NONE`
+- `reason`: concise rubric-first, evidence-grounded rationale
+- `evidence_quality`: `high`, `medium`, or `low`
+- `confidence`: a number from zero through one
+
+Return the JSON object by itself.

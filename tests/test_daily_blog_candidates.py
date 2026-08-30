@@ -10,7 +10,7 @@ import daily_blog.repository_contracts
 import daily_blog.schema
 
 
-V4_POLICY = daily_blog.contracts.V4_MAKER_VALIDATION_POLICY
+V4_POLICY = daily_blog.prompt_registry.V4_MAKER_VALIDATION_POLICY
 
 
 #============================================

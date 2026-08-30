@@ -2,31 +2,21 @@
 
 # Standard Library
 import datetime
+import json
 import os
-import pathlib
 import dataclasses
 
 # local repo modules
-import daily_blog.bundles
+import daily_blog.publication_contract
 import daily_blog.config
 import daily_blog.io_utils
 import daily_blog.repository_contracts
 import daily_blog.schema
+import daily_blog.publisher
 
 
-PUBLICATION_SCHEMA_VERSION = "vosslab.daily-blog.publication.v3"
-PUBLICATION_RECORD_FIELDS = {
-	"bundle_sha256",
-	"editorial_projection_manifest",
-	"evidence_manifest",
-	"generator_revision",
-	"generator_run",
-	"imported_at",
-	"post_path",
-	"report_date",
-	"schema_version",
-	"timezone",
-}
+PUBLICATION_SCHEMA_VERSION = daily_blog.publisher.PUBLISHER_PUBLICATION_RECORD_SCHEMA_VERSION
+PUBLICATION_RECORD_FIELDS = daily_blog.publisher.PUBLISHER_PUBLICATION_RECORD_FIELDS
 
 
 @dataclasses.dataclass(frozen=True)
@@ -50,29 +40,8 @@ def _path_is_regular(path: str) -> bool:
 
 
 #============================================
-def _read_declared_artifact(archive: str, relative_path: str, label: str) -> bytes:
-	"""Read one confined physical archive artifact."""
-	if not isinstance(relative_path, str):
-		raise RuntimeError(f"Publisher bundle {label} path is invalid.")
-	pure = pathlib.PurePosixPath(relative_path)
-	if (
-		pure.is_absolute()
-		or ".." in pure.parts
-		or not pure.parts
-	):
-		raise RuntimeError(f"Publisher bundle {label} path is invalid.")
-	path = os.path.join(archive, *pure.parts)
-	if os.path.commonpath((archive, os.path.realpath(path))) != archive:
-		raise RuntimeError(f"Publisher bundle {label} path escapes its archive.")
-	if not _path_is_regular(path):
-		raise RuntimeError(f"Publisher bundle {label} artifact is unavailable.")
-	with open(path, "rb") as handle:
-		return handle.read()
-
-
-#============================================
 def _manifest_artifact(
-	archive: str,
+	archive: daily_blog.publisher.PublicationArchiveReader,
 	manifest: object,
 	label: str,
 	required_fields: set[str],
@@ -84,7 +53,13 @@ def _manifest_artifact(
 	checksum = manifest.get("sha256")
 	if not isinstance(path, str) or not _is_sha256(checksum):
 		raise RuntimeError(f"Publisher bundle {label} manifest is invalid.")
-	return manifest, _read_declared_artifact(archive, path, label)
+	if path == "post.md":
+		contents = archive.read_post()
+	elif path in {"evidence.json", "repository_roster.json", "editorial_projection.json"}:
+		contents = archive.read_json_artifact(path, label)
+	else:
+		raise RuntimeError(f"Publisher bundle {label} path is invalid.")
+	return manifest, contents
 
 
 #============================================
@@ -149,7 +124,6 @@ def _validate_publication_state(
 		raise RuntimeError(f"Publisher record fields are unsupported: {path}")
 	root = os.path.abspath(config.daily_blog_repository)
 	archive_relative = f"data/publication_bundles/{report_date}"
-	archive = _archive_root(root, report_date)
 	expected_paths = {
 		"evidence_manifest": f"{archive_relative}/evidence.json",
 		"editorial_projection_manifest": f"{archive_relative}/editorial_projection.json",
@@ -167,21 +141,22 @@ def _validate_publication_state(
 	if not _is_sha256(value.get("bundle_sha256")):
 		raise RuntimeError(f"Publisher record bundle checksum is invalid: {path}")
 	_validate_imported_at(value.get("imported_at"), path)
-	if not os.path.isdir(archive) or os.path.islink(archive):
-		raise RuntimeError(f"Publisher publication state is incomplete: {path}")
-	bundle_path = os.path.join(archive, "bundle.json")
-	if not _path_is_regular(bundle_path):
-		raise RuntimeError(f"Publisher bundle manifest is unavailable: {path}")
-	bundle = daily_blog.io_utils.read_json(bundle_path)
-	if not isinstance(bundle, dict):
-		raise RuntimeError(f"Publisher bundle manifest must be an object: {path}")
-	_validate_bundle(config, report_date, value, bundle, archive)
+	if not isinstance(value.get("best_artifact_id"), str) or not value["best_artifact_id"]:
+		raise RuntimeError(f"Publisher record selected artifact is invalid: {path}")
+	with daily_blog.publisher.open_publication_archive(root, report_date) as archive:
+		try:
+			bundle = json.loads(archive.read_json_artifact("bundle.json", "bundle manifest").decode("utf-8"))
+		except (UnicodeDecodeError, json.JSONDecodeError) as error:
+			raise RuntimeError(f"Publisher bundle manifest is unavailable: {path}") from error
+		if not isinstance(bundle, dict):
+			raise RuntimeError(f"Publisher bundle manifest must be an object: {path}")
+		_validate_bundle(config, report_date, value, bundle, archive)
+		archived_post = archive.read_post()
 	installed_post_path = os.path.join(root, expected_paths["post_path"])
 	if not _path_is_regular(installed_post_path):
 		raise RuntimeError(f"Publisher installed post is unavailable: {path}")
 	with open(installed_post_path, "rb") as handle:
 		installed_post = handle.read()
-	archived_post = _read_declared_artifact(archive, "post.md", "post")
 	if installed_post != archived_post:
 		raise RuntimeError(f"Publisher archived post does not match installed source: {path}")
 	if not _path_is_regular(os.path.join(root, "generated", "releases", report_date, "index.html")):
@@ -194,7 +169,7 @@ def _validate_bundle(
 	report_date: str,
 	record: dict,
 	bundle: dict,
-	archive: str,
+	archive: daily_blog.publisher.PublicationArchiveReader,
 ) -> None:
 	"""Verify every date-owned bundle artifact and its typed contracts."""
 	if bundle.get("schema_version") != daily_blog.schema.BUNDLE_SCHEMA_VERSION:
@@ -205,10 +180,11 @@ def _validate_bundle(
 		raise RuntimeError("Publisher bundle timezone is inconsistent.")
 	if not _is_sha256(bundle.get("bundle_sha256")):
 		raise RuntimeError("Publisher bundle checksum is invalid.")
-	if bundle.get("bundle_sha256") != daily_blog.bundles.bundle_sha256(bundle):
+	if bundle.get("bundle_sha256") != daily_blog.publication_contract.bundle_sha256(bundle):
 		raise RuntimeError("Publisher bundle checksum does not match its manifest.")
 	if bundle["bundle_sha256"] != record["bundle_sha256"]:
 		raise RuntimeError("Publisher record checksum does not match its bundle.")
+	daily_blog.publication_contract.validate_bundle_identity_fields(bundle)
 	evidence_manifest, _evidence_bytes = _manifest_artifact(
 		archive, bundle.get("evidence"), "evidence", {"path", "packet_id", "sha256"}
 	)
@@ -221,7 +197,7 @@ def _validate_bundle(
 		{"path", "projection_id", "sha256"},
 	)
 	post_manifest, post_bytes = _manifest_artifact(
-		archive, bundle.get("post"), "post", {"path", "sha256"}
+		archive, bundle.get("post"), "post", {"path", "sha256", "artifact_id"}
 	)
 	if evidence_manifest["path"] != "evidence.json":
 		raise RuntimeError("Publisher bundle evidence path is invalid.")
@@ -231,15 +207,15 @@ def _validate_bundle(
 		raise RuntimeError("Publisher bundle editorial projection path is invalid.")
 	if post_manifest["path"] != "post.md":
 		raise RuntimeError("Publisher bundle post path is invalid.")
-	evidence = daily_blog.schema.EvidencePacket.from_dict(
-		daily_blog.io_utils.read_json(os.path.join(archive, evidence_manifest["path"]))
-	)
-	roster = daily_blog.repository_contracts.RepositoryRoster.from_dict(
-		daily_blog.io_utils.read_json(os.path.join(archive, roster_manifest["path"]))
-	)
-	projection = daily_blog.schema.EditorialProjection.from_dict(
-		daily_blog.io_utils.read_json(os.path.join(archive, projection_manifest["path"]))
-	)
+	try:
+		evidence_value = json.loads(_evidence_bytes.decode("utf-8"))
+		roster_value = json.loads(_roster_bytes.decode("utf-8"))
+		projection_value = json.loads(_projection_bytes.decode("utf-8"))
+	except (UnicodeDecodeError, json.JSONDecodeError) as error:
+		raise RuntimeError("Publisher bundle artifact is not valid JSON.") from error
+	evidence = daily_blog.schema.EvidencePacket.from_dict(evidence_value)
+	roster = daily_blog.repository_contracts.RepositoryRoster.from_dict(roster_value)
+	projection = daily_blog.schema.EditorialProjection.from_dict(projection_value)
 	if daily_blog.io_utils.hash_value(evidence.to_dict()) != evidence_manifest["sha256"]:
 		raise RuntimeError("Publisher bundle evidence checksum does not match its artifact.")
 	if daily_blog.io_utils.hash_value(roster.to_dict()) != roster_manifest["sha256"]:
@@ -273,6 +249,11 @@ def _validate_bundle(
 		raise RuntimeError("Publisher bundle projection exceeds its repository roster.")
 	if daily_blog.io_utils.sha256_bytes(post_bytes) != post_manifest["sha256"]:
 		raise RuntimeError("Publisher bundle post checksum does not match its artifact.")
+	if (
+		bundle.get("best_artifact_id") != record.get("best_artifact_id")
+		or post_manifest.get("artifact_id") != record.get("best_artifact_id")
+	):
+		raise RuntimeError("Publisher record selected artifact does not bind its bundle post.")
 	_asset_paths: set[str] = set()
 	assets = bundle.get("assets")
 	if not isinstance(assets, list):
@@ -286,7 +267,7 @@ def _validate_bundle(
 		if not isinstance(asset_path, str) or asset_path in _asset_paths or not _is_sha256(asset["sha256"]):
 			raise RuntimeError("Publisher bundle asset manifest is invalid.")
 		_asset_paths.add(asset_path)
-		contents = _read_declared_artifact(archive, asset_path, "asset")
+		contents = archive.read_asset(asset_path)
 		if daily_blog.io_utils.sha256_bytes(contents) != asset["sha256"]:
 			raise RuntimeError("Publisher bundle asset checksum does not match its artifact.")
 		evidence_item = evidence_by_id.get(asset["evidence_id"])

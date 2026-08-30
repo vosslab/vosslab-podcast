@@ -1,20 +1,14 @@
 # Install
 
 This repository runs from a source checkout. Installation creates the physical
-repository-local `.venv` that [`source_me.sh`](../source_me.sh) verifies and uses
-for the command-line tools.
+repository-local `.venv` used by the daily-publication command and developer tools.
 
 ## Requirements
 
-- Bash and Python 3.12. `source_me.sh` rejects a missing, symbolic-link, or
-  non-3.12 `.venv`.
+- Bash and Python 3.12.
 - Runtime packages in [`pip_requirements.txt`](../pip_requirements.txt).
-- Developer packages in [`pip_requirements-dev.txt`](../pip_requirements-dev.txt)
-  when running tests.
-- The non-Python packages in [`Brewfile`](../Brewfile) when using the matching
-  macOS audio or local-model features.
-- macOS `say` for the one-voice renderer in
-  [`pipeline/script_to_audio_say.py`](../pipeline/script_to_audio_say.py).
+- Developer packages in [`pip_requirements-dev.txt`](../pip_requirements-dev.txt) for tests.
+- The configured local `vosslab-daily-blog` checkout for a real daily publication.
 
 ## Install steps
 
@@ -25,48 +19,29 @@ for the command-line tools.
    python3.12 -m venv .venv
    ```
 
-3. Install the runtime and developer dependencies into that environment:
+3. Install runtime and developer dependencies:
 
    ```bash
    .venv/bin/pip install -r pip_requirements.txt -r pip_requirements-dev.txt
    ```
 
-4. Load the repository environment before running a repository command:
+4. Load the repository environment before Python commands:
 
    ```bash
    source source_me.sh
    ```
 
-   This puts `.venv/bin` first on `PATH` and exposes `pipeline/` plus the
-   local LLM wrapper through `PYTHONPATH`.
+`source_me.sh` verifies Python 3.12, puts `.venv/bin` first on `PATH`, and exposes
+the repository pipeline modules.
 
-## Daily publication, model routes, and timer
+## Live publication setup
 
-The generic install supports route-free commands, tests, fixture preparation,
-and offline E2Es. It does not provision the host-local editorial model command.
-The checked-in `daily_blog.routes.*` entries in
-[`settings.yaml`](../settings.yaml) invoke `hermes chat` and must resolve in the
-same environment used by a manual command or the systemd service. The bootstrap
-also adds `$HOME/nsh/local-llm-wrapper` to `PYTHONPATH` for the current host
-integration.
+The checked-in daily-blog routes invoke `hermes chat`; a live publication also needs
+the configured GitHub credential source and the local publisher checkout named in
+[`settings.yaml`](../settings.yaml). Keep provider credentials out of that file.
 
-Before attempting publication, provide the configured model/provider commands
-in the host environment. `make_blog.py` owns date selection and launches one
-publication run. Hermes supplies configured author and referee model execution
-inside that run. Evidence collection, validation, date locking, bundle writing,
-and local import remain deterministic; Hermes does not own a schedule or a
-second publication loop.
-
-Repository discovery requires `GITHUB_TOKEN`. The runtime first accepts an explicitly injected
-value, then reads only `GITHUB_TOKEN` from `$HERMES_HOME/.env` (default `~/.hermes/.env`). Keep the
-token in that runtime credential source rather than `settings.yaml`. The checked-in service sets
-`HERMES_HOME=/home/vosslab/.hermes`; it does not source the complete dotenv file.
-
-For unattended publication, install the checked-in systemd user unit and timer.
-The timer calls `./make_blog.py --yesterday` directly at 04:00
-America/Chicago. Systemd owns that schedule and service lifecycle. The command
-preserves an already-published date and exits successfully, so it never waits
-for terminal input.
+The included systemd user unit calls `./make_blog.py --yesterday` at 04:00
+America/Chicago. Install it only on a host prepared for live publication:
 
 ```bash
 mkdir -p ~/.config/systemd/user
@@ -76,42 +51,34 @@ systemctl --user daemon-reload
 systemctl --user enable --now vosslab-daily-publication.timer
 ```
 
-See [`DAILY_BLOG_OPERATIONS.md`](DAILY_BLOG_OPERATIONS.md#scheduling) for the operator checks and
-the publication ownership boundary.
+See [`DAILY_BLOG_OPERATIONS.md`](DAILY_BLOG_OPERATIONS.md) for operating boundaries.
 
-## Maker experiment access
+## Verify installation
 
-The active production interface is v4-maker policy v3 through
-`v4-three-examples-corpus-v2` and bundle v5. Fixture-backed F4 evidence and the producer/publisher
-activation are accepted. See [`USAGE.md`](USAGE.md#maker-evidence) for the current workflow.
-
-## Verify install
-
-Confirm the selected interpreter, YAML dependency, and primary runner interface
-plus the root blog interface without creating pipeline artifacts or calling a
-model route:
+Verify the supported interpreter and the public command without collecting evidence,
+calling a model, or importing a post:
 
 ```bash
-source source_me.sh && python3 -c 'import sys, yaml; assert sys.version_info[:2] == (3, 12); print(sys.version)'
+source source_me.sh && python3 -c 'import sys, yaml; assert sys.version_info[:2] == (3, 12)'
 ./make_blog.py --help
 ```
 
+Run the controlled no-egress publication proof separately when validating a checkout:
+
+```bash
+source source_me.sh && python3 tests/e2e/e2e_daily_publication.py
+```
+
+It uses disposable roots and deterministic route responses; it never requires Hermes,
+network access, or a configured publisher checkout.
+
 ## Troubleshooting
 
-### `source_me.sh` rejects the environment
+### Environment rejected
 
-Recreate `.venv` with the first two installation commands. The bootstrap only
-accepts a physical repository-local Python 3.12 environment.
-
-### `--no-api-calls` cannot find cached data
-
-[`automation/run_local_pipeline.py`](../automation/run_local_pipeline.py)
-requires a prior fetched JSONL below `out/<github_username>/`. Use this option
-only after a suitable fetch output exists.
+Recreate `.venv` with Python 3.12. The bootstrap rejects a missing, symbolic-link,
+or non-3.12 repository environment.
 
 ## Known gaps
 
-- TODO: verify the optional Qwen multi-speaker renderer on each intended
-  machine and model runtime.
-- TODO: complete an operator-approved live historical calibration and maker
-  capture before considering a v4 activation decision.
+- TODO: verify the optional live Hermes route on each intended publication host.
