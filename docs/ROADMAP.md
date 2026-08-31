@@ -13,14 +13,18 @@ to priorities, not a release schedule. The authoritative execution record is
   prose are human-owned and unchanged. The registry mechanically resolves the active contract and
   its immutable resources.
 - Publication is date-owned: `report_date` is the sole publication identity. A sealed
-  `vosslab.daily-blog.bundle.v7` carries the selected eligible artifact into the publisher, whose
-  durable publication record is `publication-v4`.
+  `vosslab.daily-blog.bundle.v8` carries the selected eligible artifact and its portable
+  source-safety policy identity (`publication_source_safety.v1`, 35 executable cases, SHA-256
+  `d50166736d79be7f7715cc0f7585fac71dfb2aecc1c631b10e01aeca2fb63c6b`) into the publisher, whose
+  durable publication record is `vosslab.daily-blog.publication.v5`, including the canonical
+  reader-body digest.
 - Five self-generated, no-egress fixture cases already prove evidence-to-page integrity across
   quiet, busy, single-repository, screenshot-bearing, and degraded-dependency conditions. The
   durable validation record preserves the evidence and temporary-harness disposition.
-- M15 completed the direct-route migration: the publication-contract/storage boundary owns the
-  sealed bundle v7 handoff, `prompt_registry.py` owns immutable prompt identities, retired
-  experiment and calibration routes are removed, and typed incumbent transitions make
+- M15 completed the direct-route migration: the publication-contract/storage boundary owned the
+  historical sealed bundle-v7 handoff, the `prompt_registry/` package owns immutable prompt identities through
+  its `definitions.py`, `loader.py`, and `editorial_contracts.py` leaf modules, retired experiment
+  and calibration routes are removed, and typed incumbent transitions make
   replacement authority durable and source-derived. Its one aggregate E2E run passed 7/7. Its
   one full-suite run is recorded truthfully as 3513 passed, 1 failed; the sole typed-transition
   defect was then closed by the affected durable test and typing guard, which passed 206 tests.
@@ -30,10 +34,16 @@ to priorities, not a release schedule. The authoritative execution record is
   check.
 - M16 also completed a fixed-clock, no-egress public-command proof for
   `report_date=2026-08-28`: two successful `make_blog.py --yesterday` invocations demonstrated
-  automatic same-date replacement and agreed on the terminal summary, sealed v7 bundle,
+  automatic same-date replacement and agreed on the terminal summary, historical sealed bundle-v7,
   publication record, and rendered page identity and digests. This is fixture-backed integrity
   evidence, not a live-model or prose-quality claim. A live model or network route remains
   optional non-gating corroboration, not daily-blog backlog work.
+
+- The active v8 contract rejects unsafe reader-visible source as editorial ineligibility, carries
+  `publication_source_safety.v1`'s executable 35-case SHA-256
+  `d50166736d79be7f7715cc0f7585fac71dfb2aecc1c631b10e01aeca2fb63c6b` for independent publisher
+  recheck, and declines stale-schema or stale-policy cache reuse. Bundle-v7 and publication-v3
+  remain explicit historical compatibility readers, never current import or reuse paths.
 
 ## Ongoing maintenance
 

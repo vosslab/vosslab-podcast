@@ -10,6 +10,7 @@ import json
 import daily_blog.artifacts
 import daily_blog.io_utils
 import daily_blog.publication_validation
+import daily_blog.publication_admission
 import daily_blog.replication
 import daily_blog.schema
 import daily_blog.activity
@@ -21,8 +22,9 @@ import daily_blog.stage7
 import daily_blog.stage_recovery_coordinator
 import daily_blog.editorial
 import daily_blog.complete_post_editor_prompts
-import daily_blog.daily_outline_prompts
 import daily_blog.daily_outline_workflow
+import daily_blog.prompt_registry.definitions
+import daily_blog.prompt_registry.loader
 import daily_blog.route_cache
 import daily_blog.run_contracts
 
@@ -42,6 +44,7 @@ class PublicationRuntime:
 	evidence_assembler: collections.abc.Callable | None = None
 	route_runner: object | None = None
 	publisher_function: collections.abc.Callable | None = None
+	publisher_validator: collections.abc.Callable | None = None
 	page_verifier: collections.abc.Callable | None = None
 
 
@@ -160,10 +163,14 @@ def _stage5_terminal_fault(coordinator: object, value: daily_blog.daily_outline_
 	fault = daily_blog.recovery.PipelineFault(
 		daily_blog.recovery.classify_pipeline_fault(observations), 0, "", "", observations,
 	)
-	contract = daily_blog.daily_outline_prompts.load_daily_outline_prompt_contract()
-	resources = dict(contract.resource_sha256)
-	prompts = tuple(sorted(value for name, value in resources.items() if name.endswith(".txt")))
-	rubrics = tuple(sorted(value for name, value in resources.items() if name.endswith(".md")))
+	prompt_set = daily_blog.prompt_registry.loader.load_prompt_set(
+		daily_blog.prompt_registry.definitions.DAILY_OUTLINE_PROMPT_SET,
+	)
+	resources = prompt_set.legacy_identity_dict()["resources"]
+	if type(resources) is not dict:
+		raise RuntimeError("Stage 5 prompt registry identity is invalid.")
+	prompts = tuple(sorted(item for name, item in resources.items() if name.endswith(".txt")))
+	rubrics = tuple(sorted(item for name, item in resources.items() if name.endswith(".md")))
 	steps = []
 	for summary in result.reliability:
 		steps.append(daily_blog.recovery.EvidenceDigestStep(
@@ -180,6 +187,7 @@ def _stage5_terminal_fault(coordinator: object, value: daily_blog.daily_outline_
 		daily_blog.recovery.EvidenceDigestInput(
 			value.report_date, "stage5/daily_outline/terminal", tuple(steps), packets,
 			prompts, rubrics, fault, (), promotion_ids,
+			allowed_repositories=value.repositories,
 		)
 	)
 	path = os.path.join(coordinator.store.run_dir, "recovery_fault.json")
@@ -217,7 +225,11 @@ def run_typed_stage5(coordinator: object, value: object) -> daily_blog.stage6.St
 	cache_effects = _cache_buffer(coordinator)
 	result = daily_blog.daily_outline_workflow.run_daily_outline(
 		value, coordinator.config.daily_outline, coordinator.route_budget,
-		runner=coordinator.route_runner, cache_load=cache_effects.load,
+		runner=coordinator.route_runner,
+		prompts=daily_blog.prompt_registry.loader.load_prompt_set(
+			daily_blog.prompt_registry.definitions.DAILY_OUTLINE_PROMPT_SET,
+		),
+		cache_load=cache_effects.load,
 		cache_accept=cache_effects.accept,
 	)
 	coordinator.store.write_artifact("stage5_reliability.json", {
@@ -226,11 +238,28 @@ def run_typed_stage5(coordinator: object, value: object) -> daily_blog.stage6.St
 	})
 	_record_stage5_summaries(coordinator, result)
 	if result.artifact is None:
-		_stage5_terminal_fault(coordinator, value, result)
+		try:
+			_stage5_terminal_fault(coordinator, value, result)
+		except daily_blog.recovery.PipelineFaultError:
+			# The Stage 5 terminal digest is a valid outcome after earlier ranking
+			# work was admitted to this serial cache boundary.  Preserve only those
+			# validated effects before exposing the typed fault to the outer run.
+			coordinator.route_cache.commit(cache_effects.drain())
+			raise
 	coordinator.route_cache.commit(cache_effects.drain())
 	coordinator.store.write_artifact("stage5_daily_outline.json", _stage5_artifact_payload(result))
+	recovery_sources = daily_blog.stage6.Stage6RecoverySources.from_stage5(value, result)
+	stage6_evidence_context = daily_blog.stage6.build_stage6_evidence_context(
+		result.artifact, result.selected_stories,
+		tuple(
+			packet for packet in value.packets
+			if {item.repository for item in packet.items}.issubset(result.artifact.repositories)
+		),
+		dict(value.evidence_context.projection_limits),
+	)
 	stage6_value = daily_blog.stage6.Stage6Input(
 		result.artifact, result.selected_stories, value.packets, root, _stage5_output_path(coordinator),
+		recovery_sources, stage6_evidence_context,
 	)
 	coordinator._complete("stage5_daily_outline", {
 		"artifact_id": result.artifact.artifact_id,
@@ -254,8 +283,8 @@ def _stage6_incumbent_transition(
 	artifact = result.artifact
 	if type(artifact) is not daily_blog.artifacts.CompletePost:
 		return daily_blog.run_contracts.ObserveIncumbent()
-	eligibility = daily_blog.artifacts.evaluate_eligibility(
-		artifact, value.packets, (value.output_root,),
+	eligibility = daily_blog.publication_admission.complete_post_eligibility(
+		artifact, value.publication_surface, value.output_root,
 	)
 	if not eligibility.eligible:
 		raise RuntimeError("Stage 6 selected post is not eligible for establishment.")
@@ -277,6 +306,10 @@ def run_typed_stage6(
 		raise RuntimeError("Stage 6 input must use the coordinator-owned output root and path.")
 	coordinator._start("stage6_complete_post", {
 		"packet_ids": [item.packet_id for item in value.packets], "output_path": output_path,
+		"evidence_context_id": value.evidence_context.context_id,
+		"model_context_id": value.evidence_context.model_context_id,
+		"publication_surface_packet_id": value.publication_surface.packet.packet_id,
+		"publication_surface_projection_id": value.publication_surface.projection.projection_id,
 	})
 	cache_effects = _cache_buffer(coordinator)
 	result = daily_blog.stage6.run_stage6(
@@ -299,6 +332,11 @@ def run_typed_stage6(
 		"schema_version": "vosslab.daily-blog.stage6-step-reliability.v1",
 		"steps": [summary.to_dict() for summary in steps],
 	})
+	coordinator.store.write_artifact("stage6_evidence_context.json", {
+		**value.evidence_context.to_dict(),
+		"publication_surface_packet_id": value.publication_surface.packet.packet_id,
+		"publication_surface_projection_id": value.publication_surface.projection.projection_id,
+	})
 	for summary in steps:
 		coordinator.store.record_editorial_step(
 			coordinator.record, summary, daily_blog.run_contracts.ObserveIncumbent(),
@@ -308,11 +346,20 @@ def run_typed_stage6(
 		_stage6_incumbent_transition(coordinator, value, result),
 	)
 	if result.artifact is None:
-		result = _recover_stage6(coordinator, value, result, cache_effects)
+		try:
+			result = _recover_stage6(coordinator, value, result, cache_effects)
+		except daily_blog.recovery.PipelineFaultError:
+			# Recovery may finish with a typed terminal fault after valid primary
+			# or fallback route results were buffered.  Preserve those validated
+			# cache effects before the fault leaves this serial write boundary.
+			coordinator.route_cache.commit(cache_effects.drain())
+			raise
 	coordinator.route_cache.commit(cache_effects.drain())
 	coordinator._complete("stage6_complete_post", {
 		"artifact_id": result.artifact.artifact_id,
 		"outcome": result.reliability.outcome,
+		"model_context_id": value.evidence_context.model_context_id,
+		"publication_surface_packet_id": value.publication_surface.packet.packet_id,
 	})
 	return result
 
@@ -409,6 +456,9 @@ def run_typed_stage7(
 		"incumbent_artifact_id": value.incumbent.artifact_id,
 		"incumbent_content_hash": value.incumbent.content_hash,
 		"stage6_input_identity": value.identity_sha256,
+		"model_context_id": stage6_input.evidence_context.model_context_id,
+		"publication_surface_packet_id": stage6_input.publication_surface.packet.packet_id,
+		"publication_surface_projection_id": stage6_input.publication_surface.projection.projection_id,
 	})
 	cache_effects = _cache_buffer(coordinator)
 	result = daily_blog.stage7.run_stage7(
@@ -422,6 +472,13 @@ def run_typed_stage7(
 		"schema_version": "vosslab.daily-blog.stage7-reliability.v1",
 		"steps": [item.to_dict() for item in result.step_reliability],
 	})
+	_write_replay_checked_artifact(coordinator, "stage7_evidence_context.json", {
+		"context_id": value.stage6_input.evidence_context.context_id,
+		"model_context_id": value.stage6_input.evidence_context.model_context_id,
+		"publication_surface_packet_id": value.stage6_input.publication_surface.packet.packet_id,
+		"publication_surface_projection_id": value.stage6_input.publication_surface.projection.projection_id,
+		"context_chars": value.stage6_input.evidence_context.context_chars,
+	})
 	transition = _stage7_incumbent_transition(result)
 	for summary in result.step_reliability[:-1]:
 		coordinator.store.record_editorial_step(
@@ -434,6 +491,8 @@ def run_typed_stage7(
 		"selected_artifact_id": result.artifact.artifact_id,
 		"selected_content_hash": result.artifact.content_hash,
 		"replaced_incumbent": type(transition) is daily_blog.run_contracts.ReplaceIncumbent,
+		"model_context_id": value.stage6_input.evidence_context.model_context_id,
+		"publication_surface_packet_id": value.stage6_input.publication_surface.packet.packet_id,
 	})
 	return result
 
@@ -442,11 +501,16 @@ def run_typed_stage7(
 def _stage6_recovery_identities(coordinator: object) -> tuple[tuple[str, ...], tuple[str, ...]]:
 	"""Return the frozen Stage 6 prompt and rubric byte identities for the digest."""
 	templates = coordinator.prompt_snapshot.template_dict()
-	editor = daily_blog.complete_post_editor_prompts.load_complete_post_editor_prompt_contract()
+	editor_prompts = daily_blog.prompt_registry.loader.load_prompt_set(
+		daily_blog.prompt_registry.definitions.COMPLETE_POST_EDITOR_PROMPT_SET,
+	)
+	editor_digest = daily_blog.io_utils.sha256_bytes(editor_prompts.contents(
+		daily_blog.prompt_registry.definitions.COMPLETE_POST_EDITOR_RESOURCE,
+	))
 	prompts = tuple(sorted({
 		daily_blog.io_utils.sha256_text(templates[name])
 		for name in ("author", "referee", "repair", "examples")
-	} | {editor.resource_sha256}))
+	} | {editor_digest}))
 	return prompts, (daily_blog.io_utils.sha256_text(templates["rubric"]),)
 
 
@@ -457,15 +521,33 @@ def _recover_stage6(
 ) -> daily_blog.stage6.Stage6Result:
 	"""Recover only an exhausted complete-post stage through its durable run owner."""
 	prompt_identities, rubric_identities = _stage6_recovery_identities(coordinator)
+	outline_recovery = daily_blog.stage6.CompletePostRecoveryInput(
+		value, daily_blog.recovery.RecoveryRung.DAILY_OUTLINE_EXPANSION,
+	)
+	story_recovery = daily_blog.stage6.CompletePostRecoveryInput(
+		value, daily_blog.recovery.RecoveryRung.REPOSITORY_STORY_MERGE,
+	)
 
-	def invoke(
+	def expand_daily_outline(
 		budget: object, cache_load: object, cache_accept: object,
 	) -> daily_blog.recovery.RecoveryAttempt:
-		"""Delegate one writer recovery to the configured Stage 6 editorial path."""
-		return daily_blog.stage6.recover_writer_complete_post(
-			value, coordinator.run_id + "-recovery", coordinator.config, budget,
+		"""Author one whole post from the retained daily outline."""
+		return daily_blog.stage6.recover_daily_outline_expansion(
+			outline_recovery, coordinator.run_id + "-recovery", coordinator.config, budget,
 			runner=coordinator.route_runner, contract=coordinator.editorial_contract,
-			snapshot=coordinator.prompt_snapshot, cache_load=cache_load, cache_accept=cache_accept,
+			selection=coordinator.prompt_snapshot.selection, snapshot=coordinator.prompt_snapshot,
+			cache_load=cache_load, cache_accept=cache_accept,
+		)
+
+	def merge_repository_stories(
+		budget: object, cache_load: object, cache_accept: object,
+	) -> daily_blog.recovery.RecoveryAttempt:
+		"""Author one whole post from retained repository-story material."""
+		return daily_blog.stage6.recover_repository_story_merge(
+			story_recovery, coordinator.run_id + "-recovery", coordinator.config, budget,
+			runner=coordinator.route_runner, contract=coordinator.editorial_contract,
+			selection=coordinator.prompt_snapshot.selection, snapshot=coordinator.prompt_snapshot,
+			cache_load=cache_load, cache_accept=cache_accept,
 		)
 
 	recovery = daily_blog.stage_recovery_coordinator.StageRecoveryCoordinator(
@@ -475,10 +557,23 @@ def _recover_stage6(
 	recovered = recovery.run(daily_blog.stage_recovery_coordinator.StageRecoveryInput(
 		value.report_date, "stage6/complete_post/recovery", daily_blog.artifacts.CompletePost,
 		result.promotion, result.generation, result.step_reliability, value.packets,
-		os.path.realpath(value.output_root), prompt_identities, rubric_identities, None,
-		(daily_blog.stage_recovery_coordinator.RecoveryPathAdapter(
-			daily_blog.recovery.RecoveryRung.WRITER_COMPLETE_POST, invoke,
-		),),
+		value.daily_outline.repositories,
+		os.path.realpath(value.output_root), value.publication_surface,
+		prompt_identities, rubric_identities,
+		daily_blog.recovery.RecoveryIncumbent(
+			story_recovery.strongest_story_within_scope,
+			daily_blog.recovery.RecoveryRung.STRONGEST_REPOSITORY_MATERIAL,
+		),
+		(
+			daily_blog.stage_recovery_coordinator.RecoveryPathAdapter(
+				daily_blog.recovery.RecoveryRung.DAILY_OUTLINE_EXPANSION,
+				expand_daily_outline,
+			),
+			daily_blog.stage_recovery_coordinator.RecoveryPathAdapter(
+				daily_blog.recovery.RecoveryRung.REPOSITORY_STORY_MERGE,
+				merge_repository_stories,
+			),
+		),
 	))
 	if recovered.fault is not None:
 		raise daily_blog.recovery.PipelineFaultError(
@@ -486,16 +581,19 @@ def _recover_stage6(
 		)
 	if recovered.artifact is None:
 		raise RuntimeError("Stage 6 recovery returned neither a post nor a pipeline fault.")
-	if recovered.selected_path is not daily_blog.recovery.RecoveryRung.WRITER_COMPLETE_POST:
-		raise RuntimeError("Stage 6 recovery must select the configured writer rung.")
+	if recovered.selected_path not in {
+		daily_blog.recovery.RecoveryRung.DAILY_OUTLINE_EXPANSION,
+		daily_blog.recovery.RecoveryRung.REPOSITORY_STORY_MERGE,
+	}:
+		raise RuntimeError("Stage 6 recovery selected an unsupported editorial path.")
 	recovery_generation = recovered.recovery_generation
 	if (
 		type(recovery_generation) is not daily_blog.replication.ReplicationResult
 		or recovery_generation.expected_type is not daily_blog.artifacts.CompletePost
-		or len(recovery_generation.eligible) != 1
-		or recovery_generation.eligible[0] is not recovered.artifact
+		or not recovery_generation.eligible
+		or all(item is not recovered.artifact for item in recovery_generation.eligible)
 	):
-		raise RuntimeError("Stage 6 selected writer recovery lacks exact generation provenance.")
+		raise RuntimeError("Stage 6 selected recovery lacks exact generation provenance.")
 	return dataclasses.replace(
 		result,
 		promotion=daily_blog.artifacts.DegradedPromotion(
@@ -531,6 +629,7 @@ def validate_selected_post(
 	coordinator: object,
 	packets: tuple[daily_blog.schema.EvidencePacket, ...],
 	post: daily_blog.artifacts.CompletePost,
+	surface: daily_blog.publication_admission.PublicationSurface | None = None,
 ) -> daily_blog.publication_validation.PublicationValidationResult:
 	"""Apply Stage 8 and advance the coordinator's sole best-artifact pointer."""
 	if type(post) is not daily_blog.artifacts.CompletePost:
@@ -550,6 +649,7 @@ def validate_selected_post(
 		packets=packets,
 		approved_output_root=os.path.abspath(coordinator.config.output_root),
 		generator_run=coordinator.run_id,
+		surface=surface,
 	)
 	daily_blog.publication_validation.validate_result_for_inputs(
 		result, source_post=post, report_date=coordinator.report_date, packets=packets,

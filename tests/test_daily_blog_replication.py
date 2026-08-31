@@ -87,6 +87,29 @@ def test_replicate_retains_eligible_peer_after_one_generator_failure() -> None:
 
 
 #============================================
+def test_replicate_caches_grounded_work_that_needs_later_editorial_refinement() -> None:
+	"""Cache admission may preserve a safe parsed draft without promoting it."""
+	source = packet()
+	accepted: list[str] = []
+	result = daily_blog.replication.replicate(
+		(request("grounded-draft"),), Runner(), daily_blog.agents.RouteBudget(1, 1),
+		daily_blog.artifacts.RepoOutline,
+		lambda response: outline(source, response.text),
+		lambda _artifact: daily_blog.artifacts.EligibilityResult(
+			False, ("publication_policy_mismatch",),
+		),
+		cache_accept=lambda saved_request, _result: accepted.append(saved_request.request_id),
+		cache_eligibility=lambda artifact: daily_blog.artifacts.evaluate_eligibility(
+			artifact, (source,),
+		),
+	)
+
+	assert not result.eligible
+	assert result.candidates[0].artifact is not None
+	assert accepted == ["grounded-draft"]
+
+
+#============================================
 def test_review_repairs_malformed_json_to_a_known_eligible_candidate() -> None:
 	"""A structured repair turns malformed review output into a valid candidate vote."""
 	source = packet()
@@ -147,8 +170,8 @@ def test_review_repairs_malformed_json_to_a_known_eligible_candidate() -> None:
 
 
 #============================================
-def test_review_salvages_only_unambiguous_candidate_identity() -> None:
-	"""Free text can resolve only one known anonymous candidate identifier."""
+def test_review_salvages_original_response_after_repair_fails() -> None:
+	"""A failed repair retains one unambiguous identity from the original verdict."""
 	source = packet()
 	first, second = outline(source, "First"), outline(source, "Second")
 	def build(
@@ -170,9 +193,11 @@ def test_review_salvages_only_unambiguous_candidate_identity() -> None:
 		def run(
 			self,
 			_route: daily_blog.editorial_stage_config.RoleRoute,
-			_prompt: str,
+			prompt: str,
 			_directory: str,
 		) -> str:
+			if prompt.endswith("_repair"):
+				return "repair did not produce a usable verdict"
 			return "malformed verdict " + first.artifact_id
 	def repair(
 		work: daily_blog.replication.ReviewWork,
@@ -199,7 +224,11 @@ def test_review_salvages_only_unambiguous_candidate_identity() -> None:
 		SalvageRunner(), daily_blog.agents.RouteBudget(4, 1), repair, salvage,
 	)
 
-	assert all(vote.winner_artifact_id == first.artifact_id for vote in result.votes)
+	assert all(
+		vote.winner_artifact_id == first.artifact_id
+		and not vote.repaired and not vote.review_id.endswith("_repair")
+		for vote in result.votes
+	)
 
 
 #============================================

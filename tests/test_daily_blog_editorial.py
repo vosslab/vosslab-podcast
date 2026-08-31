@@ -17,8 +17,8 @@ import daily_blog.repository_contracts
 import daily_blog.routes
 import daily_blog.editorial
 import daily_blog.candidates
-import daily_blog.contracts
-import daily_blog.prompt_registry
+import daily_blog.prompt_registry.definitions
+import daily_blog.prompt_registry.editorial_contracts
 import daily_blog.projection
 import daily_blog.io_utils
 
@@ -205,36 +205,6 @@ class FakeRunner:
 
 
 #============================================
-@pytest.mark.parametrize(
-	"instruction",
-	(
-		"Do not explain the evidence.",
-		"Leave repository operations to the manager.",
-	),
-)
-def test_prompt_validation_requires_direct_outcomes(
-	monkeypatch: pytest.MonkeyPatch,
-	instruction: str,
-) -> None:
-	"""Prompt validation rejects negation and disguised deferral before model routing."""
-	contract = daily_blog.prompt_registry.active_contract()
-	templates = {
-		contract.author_template: (
-			f"Use {{evidence_json}}.\n\n## Output contract\n\n{instruction}"
-		),
-		contract.referee_template: (
-			"Compare {candidate_a} and {candidate_b}.\n\n## Output contract"
-		),
-		contract.repair_template: "Return the structured verdict.",
-		contract.rubric: "Prefer factual fidelity.",
-	}
-	monkeypatch.setattr(daily_blog.editorial, "load_prompt", templates.__getitem__)
-
-	with pytest.raises(RuntimeError, match="desired outcome"):
-		daily_blog.editorial.validate_prompt_templates(contract=contract)
-
-
-#============================================
 def test_route_configuration_rejects_hidden_instruction_sources(tmp_path: pathlib.Path) -> None:
 	"""Execution routes cannot inject profile skills beside versioned prompts."""
 	settings_path = tmp_path / "settings.yaml"
@@ -341,7 +311,7 @@ def test_candidate_validation_rejects_unknown_provenance() -> None:
 	)
 
 	issues = daily_blog.candidates.validate_candidate(
-		post, packet, projection, "run-123", daily_blog.prompt_registry.V4_MAKER_VALIDATION_POLICY
+		post, packet, projection, "run-123", daily_blog.prompt_registry.editorial_contracts.V4_MAKER_VALIDATION_POLICY
 	)
 
 	assert any("unknown evidence" in issue for issue in issues)
@@ -361,7 +331,7 @@ def test_candidate_validation_accepts_a_reflective_uncited_paragraph() -> None:
 		1,
 	)
 
-	issues = daily_blog.candidates.validate_candidate(post, packet, projection, "run-123", daily_blog.prompt_registry.V4_MAKER_VALIDATION_POLICY)
+	issues = daily_blog.candidates.validate_candidate(post, packet, projection, "run-123", daily_blog.prompt_registry.editorial_contracts.V4_MAKER_VALIDATION_POLICY)
 
 	assert issues == []
 
@@ -374,7 +344,7 @@ def test_candidate_validation_requires_evidence_in_an_uncited_opening() -> None:
 	post = valid_post(packet, projection, "run-123", "Evidence matters")
 	post = post.replace(" <!-- evidence: " + packet.items[0].evidence_id + " -->", "", 1)
 
-	issues = daily_blog.candidates.validate_candidate(post, packet, projection, "run-123", daily_blog.prompt_registry.V4_MAKER_VALIDATION_POLICY)
+	issues = daily_blog.candidates.validate_candidate(post, packet, projection, "run-123", daily_blog.prompt_registry.editorial_contracts.V4_MAKER_VALIDATION_POLICY)
 
 	assert "Each narrative section must cite projected evidence." in issues
 
@@ -391,7 +361,7 @@ def test_candidate_validation_requires_evidence_in_each_narrative_section() -> N
 		1,
 	)
 
-	issues = daily_blog.candidates.validate_candidate(post, packet, projection, "run-123", daily_blog.prompt_registry.V4_MAKER_VALIDATION_POLICY)
+	issues = daily_blog.candidates.validate_candidate(post, packet, projection, "run-123", daily_blog.prompt_registry.editorial_contracts.V4_MAKER_VALIDATION_POLICY)
 
 	assert "Each narrative section must cite projected evidence." in issues
 
@@ -415,7 +385,7 @@ def test_candidate_validation_counts_prose_after_heading_without_a_blank_line() 
 		1,
 	)
 
-	issues = daily_blog.candidates.validate_candidate(post, packet, projection, "run-123", daily_blog.prompt_registry.V4_MAKER_VALIDATION_POLICY)
+	issues = daily_blog.candidates.validate_candidate(post, packet, projection, "run-123", daily_blog.prompt_registry.editorial_contracts.V4_MAKER_VALIDATION_POLICY)
 
 	assert "Post exceeds the uncited narrative prose block limit." in issues
 
@@ -434,7 +404,7 @@ def test_candidate_validation_excludes_uncited_project_coverage_from_narrative_c
 		1,
 	)
 
-	issues = daily_blog.candidates.validate_candidate(post, packet, projection, "run-123", daily_blog.prompt_registry.V4_MAKER_VALIDATION_POLICY)
+	issues = daily_blog.candidates.validate_candidate(post, packet, projection, "run-123", daily_blog.prompt_registry.editorial_contracts.V4_MAKER_VALIDATION_POLICY)
 
 	assert issues == []
 
@@ -448,7 +418,7 @@ def test_final_candidate_validation_enforces_narrative_word_budget() -> None:
 		packet, projection, "run-123", "Evidence matters", detail_repetitions=1
 	)
 
-	issues = daily_blog.candidates.validate_candidate(post, packet, projection, "run-123", daily_blog.prompt_registry.V4_MAKER_VALIDATION_POLICY)
+	issues = daily_blog.candidates.validate_candidate(post, packet, projection, "run-123", daily_blog.prompt_registry.editorial_contracts.V4_MAKER_VALIDATION_POLICY)
 
 	assert any("narrative" in issue for issue in issues)
 
@@ -462,7 +432,7 @@ def test_final_candidate_validation_accepts_an_unsectioned_maker_story() -> None
 	post = post.replace("## Durable ownership\n\n", "", 1)
 	post = post.replace("## Where the work stands\n\n", "", 1)
 
-	issues = daily_blog.candidates.validate_candidate(post, packet, projection, "run-123", daily_blog.prompt_registry.V4_MAKER_VALIDATION_POLICY)
+	issues = daily_blog.candidates.validate_candidate(post, packet, projection, "run-123", daily_blog.prompt_registry.editorial_contracts.V4_MAKER_VALIDATION_POLICY)
 
 	assert issues == []
 
@@ -474,7 +444,7 @@ def test_candidate_validation_accepts_compact_project_coverage() -> None:
 	projection = make_projection(packet)
 	post = valid_post(packet, projection, "run-123", "Evidence matters")
 
-	issues = daily_blog.candidates.validate_candidate(post, packet, projection, "run-123", daily_blog.prompt_registry.V4_MAKER_VALIDATION_POLICY)
+	issues = daily_blog.candidates.validate_candidate(post, packet, projection, "run-123", daily_blog.prompt_registry.editorial_contracts.V4_MAKER_VALIDATION_POLICY)
 
 	assert issues == []
 
@@ -491,7 +461,7 @@ def test_candidate_validation_rejects_wrong_first_narrative_repository_link_targ
 		1,
 	)
 
-	issues = daily_blog.candidates.validate_candidate(post, packet, projection, "run-123", daily_blog.prompt_registry.V4_MAKER_VALIDATION_POLICY)
+	issues = daily_blog.candidates.validate_candidate(post, packet, projection, "run-123", daily_blog.prompt_registry.editorial_contracts.V4_MAKER_VALIDATION_POLICY)
 
 	assert any("First narrative mention of vosslab/project" in issue for issue in issues)
 
@@ -505,7 +475,7 @@ def test_final_candidate_validation_enforces_compact_index_opening() -> None:
 	post = post.replace("<!-- more -->\n\n", "", 1)
 	post = post.replace("## Where the work stands", "<!-- more -->\n\n## Where the work stands", 1)
 
-	issues = daily_blog.candidates.validate_candidate(post, packet, projection, "run-123", daily_blog.prompt_registry.V4_MAKER_VALIDATION_POLICY)
+	issues = daily_blog.candidates.validate_candidate(post, packet, projection, "run-123", daily_blog.prompt_registry.editorial_contracts.V4_MAKER_VALIDATION_POLICY)
 
 	assert any("one opening prose paragraph" in issue for issue in issues)
 
@@ -518,7 +488,7 @@ def test_final_candidate_validation_enforces_complete_repository_coverage() -> N
 	post = valid_post(packet, projection, "run-123", "Evidence matters")
 	post = post.replace("vosslab/project", "another/project")
 
-	issues = daily_blog.candidates.validate_candidate(post, packet, projection, "run-123", daily_blog.prompt_registry.V4_MAKER_VALIDATION_POLICY)
+	issues = daily_blog.candidates.validate_candidate(post, packet, projection, "run-123", daily_blog.prompt_registry.editorial_contracts.V4_MAKER_VALIDATION_POLICY)
 
 	assert any("vosslab/project" in issue for issue in issues)
 
@@ -819,82 +789,28 @@ def test_oversized_author_output_is_rejected_without_retaining_payload() -> None
 
 
 #============================================
-def test_referee_prompt_budget_blocks_without_route_call() -> None:
-	"""An over-limit complete referee prompt blocks publication before route execution."""
-	packet = make_packet()
-	projection = make_projection(packet)
-	config = dataclasses.replace(
-		make_config(),
-		prompt_limits={"author_chars": 20000, "referee_chars": 100},
-	)
-	posts = [
-		valid_post(packet, projection, "run-budget", "Exact evidence"),
-		valid_post(packet, projection, "run-budget", "Durable evidence"),
-	]
-	candidates = [
-		daily_blog.editorial.CandidateResult(
-			str(index),
-			projection.projection_id,
-			post,
-			daily_blog.io_utils.sha256_text(post),
-			True,
-			(),
-		)
-		for index, post in enumerate(posts)
-	]
-
-	class UncalledRunner:
-		def run(self, _route: object, _prompt: str, _repository: str) -> str:
-			raise AssertionError("referee route should remain uncalled")
-
-	with pytest.raises(daily_blog.editorial.EditorialBlockedError, match="referee prompt"):
-		daily_blog.editorial.select_candidate(
-			packet,
-			projection,
-			"run-budget",
-			candidates,
-			config,
-			runner=UncalledRunner(),
-		)
-
-
-#============================================
 def test_contract_registry_rejects_freeform_contracts_and_selections() -> None:
 	"""Only registered values reach the prompt boundary."""
 	with pytest.raises(RuntimeError, match="trusted registry"):
-		daily_blog.prompt_registry.resolve_contract(
-		dataclasses.replace(daily_blog.prompt_registry.active_contract(), name="unregistered")
+		daily_blog.prompt_registry.editorial_contracts.resolve_contract(
+		dataclasses.replace(daily_blog.prompt_registry.editorial_contracts.active_contract(), name="unregistered")
 	)
 	with pytest.raises(RuntimeError, match="trusted registry"):
-		daily_blog.prompt_registry.resolve_selection(
-		daily_blog.prompt_registry.V4_THREE_EXAMPLES_CORPUS_V2_SELECTION,
-		daily_blog.contracts.ExampleSelection(
+		daily_blog.prompt_registry.editorial_contracts.resolve_selection(
+		daily_blog.prompt_registry.editorial_contracts.V4_THREE_EXAMPLES_CORPUS_V2_SELECTION,
+		daily_blog.prompt_registry.definitions.ExampleSelection(
 			"unregistered",
-			daily_blog.prompt_registry.V4_THREE_EXAMPLES_CORPUS_V2,
+			daily_blog.prompt_registry.editorial_contracts.V4_THREE_EXAMPLES_CORPUS_V2,
 			"v4-voice",
 			("aug-23",),
 		),
 	)
 	with pytest.raises(RuntimeError, match="bare filename"):
-		daily_blog.contracts.ExampleResource("unsafe", "../outside.md", ("aug-22",))
-	for loader in (
-		daily_blog.editorial.load_prompt,
-		daily_blog.editorial.load_plain_prompt_resource,
-	):
-		with pytest.raises(RuntimeError, match="allowlisted|bare trusted filename"):
-			loader("../../source_me.sh")
-	for loader, name in (
-		(daily_blog.editorial.load_prompt, "untrusted.txt"),
-		(daily_blog.editorial.load_plain_prompt_resource, "untrusted.txt"),
-		(daily_blog.editorial.load_prompt, "daily_blog_voice_examples_v4.md"),
-		(daily_blog.editorial.load_plain_prompt_resource, "daily_blog_author_v4.txt"),
-	):
-		with pytest.raises(RuntimeError, match="allowlisted"):
-			loader(name)
+		daily_blog.prompt_registry.definitions.ExampleResource("unsafe", "../outside.md", ("aug-22",))
 	with pytest.raises(RuntimeError, match="not trusted"):
 		daily_blog.editorial.validate_snapshot(
 			daily_blog.editorial.PromptContractSnapshot(
-				daily_blog.prompt_registry.active_contract(),
+				daily_blog.prompt_registry.editorial_contracts.active_contract(),
 				None,
 				(),
 				(),
@@ -903,3 +819,16 @@ def test_contract_registry_rejects_freeform_contracts_and_selections() -> None:
 				"",
 			)
 		)
+
+
+#============================================
+def test_v4_snapshot_rejects_unissued_or_cross_set_prompt_views() -> None:
+	"""The cache-owning V4 snapshot accepts only its issued registry view."""
+	for prompt_set in (
+		object.__new__(daily_blog.prompt_registry.loader.LoadedPromptSet),
+		daily_blog.prompt_registry.loader.load_prompt_set(
+			daily_blog.prompt_registry.definitions.REPOSITORY_OUTLINE_PROMPT_SET,
+		),
+	):
+		with pytest.raises(RuntimeError, match="issued|does not match"):
+			daily_blog.editorial.load_prompt_contract_snapshot(prompt_set=prompt_set)

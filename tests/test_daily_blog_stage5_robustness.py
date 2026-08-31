@@ -9,8 +9,31 @@ import daily_blog.agents
 import daily_blog.artifacts
 import daily_blog.editorial_stage_config
 import daily_blog.daily_outline_workflow
+import daily_blog.projection
+import daily_blog.repository_contracts
 import daily_blog.routes
 import daily_blog.schema
+
+
+def _activity(repository: str, marker: str) -> daily_blog.schema.RepositoryActivity:
+	"""Return one active local repository for bounded evidence projection."""
+	commit = daily_blog.schema.CommitActivity(
+		marker * 40, (), "Maker", "maker@example.com", "2026-08-29T12:00:00Z",
+		"2026-08-29T12:00:00Z", "Grounded work.",
+	)
+	return daily_blog.schema.RepositoryActivity(
+		repository, "https://github.com/" + repository, "/cache/" + marker, marker * 40,
+		(commit,), (daily_blog.schema.RevisionRange("", marker * 40),), (marker * 40,), False,
+		(daily_blog.repository_contracts.RepositoryLifecycleEvent(
+			"repository_created", "2020-01-01T00:00:00Z", False, "github_owner_roster",
+		),),
+	)
+
+
+def _context(packets: tuple[daily_blog.schema.EvidencePacket, ...]) -> daily_blog.schema.BoundedEvidenceContext:
+	"""Build the same bounded survivor frame admitted by repository editorial."""
+	limits = {"context_chars": 60000, "excerpt_chars": 600, "commit_subject_chars": 120}
+	return daily_blog.projection.build_bounded_evidence_context(packets, limits, limits["context_chars"])
 
 
 def _input(tmp_path: object) -> daily_blog.daily_outline_workflow.DailyOutlineInput:
@@ -22,7 +45,7 @@ def _input(tmp_path: object) -> daily_blog.daily_outline_workflow.DailyOutlineIn
 			chr(99 + index) * 40, repository + " changed.", "git show",
 		)
 		packets.append(daily_blog.schema.EvidencePacket.create(
-			"2026-08-29", "America/Chicago", True, {}, [], [], [item],
+			"2026-08-29", "America/Chicago", True, {}, [], [_activity(repository, chr(97 + index))], [item],
 		))
 	packet_tuple = tuple(packets)
 	stories = tuple(daily_blog.artifacts.RepoStory.create(
@@ -36,7 +59,7 @@ def _input(tmp_path: object) -> daily_blog.daily_outline_workflow.DailyOutlineIn
 		(packet.items[0].evidence_id,),
 	) for packet in packet_tuple)
 	return daily_blog.daily_outline_workflow.DailyOutlineInput(
-		stories, outlines, packet_tuple, str(tmp_path),
+		stories, outlines, packet_tuple, _context(packet_tuple), str(tmp_path),
 	)
 
 
@@ -50,7 +73,7 @@ def _config() -> daily_blog.editorial_stage_config.DailyOutlineConfig:
 
 def _ranking(source: daily_blog.daily_outline_workflow.DailyOutlineInput) -> str:
 	"""Rank every supplied story, deliberately placing the first one last."""
-	ids = tuple(reversed(tuple(item.content_hash for item in source.repo_stories)))
+	ids = tuple(reversed(source.story_ranking_aliases.aliases))
 	return json.dumps({"artifact_ids": list(ids), "scores": {
 		artifact_id: 60 + index for index, artifact_id in enumerate(ids)
 	}, "rationale": "evidence-grounded priority"})

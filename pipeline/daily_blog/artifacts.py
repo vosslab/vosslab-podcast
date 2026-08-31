@@ -10,6 +10,7 @@ import re
 # local repo modules
 import daily_blog.io_utils
 import daily_blog.schema
+import daily_blog.publication_source_safety
 
 
 ARTIFACT_SCHEMA_VERSION = "vosslab.daily-blog.editorial-artifact.v1"
@@ -18,6 +19,7 @@ ELIGIBILITY_REASONS = frozenset({
 	"evidence_report_date_mismatch", "packet_provenance_mismatch",
 	"unapproved_image_path", "report_date_mismatch", "publication_identity_mismatch",
 	"output_path_outside_root", "invalid_machine_metadata", "insufficient_evidence_density",
+	"unsafe_publication_source", "publication_policy_mismatch",
 })
 NO_ARTIFACT_REASONS = frozenset({
 	"route_unavailable", "no_eligible_generation", "evidence_unavailable", "configuration",
@@ -38,6 +40,25 @@ HTML_ATTRIBUTE_RE = re.compile(
 )
 MARKDOWN_IMAGE_START_RE = re.compile(r"!\[")
 INVALID_IMAGE_PATH = "__invalid_embedded_image_syntax__"
+OPENING_FRONT_MATTER_RE = re.compile(r"\A---\n(?:[^\n]*\n)*?---\n")
+PUBLICATION_MACHINE_METADATA_FIELDS = (
+	"date", "slug", "generator_run", "evidence_manifest", "editorial_projection",
+)
+_FRONT_MATTER_DELIMITER_RE = re.compile(r"(?m)^---[ \t]*$")
+_MACHINE_METADATA_KEY_RE = (
+	r"(?:date|slug|generator_run|evidence_manifest|editorial_projection)"
+)
+_MACHINE_METADATA_LINE_RE = re.compile(
+	r"(?im)^[ \t]*(?:" + _MACHINE_METADATA_KEY_RE
+	+ r"|'" + _MACHINE_METADATA_KEY_RE + r"'|\"" + _MACHINE_METADATA_KEY_RE
+	+ r"\")[ \t]*:"
+)
+_FLOW_MAPPING_RE = re.compile(r"\{[^{}\n]*\}")
+_FLOW_MACHINE_METADATA_KEY_RE = re.compile(
+	r"(?i)(?:\A\{|,)[ \t]*(?:" + _MACHINE_METADATA_KEY_RE
+	+ r"|'" + _MACHINE_METADATA_KEY_RE + r"'|\"" + _MACHINE_METADATA_KEY_RE
+	+ r"\")[ \t]*:"
+)
 
 
 #============================================
@@ -58,6 +79,68 @@ def _require_date(value: object, field: str) -> str:
 	except ValueError as error:
 		raise RuntimeError(f"Artifact {field} must be a real calendar date.") from error
 	return value
+
+
+#============================================
+def _complete_post_envelope(report_date: str, metadata: dict[str, str] | None = None) -> str:
+	"""Render one exact trusted CompletePost opening envelope."""
+	if metadata is None:
+		metadata = {"date": report_date}
+	fields = ("date",) if set(metadata) == {"date"} else PUBLICATION_MACHINE_METADATA_FIELDS
+	if set(metadata) != set(fields) or metadata.get("date") != report_date:
+		raise RuntimeError("Complete post machine envelope is unsupported.")
+	if any(type(metadata[field]) is not str or not metadata[field] or "\n" in metadata[field] or "\r" in metadata[field] for field in fields):
+		raise RuntimeError("Complete post machine envelope values are invalid.")
+	return "---\n" + "".join(field + ": " + metadata[field] + "\n" for field in fields) + "---\n"
+
+
+#============================================
+def _complete_post_content(report_date: str, content: str) -> str:
+	"""Replace one exact authored opening header with the trusted date envelope."""
+	match = OPENING_FRONT_MATTER_RE.match(content)
+	body = content[match.end():] if match else content
+	return _complete_post_envelope(report_date) + body
+
+
+#============================================
+def _complete_post_envelope_metadata(report_date: str, content: str) -> tuple[str, ...]:
+	"""Validate one exact permitted machine envelope and return its field names."""
+	match = OPENING_FRONT_MATTER_RE.match(content)
+	if match is None:
+		raise RuntimeError("Complete post must begin with its exact date-owned envelope.")
+	metadata = {}
+	for line in content[4:match.end() - 4].splitlines():
+		field, separator, value = line.partition(":")
+		if not separator or field not in PUBLICATION_MACHINE_METADATA_FIELDS or not value.startswith(" "):
+			raise RuntimeError("Complete post machine envelope is malformed.")
+		value = value[1:]
+		if not value or field in metadata:
+			raise RuntimeError("Complete post machine envelope is malformed.")
+		metadata[field] = value
+	fields = tuple(metadata)
+	if fields not in (("date",), PUBLICATION_MACHINE_METADATA_FIELDS):
+		raise RuntimeError("Complete post machine envelope is unsupported.")
+	if metadata.get("date") != report_date or match.group() != _complete_post_envelope(report_date, metadata):
+		raise RuntimeError("Complete post must begin with its exact date-owned envelope.")
+	if OPENING_FRONT_MATTER_RE.match(content[match.end():]):
+		raise RuntimeError("Complete post cannot contain a second opening front matter block.")
+	if _embedded_machine_metadata(content[match.end():]):
+		raise RuntimeError("Complete post cannot contain embedded machine metadata.")
+	return fields
+
+
+#============================================
+def _embedded_machine_metadata(body: str) -> bool:
+	"""Detect a later active front-matter-shaped block without inspecting code samples."""
+	inert_body = daily_blog.publication_source_safety.inert_source(body)
+	delimiters = tuple(_FRONT_MATTER_DELIMITER_RE.finditer(inert_body))
+	for opening, closing in zip(delimiters, delimiters[1:]):
+		block = inert_body[opening.end():closing.start()]
+		if _MACHINE_METADATA_LINE_RE.search(block):
+			return True
+		if any(_FLOW_MACHINE_METADATA_KEY_RE.search(match.group()) for match in _FLOW_MAPPING_RE.finditer(block)):
+			return True
+	return False
 
 
 #============================================
@@ -375,6 +458,32 @@ class CompletePost(_Artifact):
 	) -> "CompletePost":
 		_require_text(publication_id, "publication_id")
 		_require_text(output_path, "output_path")
+		_require_date(report_date, "report_date")
+		_require_text(content, "content")
+		# CompletePost owns its structural publication envelope. Editorial roles author
+		# only the body, so an authored opening header cannot choose a different date
+		# or smuggle extra metadata into a promotion candidate.
+		content = _complete_post_content(report_date, content)
+		return cls._create(
+			report_date, packets, repositories, content, evidence_ids, image_paths,
+			publication_id=publication_id, output_path=output_path,
+		)
+
+	#============================================
+	@classmethod
+	def create_publication_derivative(
+		cls, report_date: str,
+		packets: collections.abc.Sequence[daily_blog.schema.EvidencePacket],
+		repositories: tuple[str, ...], body: str, evidence_ids: tuple[str, ...],
+		publication_id: str, output_path: str, metadata: dict[str, str],
+		image_paths: tuple[str, ...] = (),
+	) -> "CompletePost":
+		"""Create Stage 8's trusted full-metadata derivative from exact body bytes."""
+		_require_date(report_date, "report_date")
+		_require_text(body, "content")
+		if OPENING_FRONT_MATTER_RE.match(body):
+			raise RuntimeError("Publication derivative body cannot begin with front matter.")
+		content = _complete_post_envelope(report_date, metadata) + body
 		return cls._create(
 			report_date, packets, repositories, content, evidence_ids, image_paths,
 			publication_id=publication_id, output_path=output_path,
@@ -395,6 +504,7 @@ class CompletePost(_Artifact):
 		super()._validate_machine_state()
 		_require_text(self.publication_id, "publication_id")
 		_require_text(self.output_path, "output_path")
+		_complete_post_envelope_metadata(self.report_date, self.content)
 
 
 EditorialArtifact = RepoOutline | RepoStory | DailyOutline | CompletePost
@@ -450,6 +560,92 @@ def _authoritative_packet_index(
 
 
 #============================================
+class EvidenceScopeError(RuntimeError):
+	"""Describe one candidate evidence-scope defect without trusting its declaration."""
+	def __init__(self, reason: str) -> None:
+		if reason not in ELIGIBILITY_REASONS:
+			raise RuntimeError("Evidence scope reason is unsupported.")
+		self.reason = reason
+		super().__init__(reason)
+
+
+#============================================
+def _repository_scope(value: object, field: str) -> tuple[str, ...]:
+	"""Return one trusted canonical repository scope without inferring from prose."""
+	if type(value) is tuple:
+		repositories = value
+	elif type(value) is frozenset:
+		repositories = tuple(sorted(value))
+	else:
+		raise RuntimeError(f"{field} must be a tuple or frozenset of repository names.")
+	if not repositories or any(
+		type(repository) is not str or not repository for repository in repositories
+	):
+		raise RuntimeError(f"{field} must contain nonempty repository names.")
+	if (
+		tuple(sorted(repositories)) != repositories
+		or len(set(repositories)) != len(repositories)
+	):
+		raise RuntimeError(f"{field} must be sorted and unique.")
+	return repositories
+
+
+#============================================
+def _packet_union_scope(
+	packets: collections.abc.Sequence[daily_blog.schema.EvidencePacket],
+) -> tuple[str, ...]:
+	"""Return the authoritative repository ceiling for staged legacy callers."""
+	return tuple(sorted({item.repository for packet in packets for item in packet.items}))
+
+
+#============================================
+def resolve_evidence_scope(
+	evidence_ids: tuple[str, ...],
+	packets: collections.abc.Sequence[daily_blog.schema.EvidencePacket],
+	allowed_repositories: tuple[str, ...] | frozenset[str],
+	packet_ids: tuple[str, ...] | None = None,
+) -> tuple[str, ...]:
+	"""Derive cited repository scope from authoritative evidence and a trusted ceiling.
+
+	Raises:
+		EvidenceScopeError: If candidate evidence cannot support the requested scope.
+		RuntimeError: If trusted packet or allowed-scope input is malformed.
+	"""
+	by_packet, evidence_owner = _authoritative_packet_index(packets)
+	allowed_scope = _repository_scope(allowed_repositories, "Allowed repository scope")
+	if type(evidence_ids) is not tuple or tuple(sorted(set(evidence_ids))) != evidence_ids:
+		raise EvidenceScopeError("invalid_machine_metadata")
+	if any(type(evidence_id) is not str or not evidence_id for evidence_id in evidence_ids):
+		raise EvidenceScopeError("invalid_machine_metadata")
+	if packet_ids is None:
+		permitted_packets = frozenset(by_packet)
+	else:
+		if type(packet_ids) is not tuple or any(
+			type(packet_id) is not str or not packet_id for packet_id in packet_ids
+		):
+			raise EvidenceScopeError("packet_provenance_mismatch")
+		permitted_packets = frozenset(packet_ids)
+		if not permitted_packets or not permitted_packets.issubset(by_packet):
+			raise EvidenceScopeError("packet_provenance_mismatch")
+	resolved_repositories = set()
+	for evidence_id in evidence_ids:
+		owner_id = evidence_owner.get(evidence_id)
+		if owner_id is None:
+			raise EvidenceScopeError("unknown_evidence_reference")
+		if owner_id not in permitted_packets:
+			raise EvidenceScopeError("packet_provenance_mismatch")
+		packet = by_packet[owner_id]
+		item = next(item for item in packet.items if item.evidence_id == evidence_id)
+		resolved_repositories.add(item.repository)
+	derived_scope = tuple(sorted(resolved_repositories))
+	if not derived_scope:
+		raise EvidenceScopeError("insufficient_evidence_density")
+	if not set(derived_scope).issubset(allowed_scope):
+		raise EvidenceScopeError("evidence_outside_repository_scope")
+	return derived_scope
+
+
+#============================================
 def _approved_roots(roots: tuple[str, ...]) -> tuple[str, ...]:
 	"""Normalize trusted shared output roots before candidate path evaluation."""
 	if type(roots) is not tuple or not roots:
@@ -500,11 +696,16 @@ def evaluate_eligibility(
 	artifact: EditorialArtifact,
 	packets: collections.abc.Sequence[daily_blog.schema.EvidencePacket],
 	approved_output_roots: tuple[str, ...] = (),
+	allowed_repositories: tuple[str, ...] | frozenset[str] | None = None,
 ) -> EligibilityResult:
 	"""Return all deterministic candidate defects without stopping peer filtering."""
 	if type(artifact) not in ARTIFACT_TYPES:
 		raise RuntimeError("Eligibility requires one supported editorial artifact type.")
-	by_packet, evidence_owner = _authoritative_packet_index(packets)
+	by_packet, _ = _authoritative_packet_index(packets)
+	if allowed_repositories is None:
+		allowed_repositories = _packet_union_scope(packets)
+	else:
+		_repository_scope(allowed_repositories, "Allowed repository scope")
 	reasons = set()
 	if not _candidate_machine_valid(artifact):
 		reasons.add("invalid_machine_metadata")
@@ -520,23 +721,17 @@ def evaluate_eligibility(
 	if content_ids != declared_ids:
 		reasons.add("invalid_machine_metadata")
 	used_ids = tuple(sorted(set(content_ids) | set(declared_ids)))
-	repositories = set(_safe_text_tuple(artifact.repositories))
-	resolved = []
-	for evidence_id in used_ids:
-		owner_id = evidence_owner.get(evidence_id)
-		if owner_id is None:
-			reasons.add("unknown_evidence_reference")
-			continue
-		if owner_id not in packet_ids:
-			reasons.add("packet_provenance_mismatch")
-			continue
-		item = next(item for item in by_packet[owner_id].items if item.evidence_id == evidence_id)
-		resolved.append(item)
-		if item.repository not in repositories:
+	try:
+		derived_scope = resolve_evidence_scope(
+			used_ids, packets, allowed_repositories, packet_ids,
+		)
+	except EvidenceScopeError as error:
+		reasons.add(error.reason)
+	else:
+		if _safe_text_tuple(artifact.repositories) != derived_scope:
 			reasons.add("evidence_outside_repository_scope")
-	for repository in repositories:
-		if not any(item.repository == repository for item in resolved):
-			reasons.add("insufficient_evidence_density")
+		if type(artifact) in (RepoOutline, RepoStory) and len(derived_scope) != 1:
+			reasons.add("evidence_outside_repository_scope")
 	parsed_images = referenced_image_paths(content)
 	declared_images = _safe_text_tuple(artifact.image_paths)
 	if parsed_images != declared_images:
@@ -550,6 +745,8 @@ def evaluate_eligibility(
 	if any(path not in approved_images for path in set(parsed_images) | set(declared_images)):
 		reasons.add("unapproved_image_path")
 	if type(artifact) is CompletePost:
+		if daily_blog.publication_source_safety.validate_post_source(content, approved_images):
+			reasons.add("unsafe_publication_source")
 		if artifact.publication_id != report_date:
 			reasons.add("publication_identity_mismatch")
 		roots = _approved_roots(approved_output_roots)
@@ -563,6 +760,7 @@ def eligible_artifacts(
 	artifacts: collections.abc.Iterable[object],
 	packets: collections.abc.Sequence[daily_blog.schema.EvidencePacket],
 	approved_output_roots: tuple[str, ...] = (),
+	allowed_repositories: tuple[str, ...] | frozenset[str] | None = None,
 ) -> list[EditorialArtifact]:
 	"""Filter candidate peers after validating shared authoritative input once."""
 	_authoritative_packet_index(packets)
@@ -570,7 +768,9 @@ def eligible_artifacts(
 	for artifact in artifacts:
 		if type(artifact) not in ARTIFACT_TYPES:
 			continue
-		if evaluate_eligibility(artifact, packets, approved_output_roots).eligible:
+		if evaluate_eligibility(
+			artifact, packets, approved_output_roots, allowed_repositories,
+		).eligible:
 			eligible.append(artifact)
 	return eligible
 
@@ -580,6 +780,7 @@ def _require_expected_type(artifact: EditorialArtifact, expected_type: type) -> 
 	"""Enforce exact same-rung promotion instead of a compatible subclass."""
 	if expected_type not in ARTIFACT_TYPES or type(artifact) is not expected_type:
 		raise RuntimeError("Stage outcome artifact does not have the expected exact type.")
+	artifact._validate_machine_state()
 
 
 @dataclasses.dataclass(frozen=True)

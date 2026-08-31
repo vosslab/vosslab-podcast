@@ -13,6 +13,11 @@ import daily_blog.locks
 
 
 ROUTE_CACHE_SCHEMA_VERSION = "vosslab.daily-blog.route-cache.v1"
+# Stage 6 owns two sequential, model-authored whole-post recovery rungs: daily
+# outline expansion and repository-story merge.  Keeping the topology count at
+# the admission boundary avoids a stage6 import cycle while reserving both
+# configured retry envelopes before normal editorial work starts.
+_STAGE6_SEQUENTIAL_WHOLE_POST_RECOVERY_CALLS = 2
 
 
 class RouteCacheIntegrityError(daily_blog.agents.EditorialTerminalError):
@@ -205,11 +210,15 @@ class RunCapacityPlan:
 			config.complete_post, config.final_synthesis,
 		)
 		try:
-			# The current recovery ladder owns one whole-post writer retry envelope.
-			# It is a separate editorial path, so Stage 6's primary configured cap
-			# does not cover it.  Reserve it before any dispatch rather than learning
-			# about exhaustion while recovering.
-			recovery_reserve = config.complete_post.route_retry_attempts + 1
+			# Each Stage 6 recovery rung is one whole-post route request with the
+			# complete-post retry envelope.  They execute sequentially, but both must
+			# be admitted because the first can exhaust without yielding an eligible
+			# post.  The primary Stage 6 cap covers only its normal writer/editor/review
+			# work.
+			recovery_reserve = (
+				_STAGE6_SEQUENTIAL_WHOLE_POST_RECOVERY_CALLS
+				* (config.complete_post.route_retry_attempts + 1)
+			)
 			calls = (
 				repository_count * (
 					config.repository_outline.max_route_calls

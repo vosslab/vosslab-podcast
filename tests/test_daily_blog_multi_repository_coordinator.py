@@ -74,16 +74,18 @@ class _Runner:
 
 	def __init__(self, packet: daily_blog.schema.EvidencePacket, lose_repository: bool = True) -> None:
 		self.calls = 0
+		self.calls_by_repository: dict[str, int] = {}
 		self._lock = threading.Lock()
 		self._lose_repository = lose_repository
 		self._evidence = {item.repository: item.evidence_id for item in packet.items}
 
 	def run(self, route: daily_blog.editorial_stage_config.RoleRoute, prompt: str, _working_directory: str) -> str:
+		repository = "owner/survivor" if "owner/survivor" in prompt else "owner/lost"
 		with self._lock:
 			self.calls += 1
+			self.calls_by_repository[repository] = self.calls_by_repository.get(repository, 0) + 1
 		if self._lose_repository and "owner/lost" in prompt and route.name == "repository_outline_generator":
 			return ""
-		repository = "owner/survivor" if "owner/survivor" in prompt else "owner/lost"
 		if route.name.endswith("reviewer"):
 			return '{"winner":"A","reason":"grounded","evidence_quality":"high","confidence":1}'
 		return "# Grounded\n\nEvidence-backed work. <!-- evidence: " + self._evidence[repository] + " -->\n"
@@ -183,7 +185,7 @@ def test_projection_rejects_duplicate_evidence_before_editorial_dispatch(tmp_pat
 
 
 def test_failed_worker_does_not_leak_buffered_effects_while_a_healthy_sibling_survives(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
-	"""Unexpected local failure remains terminal without discarding validated sibling work."""
+	"""Unexpected local failure stays observable without discarding sibling work."""
 	packet = _packet()
 	original = daily_blog.multi_repository_coordinator._run_job
 
@@ -199,7 +201,125 @@ def test_failed_worker_does_not_leak_buffered_effects_while_a_healthy_sibling_su
 	joined = _run(packet, _config(tmp_path), daily_blog.agents.RouteBudget(80, 2), _Runner(packet), _cache(tmp_path), tmp_path)
 
 	assert joined.terminal_fault is daily_blog.recovery.TerminalFaultCategory.IMPLEMENTATION_DEFECT
+	assert tuple((item.repository, item.terminal_fault) for item in joined.results) == (
+		("owner/lost", daily_blog.recovery.TerminalFaultCategory.IMPLEMENTATION_DEFECT),
+		("owner/survivor", None),
+	)
+	job_summary = next(item for item in joined.results[0].reliability if item.step == "repository_job")
+	assert job_summary.attempted == 1 and job_summary.failed == 1
 	assert joined.repo_stories and all(item.repositories == ("owner/survivor",) for item in joined.repo_stories)
+	assert joined.cache_effects and all(effect.request.request_id != "rogue-worker-effect" for effect in joined.cache_effects)
+
+
+def test_worker_pipeline_fault_category_is_preserved_for_a_surviving_join(
+	tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""A typed local route fault is not collapsed while another pair survives."""
+	packet = _packet()
+	original = daily_blog.multi_repository_coordinator._run_job
+
+	def fail_with_route_fault(
+		value: daily_blog.multi_repository_coordinator.RepositoryJobInput,
+	) -> daily_blog.multi_repository_coordinator.RepositoryJobResult:
+		if value.repository == "owner/lost":
+			observation = daily_blog.recovery.GenerationObservation("repository_terminal", 1, 0, ())
+			fault = daily_blog.recovery.PipelineFault(
+				daily_blog.recovery.TerminalFaultCategory.ROUTE_UNAVAILABLE, 0, "", "", (observation,),
+			)
+			raise daily_blog.recovery.PipelineFaultError(fault, "a" * 64)
+		return original(value)
+
+	monkeypatch.setattr(daily_blog.multi_repository_coordinator, "_run_job", fail_with_route_fault)
+	joined = _run(packet, _config(tmp_path), daily_blog.agents.RouteBudget(80, 2),
+		_Runner(packet), _cache(tmp_path), tmp_path)
+
+	assert (
+		joined.terminal_fault is daily_blog.recovery.TerminalFaultCategory.ROUTE_UNAVAILABLE
+		and joined.results[0].terminal_fault is daily_blog.recovery.TerminalFaultCategory.ROUTE_UNAVAILABLE
+		and tuple(item.repositories for item in joined.repo_stories) == (("owner/survivor",),)
+	)
+
+
+def test_resume_reuses_healthy_sibling_effects_and_retries_only_failed_repository(
+	tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""A failed worker buffer is discarded while a complete sibling remains resumable."""
+	packet = _packet()
+	configuration = _config(tmp_path)
+	cache = _cache(tmp_path)
+	original = daily_blog.multi_repository_coordinator._run_job
+
+	def fail_lost(
+		value: daily_blog.multi_repository_coordinator.RepositoryJobInput,
+	) -> daily_blog.multi_repository_coordinator.RepositoryJobResult:
+		if value.repository == "owner/lost":
+			raise RuntimeError("injected worker defect")
+		return original(value)
+
+	monkeypatch.setattr(daily_blog.multi_repository_coordinator, "_run_job", fail_lost)
+	first_runner = _Runner(packet, lose_repository=False)
+	first = _run(packet, configuration, daily_blog.agents.RouteBudget(80, 2), first_runner, cache, tmp_path)
+	cache.commit(first.cache_effects)
+	monkeypatch.setattr(daily_blog.multi_repository_coordinator, "_run_job", original)
+	second_runner = _Runner(packet, lose_repository=False)
+	_run(packet, configuration, daily_blog.agents.RouteBudget(80, 2), second_runner, cache, tmp_path)
+
+	assert (
+		first.terminal_fault is daily_blog.recovery.TerminalFaultCategory.IMPLEMENTATION_DEFECT
+		and first_runner.calls_by_repository["owner/survivor"] > 0
+		and second_runner.calls_by_repository.get("owner/survivor", 0) == 0
+		and second_runner.calls_by_repository["owner/lost"] > 0
+	)
+
+
+@pytest.mark.parametrize("faults, expected", [
+	(
+		(
+			daily_blog.recovery.TerminalFaultCategory.ROUTE_UNAVAILABLE,
+			daily_blog.recovery.TerminalFaultCategory.NO_ELIGIBLE_GENERATION,
+		),
+		daily_blog.recovery.TerminalFaultCategory.ROUTE_UNAVAILABLE,
+	),
+	(
+		tuple(daily_blog.recovery.TerminalFaultCategory),
+		daily_blog.recovery.TerminalFaultCategory.CONFIGURATION,
+	),
+])
+def test_fault_aggregation_is_deterministic_across_local_job_categories(
+	faults: tuple[daily_blog.recovery.TerminalFaultCategory, ...],
+	expected: daily_blog.recovery.TerminalFaultCategory,
+) -> None:
+	"""The bounded join diagnosis does not depend on future completion order."""
+	assert daily_blog.multi_repository_coordinator._worst_terminal_fault(faults) is expected
+
+
+def test_malformed_pair_becomes_typed_failure_while_healthy_sibling_effects_survive(
+	tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""Pair validation rejects only its future before the serial join commits siblings."""
+	packet = _packet()
+	original = daily_blog.multi_repository_coordinator._run_job
+
+	def malformed_pair(
+		value: daily_blog.multi_repository_coordinator.RepositoryJobInput,
+	) -> daily_blog.multi_repository_coordinator.RepositoryJobResult:
+		result = original(value)
+		if value.repository == "owner/lost":
+			assert result.story is not None
+			_rogue_effect(value)
+			object.__setattr__(result.story, "packet_ids", ("forged-packet",))
+		return result
+
+	monkeypatch.setattr(daily_blog.multi_repository_coordinator, "_run_job", malformed_pair)
+	joined = _run(packet, _config(tmp_path), daily_blog.agents.RouteBudget(80, 2),
+		_Runner(packet, lose_repository=False), _cache(tmp_path), tmp_path)
+
+	assert joined.terminal_fault is daily_blog.recovery.TerminalFaultCategory.IMPLEMENTATION_DEFECT
+	assert tuple((item.repository, item.terminal_fault) for item in joined.results) == (
+		("owner/lost", daily_blog.recovery.TerminalFaultCategory.IMPLEMENTATION_DEFECT),
+		("owner/survivor", None),
+	)
+	assert tuple(item.repositories for item in joined.repo_stories) == (("owner/survivor",),)
 	assert joined.cache_effects and all(effect.request.request_id != "rogue-worker-effect" for effect in joined.cache_effects)
 
 
@@ -233,5 +353,8 @@ def test_worker_cannot_substitute_a_changed_packet_for_its_frozen_repository_inp
 	joined = _run(packet, _config(tmp_path), daily_blog.agents.RouteBudget(80, 2), _Runner(packet), _cache(tmp_path), tmp_path)
 
 	assert joined.terminal_fault is daily_blog.recovery.TerminalFaultCategory.IMPLEMENTATION_DEFECT
-	assert all(result.repository != "owner/lost" for result in joined.results)
+	assert tuple((result.repository, result.terminal_fault) for result in joined.results) == (
+		("owner/lost", daily_blog.recovery.TerminalFaultCategory.IMPLEMENTATION_DEFECT),
+		("owner/survivor", None),
+	)
 	assert joined.cache_effects and all(effect.request.request_id != "rogue-worker-effect" for effect in joined.cache_effects)

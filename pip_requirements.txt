@@ -1,5 +1,7 @@
 # Core pipeline runtime
 pyyaml
+Markdown==3.10.2
+pymdown-extensions==11.0.1
 PyGithub
 rich
 numpy

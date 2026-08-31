@@ -152,12 +152,17 @@ This is a protective rejection. The checksum binds the bundle contents and
 contract metadata. Inspect `bundle.json`, `evidence.json`,
 `editorial_projection.json`, and `post.md` together.
 
-The active production interface is `vosslab.daily-blog.bundle.v7`. It hands the
+The active production interface is `vosslab.daily-blog.bundle.v8`. It hands the
 publisher the validated selected post and its artifact identity; candidate and
-referee deliberation remains producer-owned run history. Resolve the source
-contract mismatch, then use the ordinary date-owned workflow to generate and
-validate a current bundle. Do not downgrade a bundle or reconstruct a candidate
-from a rejected manifest.
+referee deliberation remains producer-owned run history. Bundle v8 also binds the
+source-safety policy version and digest: `publication_source_safety.v1` has an
+executable 35-case corpus and SHA-256
+`d50166736d79be7f7715cc0f7585fac71dfb2aecc1c631b10e01aeca2fb63c6b`. An unsafe reader-visible
+Markdown source is an editorial-ineligibility result, not a publication fallback: resolve the
+candidate or source condition, then use the ordinary date-owned workflow to generate and validate
+a current bundle. Do not downgrade a bundle, reuse a stale-schema or stale-policy cache entry, or
+reconstruct a candidate from a rejected manifest. Publication-v3 handling is historical
+occupied-date inspection/replacement only, never an import downgrade path.
 
 ## Publisher import failure
 

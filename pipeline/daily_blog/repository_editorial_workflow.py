@@ -8,10 +8,12 @@ import os
 # local repo modules
 import daily_blog.agents
 import daily_blog.config
+import daily_blog.daily_outline_prompts
 import daily_blog.daily_outline_workflow
 import daily_blog.editorial
 import daily_blog.io_utils
 import daily_blog.multi_repository_coordinator
+import daily_blog.projection
 import daily_blog.recovery
 import daily_blog.replication
 import daily_blog.route_cache
@@ -150,27 +152,52 @@ class RepositoryEditorialCoordinator:
 		aggregates = _aggregate_repository_reliability(joined.results)
 		for summary in aggregates:
 			dependencies.record_summary(summary, daily_blog.run_contracts.ObserveIncumbent())
-		dependencies.write_artifact("repository_editorial.json", {
+		artifact = {
 			"schema_version": "vosslab.daily-blog.repository-editorial.v1",
 			"repositories": [{
 				"repository": item.repository,
 				"packet_id": item.packet.packet_id,
 				"outline_artifact_id": "" if item.outline is None else item.outline.artifact_id,
 				"story_artifact_id": "" if item.story is None else item.story.artifact_id,
+				"outcome": "failed" if item.terminal_fault is not None else "succeeded",
+				"terminal_fault": "" if item.terminal_fault is None else str(item.terminal_fault),
 				"degraded": item.degraded,
 			} for item in joined.results],
 			"survivor_packet_ids": [item.packet_id for item in joined.packets],
 			"reliability": [item.to_dict() for item in aggregates],
-		})
-		if joined.terminal_fault is not None or not joined.repo_stories:
+		}
+		if not joined.repo_stories:
+			dependencies.write_artifact("repository_editorial.json", artifact)
 			self._raise_terminal_fault(joined, projected, aggregates, rubric_sha256)
+		context_chars = min(
+			dependencies.config.projection_limits["context_chars"],
+			daily_blog.daily_outline_prompts.MAX_EVIDENCE_CONTEXT_CHARS,
+		)
+		evidence_context = daily_blog.projection.build_bounded_evidence_context(
+			joined.packets,
+			dependencies.config.projection_limits,
+			context_chars,
+		)
+		daily_blog.projection.validate_bounded_evidence_context(
+			joined.packets,
+			evidence_context,
+		)
+		artifact["stage5_evidence_context"] = {
+			"context_id": evidence_context.context_id,
+			"model_context_id": evidence_context.model_context_id,
+			"packet_ids": list(evidence_context.packet_ids),
+		}
+		dependencies.write_artifact("stage5_evidence_context.json", evidence_context.to_dict())
+		dependencies.write_artifact("repository_editorial.json", artifact)
 		value = daily_blog.daily_outline_workflow.DailyOutlineInput(
-			joined.repo_stories, joined.repo_outlines, joined.packets,
+			joined.repo_stories, joined.repo_outlines, joined.packets, evidence_context,
 			os.path.abspath(dependencies.config.output_root),
 		)
 		dependencies.complete("repository_editorial", {
 			"repositories": list(value.repositories),
 			"packet_ids": [item.packet_id for item in value.packets],
+			"stage5_evidence_context_id": evidence_context.context_id,
+			"stage5_evidence_context_model_id": evidence_context.model_context_id,
 		}, False)
 		return RepositoryEditorialResult(value, capacity, budget)
 
@@ -185,6 +212,8 @@ class RepositoryEditorialCoordinator:
 		"""Persist a bounded terminal digest before exposing the typed fault."""
 		candidates = []
 		for result in joined.results:
+			if result.outline_result is None:
+				continue
 			candidates.extend(result.outline_result.generation.candidates)
 			candidates.extend(result.outline_result.merger.candidates)
 			if result.story_result is not None:
@@ -193,9 +222,13 @@ class RepositoryEditorialCoordinator:
 		observations = [daily_blog.recovery.GenerationObservation(
 			"repository_editorial", len(candidates), sum(item.result.ok for item in candidates), (),
 		)] if candidates else [daily_blog.recovery.GenerationObservation(
-			"repository_evidence", 0, 0, (),
-			daily_blog.recovery.TerminalFaultCategory.EVIDENCE_UNAVAILABLE,
+			"repository_editorial", 0, 0, (),
 		)]
+		if not projected:
+			observations[0] = daily_blog.recovery.GenerationObservation(
+				"repository_evidence", 0, 0, (),
+				daily_blog.recovery.TerminalFaultCategory.EVIDENCE_UNAVAILABLE,
+			)
 		if joined.terminal_fault is not None:
 			observations.append(daily_blog.recovery.GenerationObservation(
 				"repository_terminal", 0, 0, (), joined.terminal_fault,
@@ -216,15 +249,19 @@ class RepositoryEditorialCoordinator:
 			item.succeeded, item.failed, item.reused, item.repaired,
 			item.disagreements, item.best_artifact_id, item.reasons,
 		) for item in aggregates), key=lambda item: item.step_key))
-		packets = tuple(daily_blog.recovery.EvidenceDigestPacket(
+		packets = tuple(sorted((daily_blog.recovery.EvidenceDigestPacket(
 			item.packet_id, daily_blog.io_utils.hash_value(item.content_dict()),
 			tuple(sorted(value.evidence_id for value in item.items)),
-		) for item in projected)
+		) for item in projected), key=lambda item: item.packet_id))
+		allowed_repositories = tuple(sorted(
+			{item.activity[0].repository for item in projected},
+		))
 		payload, digest = daily_blog.recovery.canonical_evidence_digest(
 			daily_blog.recovery.EvidenceDigestInput(
 				self._dependencies.report_date, "stage3/repository_editorial/terminal",
 				steps, packets, (), (rubric_sha256,), fault,
 				() if strongest is None else (strongest.artifact_id,),
+				allowed_repositories=allowed_repositories,
 			)
 		)
 		# ASVS 13.4.2, 14.2.4, and 16.2.5: write only canonical bounded facts,

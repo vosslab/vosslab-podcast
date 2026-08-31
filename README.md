@@ -24,10 +24,15 @@ review is editorial degradation: eligible peers continue. Invalid provenance, un
 eligible whole post is a typed pipeline fault; the system never assembles fallback prose from
 fragments.
 
-The publisher receives bundle `vosslab.daily-blog.bundle.v7`, not the candidate or referee
+The publisher receives bundle `vosslab.daily-blog.bundle.v8`, not the candidate or referee
 deliberation. It independently checks the selected post, its `best_artifact_id`, evidence,
-projection, roster, activation, prompt identity, declared assets, and manifest digest before making
-the date visible. Candidate and referee history remains producer-owned run evidence.
+projection, roster, activation, prompt identity, declared assets, source-safety policy identity,
+and manifest digest before making the date visible. The active identity is
+`publication_source_safety.v1` with executable 35-case corpus digest
+`d50166736d79be7f7715cc0f7585fac71dfb2aecc1c631b10e01aeca2fb63c6b`.
+Unsafe reader-visible Markdown is editorially
+ineligible before handoff and is independently rechecked by the publisher. Candidate and referee
+history remains producer-owned run evidence.
 
 ## Reader-facing result
 
@@ -88,7 +93,7 @@ which evidence supports this published story, and which complete artifact reache
 ```text
 out/<owner>/daily_blog/<report_date>/
   runs/<run_id>/                 bounded state, events, and editorial reliability summaries
-  publication/bundle.json        sealed bundle-v7 manifest
+  publication/bundle.json        sealed bundle-v8 manifest
   publication/evidence.json      exact source evidence
   publication/editorial_projection.json
   post.md                        selected reader-facing post

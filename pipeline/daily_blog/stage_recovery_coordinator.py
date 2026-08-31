@@ -16,6 +16,7 @@ import os
 import daily_blog.agents
 import daily_blog.artifacts
 import daily_blog.io_utils
+import daily_blog.publication_admission
 import daily_blog.recovery
 import daily_blog.replication
 import daily_blog.run_contracts
@@ -30,13 +31,16 @@ _SAFE_RELIABILITY_REASONS = frozenset({
 	"configuration", "editor_unavailable", "empty_response", "evidence_unavailable",
 	"editor_prompt_limit",
 	"implementation_defect", "ineligible_generation", "merger_unavailable",
+	"invalid_aliases", "invalid_fields", "invalid_json", "invalid_order",
+	"invalid_rationale", "invalid_scores",
 	"no_eligible_generation", "partial_route_failure", "process_failure",
+	"ranking_fallback_used",
 	"route_empty_response", "route_process_failure", "route_start_failure", "route_timeout",
 	"route_unavailable",
 	"review_disagreement", "review_empty_response", "review_invalid_verdict",
 	"review_process_failure", "review_start_failure", "review_timeout", "review_unavailable",
 	"reviewer_unavailable",
-	"start_failure", "timeout", "upstream_unavailable",
+	"response_limit", "start_failure", "timeout", "upstream_unavailable",
 })
 
 
@@ -70,7 +74,9 @@ class StageRecoveryInput:
 	source_result: daily_blog.replication.ReplicationResult
 	source_summaries: tuple[daily_blog.replication.StepReliability, ...]
 	packets: tuple[daily_blog.schema.EvidencePacket, ...]
+	allowed_repositories: tuple[str, ...]
 	trusted_output_root: str
+	publication_surface: daily_blog.publication_admission.PublicationSurface | None
 	prompt_identities: tuple[str, ...]
 	rubric_identities: tuple[str, ...]
 	incumbent: daily_blog.recovery.RecoveryIncumbent | None
@@ -116,8 +122,27 @@ class StageRecoveryInput:
 			or len({packet.packet_id for packet in self.packets}) != len(self.packets)
 		):
 			raise daily_blog.recovery.RecoveryConfigurationError("Stage recovery packet identities are not canonical.")
+		if (
+			type(self.allowed_repositories) is not tuple
+			or not self.allowed_repositories
+			or tuple(sorted(set(self.allowed_repositories))) != self.allowed_repositories
+			or any(type(repository) is not str or not repository for repository in self.allowed_repositories)
+		):
+			raise daily_blog.recovery.RecoveryConfigurationError("Stage recovery allowed repository scope is invalid.")
+		packet_repositories = {
+			item.repository for packet in self.packets for item in packet.items
+		}
+		if packet_repositories and not set(self.allowed_repositories).issubset(packet_repositories):
+			raise daily_blog.recovery.RecoveryConfigurationError("Stage recovery allowed repository scope exceeds packets.")
 		if type(self.trusted_output_root) is not str or not os.path.isabs(self.trusted_output_root) or not os.path.isdir(self.trusted_output_root) or os.path.realpath(self.trusted_output_root) != self.trusted_output_root:
 			raise daily_blog.recovery.RecoveryConfigurationError("Stage recovery output root is not trusted.")
+		if self.packets:
+			if type(self.publication_surface) is not daily_blog.publication_admission.PublicationSurface:
+				raise daily_blog.recovery.RecoveryConfigurationError("Stage recovery publication surface is invalid.")
+		elif self.publication_surface is not None:
+			raise daily_blog.recovery.RecoveryConfigurationError(
+				"Unavailable evidence cannot carry a publication surface."
+			)
 		if type(self.paths) is not tuple or any(type(path) is not RecoveryPathAdapter for path in self.paths):
 			raise daily_blog.recovery.RecoveryConfigurationError("Stage recovery paths are invalid.")
 		for identities, label in ((self.prompt_identities, "prompt"), (self.rubric_identities, "rubric")):
@@ -190,18 +215,130 @@ class StageRecoveryCoordinator:
 		if any(packet.report_date != value.report_date or daily_blog.io_utils.hash_value(packet.content_dict()) != packet.packet_id for packet in value.packets):
 			raise daily_blog.recovery.RecoveryConfigurationError("Stage recovery packet lineage is invalid.")
 		for candidate in value.source_result.candidates:
-			if candidate.artifact is not None:
-				self._validate_artifact(candidate.artifact, value)
+			self._validate_source_candidate(candidate, value)
 		if not isinstance(value.source_promotion, daily_blog.artifacts.NoArtifact):
-			self._validate_artifact(value.source_promotion.artifact, value)
+			self._validate_artifact(
+				value.source_promotion.artifact, value, daily_blog.artifacts.CompletePost,
+				require_full_packet_union=True, require_publication_eligibility=True,
+			)
 		if value.incumbent is not None:
-			self._validate_artifact(value.incumbent.artifact, value)
+			if value.incumbent.rung is not daily_blog.recovery.RecoveryRung.STRONGEST_REPOSITORY_MATERIAL:
+				raise daily_blog.recovery.RecoveryConfigurationError("Stage recovery incumbent rung is invalid.")
+			if type(value.incumbent.artifact) is not daily_blog.artifacts.RepoStory:
+				raise daily_blog.recovery.RecoveryConfigurationError("Stage recovery terminal incumbent type is invalid.")
+			self._validate_artifact(
+				value.incumbent.artifact, value, daily_blog.artifacts.RepoStory,
+				require_full_packet_union=False, require_publication_eligibility=False,
+			)
+		if value.publication_surface is not None and (
+			value.publication_surface.source_packets != value.packets
+			or value.publication_surface.repositories != value.allowed_repositories
+			or value.publication_surface.packet.report_date != value.report_date
+		):
+			raise daily_blog.recovery.RecoveryConfigurationError(
+				"Stage recovery publication surface provenance is invalid."
+			)
 
-	def _validate_artifact(self, artifact: daily_blog.artifacts.EditorialArtifact, value: StageRecoveryInput) -> None:
-		if artifact.report_date != value.report_date or tuple(artifact.packet_ids) != tuple(packet.packet_id for packet in value.packets):
+	def _validate_artifact(
+		self,
+		artifact: daily_blog.artifacts.EditorialArtifact,
+		value: StageRecoveryInput,
+		expected_type: type[daily_blog.artifacts.EditorialArtifact],
+		*,
+		require_full_packet_union: bool,
+		require_publication_eligibility: bool,
+	) -> None:
+		"""Validate one retained artifact at its exact recovery boundary.
+
+		A parsed primary CompletePost may be mechanically ineligible and still
+		record the ordinary editorial outcome that activates recovery.  Promotion
+		and recovery output require full publication eligibility.  The terminal
+		RepoStory incumbent may honestly cover only its packet subset.
+		"""
+		if type(artifact) is not expected_type:
+			raise daily_blog.recovery.RecoveryConfigurationError("Stage recovery artifact type is invalid.")
+		try:
+			artifact._validate_machine_state()
+		except (AttributeError, RuntimeError, TypeError) as error:
+			raise daily_blog.recovery.RecoveryConfigurationError("Stage recovery artifact machine metadata is invalid.") from error
+		packet_ids = artifact.packet_ids if type(artifact.packet_ids) is tuple else ()
+		authoritative_packet_ids = tuple(packet.packet_id for packet in value.packets)
+		if (
+			artifact.report_date != value.report_date
+			or not packet_ids
+			or tuple(sorted(set(packet_ids))) != packet_ids
+			or (
+				packet_ids != authoritative_packet_ids if require_full_packet_union
+				else not set(packet_ids).issubset(authoritative_packet_ids)
+			)
+		):
 			raise daily_blog.recovery.RecoveryConfigurationError("Stage recovery artifact provenance is invalid.")
-		if set(artifact.repositories) != {item.repository for packet in value.packets for item in packet.items}:
+		repositories = artifact.repositories if type(artifact.repositories) is tuple else ()
+		if (
+			not repositories
+			or tuple(sorted(set(repositories))) != repositories
+			or not set(repositories).issubset(value.allowed_repositories)
+			or not require_full_packet_union and len(repositories) != 1
+		):
 			raise daily_blog.recovery.RecoveryConfigurationError("Stage recovery repository scope is invalid.")
+		try:
+			cited_repositories = daily_blog.artifacts.resolve_evidence_scope(
+				artifact.evidence_ids, value.packets, value.allowed_repositories, packet_ids,
+			)
+		except RuntimeError as error:
+			raise daily_blog.recovery.RecoveryConfigurationError(
+				"Stage recovery artifact cited evidence scope is invalid."
+			) from error
+		if repositories != cited_repositories:
+			raise daily_blog.recovery.RecoveryConfigurationError(
+				"Stage recovery artifact repository declaration is invalid."
+			)
+		if not require_publication_eligibility:
+			return
+		if value.publication_surface is None or not daily_blog.publication_admission.complete_post_eligibility(
+			artifact, value.publication_surface, value.trusted_output_root,
+		).eligible:
+			raise daily_blog.recovery.RecoveryConfigurationError("Stage recovery artifact is not mechanically eligible.")
+
+	def _validate_source_candidate(
+		self,
+		candidate: daily_blog.replication.ReplicatedCandidate,
+		value: StageRecoveryInput,
+	) -> None:
+		"""Validate retained primary facts before they can activate recovery.
+
+		The stored decision is evidence, not authority: recovery recomputes the
+		mechanical decision from this run's packet union and trusted root.  An
+		ineligible result remains ordinary editorial degradation only when those
+		facts agree exactly.
+		"""
+		if type(candidate) is not daily_blog.replication.ReplicatedCandidate:
+			raise daily_blog.recovery.RecoveryConfigurationError("Stage recovery source candidate is invalid.")
+		if (candidate.artifact is None) != (candidate.eligibility is None):
+			raise daily_blog.recovery.RecoveryConfigurationError("Stage recovery candidate eligibility is invalid.")
+		if candidate.artifact is None:
+			return
+		if type(candidate.eligibility) is not daily_blog.artifacts.EligibilityResult:
+			raise daily_blog.recovery.RecoveryConfigurationError("Stage recovery candidate eligibility is invalid.")
+		# Parsed primary peers are retained as editorial evidence even when
+		# publication eligibility rejects them.  Their immutable provenance
+		# still has to bind exactly to this Stage-6 run before recovery can treat
+		# that rejection as ordinary degradation.
+		self._validate_artifact(
+			candidate.artifact, value, daily_blog.artifacts.CompletePost,
+			require_full_packet_union=True, require_publication_eligibility=False,
+		)
+		if value.publication_surface is None:
+			raise daily_blog.recovery.RecoveryConfigurationError(
+				"Stage recovery publication surface is unavailable."
+			)
+		recomputed = daily_blog.publication_admission.complete_post_eligibility(
+			candidate.artifact, value.publication_surface, value.trusted_output_root,
+		)
+		if candidate.eligibility != recomputed:
+			raise daily_blog.recovery.RecoveryConfigurationError(
+				"Stage recovery candidate eligibility decision is invalid."
+			)
 
 	def _source_observation(self, value: StageRecoveryInput) -> daily_blog.recovery.GenerationObservation:
 		candidates = value.source_result.candidates
@@ -245,7 +382,17 @@ class StageRecoveryCoordinator:
 		return False
 
 	def _eligible(self, value: StageRecoveryInput, artifact: daily_blog.artifacts.EditorialArtifact) -> bool:
-		return daily_blog.artifacts.evaluate_eligibility(artifact, value.packets, (value.trusted_output_root,)).eligible if type(artifact) is daily_blog.artifacts.CompletePost else False
+		"""Apply final-post policy while retaining a grounded story incumbent."""
+		if type(artifact) is daily_blog.artifacts.CompletePost:
+			return (
+				value.publication_surface is not None
+				and daily_blog.publication_admission.complete_post_eligibility(
+					artifact, value.publication_surface, value.trusted_output_root,
+				).eligible
+			)
+		return daily_blog.artifacts.evaluate_eligibility(
+			artifact, value.packets, (), value.allowed_repositories,
+		).eligible
 
 	def _promote(self, prior: daily_blog.artifacts.CompletePost | None, candidate: daily_blog.artifacts.CompletePost) -> daily_blog.artifacts.CompletePost:
 		return prior if prior is not None else candidate
@@ -294,6 +441,30 @@ class StageRecoveryCoordinator:
 			observation.attempted_routes - observation.successful_responses, 0, 0, 0, "", (reason,),
 		)
 
+	def _persist_rung_reliability(
+		self, value: StageRecoveryInput, facts: daily_blog.recovery.RecoveryRungReliability,
+		selected_artifact: daily_blog.artifacts.CompletePost | None,
+	) -> tuple[str, ...]:
+		"""Persist detailed route facts before a recovery result or fault is finalized."""
+		identity = value.stage_key.split("/")[1]
+		values = []
+		selected_promotion = False
+		for summary in facts.summaries:
+			namespaced = dataclasses.replace(
+				summary, step=f"recovery/{identity}/{facts.rung.value}/{summary.step}",
+			)
+			transition: daily_blog.run_contracts.IncumbentTransition = daily_blog.run_contracts.ObserveIncumbent()
+			if selected_artifact is not None and summary.step == "6.4":
+				if summary.best_artifact_id != selected_artifact.artifact_id:
+					raise daily_blog.recovery.RecoveryConfigurationError("Recovery promotion fact conflicts with selection.")
+				transition = self._recovery_transition(value, selected_artifact)
+				selected_promotion = True
+			if self._persist(namespaced, transition):
+				values.append(namespaced.step)
+		if selected_artifact is not None and not selected_promotion:
+			raise daily_blog.recovery.RecoveryConfigurationError("Recovery selection lacks a promotion fact.")
+		return tuple(sorted(values))
+
 	def _digest_steps(self, value: StageRecoveryInput) -> tuple[daily_blog.recovery.EvidenceDigestStep, ...]:
 		"""Project current run summaries to the safe, core-owned digest schema."""
 		stage, identity, _marker = value.stage_key.split("/")
@@ -320,6 +491,7 @@ class StageRecoveryCoordinator:
 			value.report_date, value.stage_key, self._digest_steps(value), packets,
 			value.prompt_identities, value.rubric_identities, fault,
 			tuple(sorted({item.best_artifact_id for item in value.source_summaries if item.best_artifact_id})),
+			(), value.allowed_repositories,
 		))
 		path = os.path.join(self.store.run_dir, "recovery_fault.json")
 		if os.path.exists(path):
@@ -369,7 +541,12 @@ class StageRecoveryCoordinator:
 			path, digest = self._digest(value, fault)
 			return StageRecoveryResult(None, None, fault, path, digest, reused)
 		if not value.paths:
-			fault = daily_blog.recovery.PipelineFault(category, 0, "", "", (source_observation,))
+			fault = daily_blog.recovery.PipelineFault(
+				category, 0,
+				"" if value.incumbent is None else value.incumbent.artifact.artifact_id,
+				"" if value.incumbent is None else type(value.incumbent.artifact).__name__,
+				(source_observation,),
+			)
 			path, digest = self._digest(value, fault)
 			return StageRecoveryResult(None, None, fault, path, digest, reused)
 		paths = tuple(daily_blog.recovery.RecoveryPath(
@@ -381,15 +558,32 @@ class StageRecoveryCoordinator:
 		if type(result) is daily_blog.recovery.RecoveryResult:
 			if not result.observations:
 				return StageRecoveryResult(result.artifact, None, None, "", "", reused)
+			# Recovery adapters are extensible execution boundaries.  Revalidate the
+			# selected result against this run's complete Stage-6 authority before it
+			# can establish an incumbent or create a durable recovery summary.
+			self._validate_artifact(
+				result.artifact, value, daily_blog.artifacts.CompletePost,
+				require_full_packet_union=True, require_publication_eligibility=True,
+			)
 			rung = paths[result.depth - 1].rung
-			recovery_summary = self._recovery_summary(value, rung, result.artifact, result.observations[-1])
-			transition = self._recovery_transition(value, result.artifact)
-			if self._persist(recovery_summary, transition):
-				reused = tuple(sorted(reused + (recovery_summary.step,)))
+			detailed = {item.rung: item for item in result.rung_reliability}
+			for facts in result.rung_reliability:
+				selected = result.artifact if facts.rung is rung else None
+				reused = tuple(sorted(reused + self._persist_rung_reliability(value, facts, selected)))
+			if rung not in detailed:
+				recovery_summary = self._recovery_summary(value, rung, result.artifact, result.observations[-1])
+				transition = self._recovery_transition(value, result.artifact)
+				if self._persist(recovery_summary, transition):
+					reused = tuple(sorted(reused + (recovery_summary.step,)))
 			return StageRecoveryResult(
 				result.artifact, rung, None, "", "", reused, result.recovery_generation,
 			)
+		detailed = {item.rung: item for item in result.rung_reliability}
+		for facts in result.rung_reliability:
+			reused = tuple(sorted(reused + self._persist_rung_reliability(value, facts, None)))
 		for ordinal, observation in enumerate(result.observations):
+			if paths[ordinal].rung in detailed:
+				continue
 			recovery_summary = self._unselected_recovery_summary(value, paths[ordinal].rung, observation)
 			if self._persist(recovery_summary, daily_blog.run_contracts.ObserveIncumbent()):
 				reused = tuple(sorted(reused + (recovery_summary.step,)))

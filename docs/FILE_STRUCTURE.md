@@ -25,7 +25,6 @@ pipeline/daily_blog/
   artifacts.py                      typed editorial artifact identities
   candidates.py                     complete-post eligibility validation
   config.py                         settings and role-route configuration
-  contracts.py                      generic prompt contract dataclasses and validators
   daily_outline_workflow.py         Stage-5 ranking, outline, review, and promotion
   editorial.py                      prompt rendering and editorial packet preparation
   evidence.py                       exact-object evidence collection
@@ -35,13 +34,20 @@ pipeline/daily_blog/
   mirrors.py                        owner-qualified Git mirror refresh and inspection
   observability.py                  bounded lifecycle events and terminal summaries
   orchestrator.py                   lifecycle composition only
-  prompt_registry.py                sole active contract, policy, and resource registry
-  publication_contract.py           bundle-v7 identity and manifest writer
+  prompt_registry/                  central immutable prompt declarations and issued loads
+    definitions.py                   registered Stage 3-7 prompt-set declarations
+    loader.py                        allowlisted, pinned resource loading and rendering
+    editorial_contracts.py           V4 editorial contract and example declarations
+  publication_contract.py           bundle-v8 identity, safety binding, and manifest writer
+  publication_admission.py          frozen survivor surface and final-post policy admission
+  publication_source_safety.py      portable Markdown source-safety policy
+  publication_article_projection.py canonical source and reader-body projection
   publication_finalization.py       selected-post bundle/import/page owner
-  publication_state.py              local publication-state validation
+  publication_state.py              local committed-publication state classification
   publication_storage.py            descriptor-owned no-follow bundle storage
   publication_validation.py         Stage-8 publication validation
   publisher.py                      publisher CLI and receipt validation boundary
+  publisher_contract.py             bounded validation, result, and failure subprocess protocol
   recovery.py                       typed editorial recovery and fault digest
   replication.py                    independent review and promotion primitives
   repositories.py                   authoritative owner-roster acquisition
@@ -52,15 +58,16 @@ pipeline/daily_blog/
   route_cache.py                    route-result cache serialization
   run_contracts.py                  v11 run record and incumbent transitions
   run_state.py                      RunStore persistence and recovery
-  stage6.py                         Stage-6 complete-post generation
+  stage6.py                         Stage-6 author/editor path and whole-post recovery adapters
   stage7.py                         Stage-7 incumbent-preserving synthesis
   stage_recovery_coordinator.py     serial typed recovery-state coordination
 ```
 
 [`pipeline/prompts/`](../pipeline/prompts/) stores versioned prompt resources. The active contract
-and its immutable activation receipt select resources through
-[`pipeline/daily_blog/prompt_registry.py`](../pipeline/daily_blog/prompt_registry.py), rather than
-through experiment or calibration executables.
+and its immutable activation receipt select resources through the `prompt_registry/` package,
+rather than through experiment or calibration executables. Stage owners import the direct registry
+leaf they need: declarations from `definitions.py`, issued resource views from `loader.py`, and the
+V4 editorial contract from `editorial_contracts.py`.
 
 [`pipeline/podlib/`](../pipeline/podlib/) contains shared support for the established content path.
 Its runtime credential helper is the GitHub credential boundary; credentials do not enter evidence,
@@ -82,6 +89,11 @@ deploy/
 `make_blog.py --yesterday` is the scheduled public entry point. It selects yesterday in the
 configured timezone and automatically replaces an existing result for that date in unattended use.
 An interactive request retains its explicit overwrite confirmation behavior.
+
+The producer calls the sibling's `--validate-bundle-stdin` endpoint with its sealed transfer before
+the importing `--bundle-stdin` endpoint. `publication_admission.py` owns the one survivor-scoped
+surface shared by Stage 6, Stage 7, Stage 8, and bundle finalization; `publisher_contract.py` owns the
+bounded success and text-free failure protocol at that cross-repository boundary.
 
 ## Generated daily-blog data
 
@@ -111,10 +123,16 @@ out/<owner>/
    `- manifest.json
 ```
 
-The current handoff manifest is `vosslab.daily-blog.bundle.v7`. It contains the validated
+The current handoff manifest is `vosslab.daily-blog.bundle.v8`. It contains the validated
 Stage-8 selected post and `best_artifact_id`, with evidence, roster, projection, assets, prompt and
-activation bindings, and integrity digest. Candidate and referee records remain run-owned editorial
-history, not publisher inputs. The publisher records `publication-v4` state after import.
+activation bindings, source-safety policy identity, and integrity digest. Its active
+`publication_source_safety.v1` identity seals the executable 35-case corpus digest
+`d50166736d79be7f7715cc0f7585fac71dfb2aecc1c631b10e01aeca2fb63c6b`. Candidate and referee
+records remain run-owned editorial history, not publisher inputs. The producer sends a bounded immutable byte transfer to the sibling
+publisher's standard input after its descriptor validation. The publisher records
+`publication-v5` state and the producer keeps an `import-receipt.v2` with the reader-body digest.
+Older bundle-v7 directories are not reusable current input; the exact publication-v3 reader exists
+only to recognize historical occupied dates.
 
 ## Tests
 
@@ -154,7 +172,7 @@ scope; they are not alternate editorial-promotion suites.
 - Add a stage mechanism beside its phase owner, preserving independent candidates and typed
   promotion rather than extending the orchestrator.
 - Add prompt resources in [`pipeline/prompts/`](../pipeline/prompts/) and register identity changes
-  in `prompt_registry.py`; prompt prose requires separate editorial approval.
+  in `prompt_registry/`; prompt prose requires separate editorial approval.
 - Add permanent behavior tests under [`tests/`](../tests/) only when they meet
   [`PYTEST_STYLE.md`](PYTEST_STYLE.md); keep one-time demonstration evidence out of the suite.
 - Add operational documentation under [`docs/`](.) with relative links and ASCII Markdown.

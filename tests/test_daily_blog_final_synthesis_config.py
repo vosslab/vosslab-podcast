@@ -1,7 +1,6 @@
 """Durable configuration boundaries for Stage 7 final synthesis."""
 
 # Standard Library
-import dataclasses
 from pathlib import Path
 
 # PIP3 modules
@@ -11,7 +10,6 @@ import yaml
 # local repo modules
 import daily_blog.config
 import daily_blog.editorial_stage_config
-import daily_blog.final_synthesis_config
 
 
 #============================================
@@ -23,17 +21,6 @@ def write_settings(tmp_path: Path, final_synthesis: dict[str, object]) -> Path:
 		"daily_blog": {"final_synthesis": final_synthesis},
 	}, sort_keys=False), encoding="utf-8")
 	return path
-
-
-#============================================
-@pytest.mark.parametrize("changes", (
-	{"synthesizer_count": True},
-	{"prompt_limits": {"incumbent_chars": 1}},
-))
-def test_final_synthesis_config_rejects_unsafe_policy(changes: dict[str, object]) -> None:
-	"""Stage 7 refuses malformed reliability policy before route work begins."""
-	with pytest.raises(RuntimeError):
-		dataclasses.replace(daily_blog.final_synthesis_config.FinalSynthesisConfig(), **changes)
 
 
 #============================================

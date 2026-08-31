@@ -210,7 +210,7 @@ def validate_terminal_summary(value: object) -> dict[str, object]:
 	):
 		raise RuntimeError("Terminal fault category is invalid.")
 	if result["operational_failure_kind"] and result["operational_failure_kind"] not in (
-		daily_blog.run_contracts.LEGACY_FAILURE_KINDS
+		daily_blog.run_contracts.OPERATIONAL_FAILURE_KINDS
 	):
 		raise RuntimeError("Operational failure kind is invalid.")
 	if result["state"] == "completed":

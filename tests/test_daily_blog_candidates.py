@@ -10,7 +10,7 @@ import daily_blog.repository_contracts
 import daily_blog.schema
 
 
-V4_POLICY = daily_blog.prompt_registry.V4_MAKER_VALIDATION_POLICY
+V4_POLICY = daily_blog.prompt_registry.editorial_contracts.V4_MAKER_VALIDATION_POLICY
 
 
 #============================================
@@ -78,6 +78,21 @@ def test_candidate_requires_first_repository_mention_to_be_a_direct_link() -> No
 	)
 
 	assert daily_blog.candidates.validate_candidate(post, packet, projection, "run-123", V4_POLICY) == []
+
+
+#============================================
+def test_candidate_keeps_unsafe_active_source_out_of_editorial_promotion() -> None:
+	"""A model candidate with an active source construct is ordinary ineligible output."""
+	packet, projection, post = candidate_context()
+	post = post.replace(
+		"I connected exact evidence",
+		"I connected [vosslab/project](https://github.com/vosslab/project) to exact evidence <script>",
+		1,
+	)
+
+	issues = daily_blog.candidates.validate_candidate(post, packet, projection, "run-123", V4_POLICY)
+
+	assert "Post source contains an unsafe publication construct." in issues
 
 
 #============================================

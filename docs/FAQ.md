@@ -84,12 +84,28 @@ the manifest. See
 
 ## What proves publication provenance?
 
-The `vosslab.daily-blog.bundle.v7` manifest binds the report date, selected
+The `vosslab.daily-blog.bundle.v8` manifest binds the report date, selected
 `best_artifact_id`, evidence packet, repository roster, editorial projection, declared assets,
-activation and prompt-contract identities, generator revision, and hashes. The publisher accepts
-only that bounded declared snapshot and writes a `vosslab.daily-blog.publication.v4` receipt that
-binds the installed post and verified page to the same date. See
+activation and prompt-contract identities, generator revision, and hashes. The producer sends its
+validated immutable byte snapshot to the publisher on standard input; the publisher never reopens a
+producer path. It writes a `vosslab.daily-blog.publication.v5` record and an
+`import-receipt.v2` that bind the installed post, canonical reader-body digest, and verified page to
+the same date. See
 [DAILY_BLOG_OPERATIONS.md](DAILY_BLOG_OPERATIONS.md).
+
+## Why can a grounded post still be rejected before publication?
+
+Grounding proves provenance, but it does not authorize every Markdown construct. The current
+source-safety policy accepts reader-visible GitHub HTTPS links and exact sealed screenshot paths,
+while treating active raw HTML, ambiguous comments or attributes, and disguised or unapproved
+links as editorial ineligibility. Code examples are inert. The policy version and vector digest are
+sealed in bundle v8: `publication_source_safety.v1` has an executable 35-case corpus with SHA-256
+`d50166736d79be7f7715cc0f7585fac71dfb2aecc1c631b10e01aeca2fb63c6b`. The publisher checks the
+post independently. A cache entry with another schema or policy identity is rebuilt rather than
+reused.
+
+Legacy `publication.v3` is only an exact historical record reader for an existing occupied date;
+new imports create publication v5 records.
 
 ## What is editorial degradation?
 

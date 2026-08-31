@@ -10,11 +10,10 @@ import re
 import daily_blog.artifacts
 import daily_blog.candidates
 import daily_blog.schema
+import daily_blog.publication_admission
 
 
-MACHINE_METADATA_FIELDS = (
-	"date", "slug", "generator_run", "evidence_manifest", "editorial_projection",
-)
+MACHINE_METADATA_FIELDS = daily_blog.artifacts.PUBLICATION_MACHINE_METADATA_FIELDS
 MACHINE_METADATA_REASONS = frozenset({
 	"machine_metadata_constructed", "machine_metadata_repaired",
 })
@@ -130,6 +129,34 @@ def _metadata(report_date: str, title: str, generator_run: str) -> dict[str, str
 
 
 #============================================
+def _packet_scope(
+	packets: collections.abc.Sequence[daily_blog.schema.EvidencePacket],
+) -> tuple[str, ...]:
+	"""Return the authoritative maximum repository scope for Stage 8 input."""
+	return tuple(sorted({item.repository for packet in packets for item in packet.items}))
+
+
+#============================================
+def _semantic_scope(
+	post: daily_blog.artifacts.CompletePost,
+	packets: collections.abc.Sequence[daily_blog.schema.EvidencePacket],
+) -> tuple[str, ...]:
+	"""Derive publication provenance from unchanged citations and packets.
+
+	ASVS 2.2.1: publication never trusts a post's declared repository tuple as
+	the authority for a repairable metadata transition.
+	"""
+	try:
+		return daily_blog.artifacts.resolve_evidence_scope(
+			post.evidence_ids, packets, _packet_scope(packets), post.packet_ids,
+		)
+	except daily_blog.artifacts.EvidenceScopeError as error:
+		raise RuntimeError(
+			"Publication validation complete post evidence scope is invalid: " + error.reason
+		) from error
+
+
+#============================================
 def _render_metadata(metadata: dict[str, str]) -> str:
 	"""Render canonical metadata without touching authored post bytes."""
 	return "---\n" + "".join(
@@ -161,7 +188,10 @@ def validate_result_for_inputs(
 			raise RuntimeError("Publication validation result artifact is malformed.") from error
 		if post.report_date != report_date or post.publication_id != report_date:
 			raise RuntimeError("Publication validation report date does not match the complete post.")
-		eligibility = daily_blog.artifacts.evaluate_eligibility(post, packets, (root,))
+		semantic_scope = _semantic_scope(post, packets)
+		eligibility = daily_blog.artifacts.evaluate_eligibility(
+			post, packets, (root,), semantic_scope,
+		)
 		if not eligibility.eligible:
 			raise RuntimeError(
 				"Publication validation rejected complete post: " + ", ".join(eligibility.reasons)
@@ -182,6 +212,7 @@ def validate_and_repair_complete_post(
 	packets: collections.abc.Sequence[daily_blog.schema.EvidencePacket],
 	approved_output_root: str,
 	generator_run: str,
+	surface: daily_blog.publication_admission.PublicationSurface | None = None,
 ) -> PublicationValidationResult:
 	"""Return one eligible post with canonical publisher metadata.
 
@@ -202,18 +233,29 @@ def validate_and_repair_complete_post(
 	run_id = _require_generator_run(generator_run)
 	# ASVS 2.2.1: metadata repair cannot substitute a different evidence source,
 	# publication path, or candidate provenance before the new artifact is bound.
-	source_eligibility = daily_blog.artifacts.evaluate_eligibility(post, packets, (root,))
+	semantic_scope = _semantic_scope(post, packets)
+	source_eligibility = daily_blog.artifacts.evaluate_eligibility(
+		post, packets, (root,), semantic_scope,
+	)
 	if not source_eligibility.eligible:
 		raise RuntimeError(
 			"Publication validation rejected complete post: "
 			+ ", ".join(source_eligibility.reasons)
 		)
+	if surface is not None and (
+		type(surface) is not daily_blog.publication_admission.PublicationSurface
+		or surface.source_packets != tuple(sorted(packets, key=lambda item: item.packet_id))
+	):
+		raise RuntimeError("Publication validation surface does not match the exact packet union.")
+	if surface is not None and daily_blog.candidates.validate_complete_post_body(
+		post.content, surface.packet, surface.projection,
+	):
+		raise RuntimeError("Publication validation rejected complete post: publication_policy_mismatch")
 	body, existing_metadata = _body_and_metadata(post.content)
 	titles = tuple(match.group("title") for match in H1_RE.finditer(body))
 	if len(titles) != 1:
 		raise RuntimeError("Publication content must contain exactly one descriptive H1.")
 	canonical_metadata = _metadata(report_date, titles[0], run_id)
-	content = _render_metadata(canonical_metadata) + body
 	repaired = existing_metadata != canonical_metadata
 	if existing_metadata is None:
 		reasons = ("machine_metadata_constructed",)
@@ -221,9 +263,9 @@ def validate_and_repair_complete_post(
 		reasons = ("machine_metadata_repaired",)
 	else:
 		reasons = ()
-	validated = post if not reasons else daily_blog.artifacts.CompletePost.create(
-		report_date, packets, post.repositories, content, post.evidence_ids,
-		report_date, post.output_path, post.image_paths,
+	validated = post if not reasons else daily_blog.artifacts.CompletePost.create_publication_derivative(
+		report_date, packets, semantic_scope, body, post.evidence_ids,
+		report_date, post.output_path, canonical_metadata, post.image_paths,
 	)
 	result = PublicationValidationResult(
 		post, validated, post.artifact_id, validated.artifact_id, bool(reasons), reasons,

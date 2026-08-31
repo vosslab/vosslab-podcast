@@ -23,9 +23,10 @@ of an eligible artifact or an unsafe deterministic boundary is a typed pipeline 
 | [`pipeline/daily_blog/publication_workflow.py`](../pipeline/daily_blog/publication_workflow.py) | Stages 5-8 | Daily outline, complete post, synthesis, and validation transitions |
 | [`pipeline/daily_blog/publication_finalization.py`](../pipeline/daily_blog/publication_finalization.py) | Finalization coordinator | Selected-post write, sealed bundle, import, and page verification |
 | [`pipeline/daily_blog/run_contracts.py`](../pipeline/daily_blog/run_contracts.py) and [`pipeline/daily_blog/run_state.py`](../pipeline/daily_blog/run_state.py) | Durable run record | Resumable bounded state, events, and terminal summaries |
-| [`pipeline/daily_blog/prompt_registry.py`](../pipeline/daily_blog/prompt_registry.py) | Prompt identity registry | Sole immutable production contract, policy, and resource selection |
-| [`pipeline/daily_blog/publication_contract.py`](../pipeline/daily_blog/publication_contract.py) and [`pipeline/daily_blog/publication_storage.py`](../pipeline/daily_blog/publication_storage.py) | Producer publication boundary | Sealed bundle-v7 and descriptor-owned date storage |
-| [`pipeline/daily_blog/publisher.py`](../pipeline/daily_blog/publisher.py) | Publisher process boundary | Import and receipt validation without importing publisher code |
+| `pipeline/daily_blog/prompt_registry/` | Prompt identity registry | Central immutable declarations and issued resource loads |
+| [`pipeline/daily_blog/publication_admission.py`](../pipeline/daily_blog/publication_admission.py) | Final-post admission | Frozen survivor evidence surface, matching projection, and confined publication assets |
+| [`pipeline/daily_blog/publication_contract.py`](../pipeline/daily_blog/publication_contract.py) and [`pipeline/daily_blog/publication_storage.py`](../pipeline/daily_blog/publication_storage.py) | Producer publication boundary | Sealed bundle-v8, source-safety identity, and descriptor-owned date storage |
+| [`pipeline/daily_blog/publisher.py`](../pipeline/daily_blog/publisher.py) and [`pipeline/daily_blog/publisher_contract.py`](../pipeline/daily_blog/publisher_contract.py) | Publisher process boundary | Exact stdin preflight/import, bounded typed subprocess protocol, committed-publication, and reader-body validation |
 
 The orchestrator is deliberately a small composition owner. Acquisition, repository editorial, and
 publication finalization do not import it; each receives the typed values and narrow lifecycle
@@ -47,9 +48,14 @@ dependencies it needs.
 
 Stages 3 through 6 generate multiple independent candidates and promote only eligible whole
 artifacts. Review and bounded repair can improve a candidate but never mechanically assemble prose.
-Stage 7 begins with the Stage-6 incumbent and retains it if synthesis is unavailable or does not
-demonstrate improvement. Recovery takes additional editorial paths when a stage has no promoted
-artifact; exhausting those paths records a categorized pipeline fault and a bounded evidence digest.
+Stage 6 runs replicated authors, retains each grounded eligible peer through ordinary route failure,
+requests bounded editor feedback, and promotes only a resulting eligible complete post. If that path
+is exhausted, its two bounded editorial recovery rungs ask the existing V4 author for one whole
+Markdown post from the daily outline and then from the retained repository-story set. The strongest
+`RepoStory` is retained only as terminal provenance if both whole-post paths fail; it is never
+publishable by itself. Stage 7 begins with the exact Stage-6 incumbent and retains it if synthesis is
+unavailable or its eligible challenger does not demonstrate direct improvement. Recovery exhaustion
+records a categorized pipeline fault and a bounded evidence digest.
 
 Expected route and malformed-verdict failures remain stage-local observations. Cache corruption,
 invalid identity or path state, configuration errors, and unexpected defects fail the deterministic
@@ -68,7 +74,8 @@ Stage 8 has its separately typed repair operation.
 [`pipeline/daily_blog/locks.py`](../pipeline/daily_blog/locks.py) supplies date ownership and
 phase caching. Independent model calls use cache identities that allow compatible completed work to
 be reused when later peers fail. The coordinator serializes durable state and shared cache effects,
-while route execution stays bounded and parallel inside the configured limits.
+while route execution stays bounded and parallel inside the configured limits. Validated route results
+buffered during terminal Stage-6 recovery are committed before its typed fault leaves that boundary.
 
 ## Prompt and evidence trust boundaries
 
@@ -76,28 +83,57 @@ while route execution stays bounded and parallel inside the configured limits.
 [`pipeline/daily_blog/mirrors.py`](../pipeline/daily_blog/mirrors.py),
 [`pipeline/daily_blog/activity.py`](../pipeline/daily_blog/activity.py), and
 [`pipeline/daily_blog/evidence.py`](../pipeline/daily_blog/evidence.py) establish the source side.
-[`pipeline/daily_blog/projection.py`](../pipeline/daily_blog/projection.py) builds the bounded
-editorial input; candidates must resolve their cited evidence against that packet.
+[`pipeline/daily_blog/projection.py`](../pipeline/daily_blog/projection.py) builds bounded editorial
+input. Stage-local artifacts resolve their cited evidence against their authoritative packet under a
+stage-owned ceiling. Final-post admission is stricter: `publication_admission.py` freezes one
+`PublicationSurface` from the exact Stage-6 survivor packet union before complete-post selection.
+It recomputes the matching aggregate packet and projection and keeps only those survivors' required
+assets. The full acquired roster remains provenance context, but it cannot expand final-post scope.
+Citations demonstrate grounding inside the frozen surface and cannot shrink its required repository
+coverage. A model scope marker remains an equality-checked assertion, never authority.
 
-`prompt_registry.py` is the only concrete registry owner. It exposes the active approved contract,
-its validation policy, template names, and selected example resources through immutable captured
-registry state. [`pipeline/daily_blog/activation.py`](../pipeline/daily_blog/activation.py) loads
+The `prompt_registry/` package is the central registry owner. Its declarations issue only pinned,
+allowlisted loads for the Stage 3-7 resources; stage
+modules retain domain rendering and parsing while importing the direct registry leaf they require.
+[`pipeline/daily_blog/activation.py`](../pipeline/daily_blog/activation.py) loads
 the tracked activation receipt, which binds the active prompt-contract identity before publication.
 Prompt prose remains in [`pipeline/prompts/`](../pipeline/prompts/) and is not changed by this
 architecture.
 
 ## Producer-publisher boundary
 
-The producer writes `vosslab.daily-blog.bundle.v7`. Its manifest binds the report date, selected
+The producer writes `vosslab.daily-blog.bundle.v8`. Its manifest binds the report date, selected
 `best_artifact_id`, generator identity, contracts, immutable maker receipt, prompt contract,
-evidence packet, roster, editorial projection, post, declared assets, and bundle digest. Candidate
+evidence packet, roster, editorial projection, post, declared assets, source-safety policy identity,
+and bundle digest. Candidate
 and referee deliberation remain producer-owned run history and are not handoff fields.
 
 `publication_storage.py` reads and writes bundle artifacts through held no-follow descriptors,
-enforces bounded regular-file envelopes, and atomically promotes one date-local bundle. The sibling
-publisher independently snapshots the declared files, validates the selected post and artifact
-identity, and records a `publication-v4` result. Finalization verifies that the importer receipt and
-the served-page receipt both bind the same selected artifact.
+enforces bounded regular-file envelopes, and atomically promotes one date-local bundle. The producer
+first sends that exact sealed byte snapshot to the sibling's no-write validation endpoint. A valid
+`vosslab.daily-blog.import-validation.v1` receipt binds the report date, bundle digest, and selected
+artifact before the producer invokes the importing standard-input endpoint; neither endpoint can
+reopen a producer path. The sibling independently validates the declared archive, date-keyed
+`publication-v5` record, and installed post as one committed publication. Its `import-receipt.v2`
+includes the canonical reader-body digest, and finalization verifies the whole ordered body in the
+rendered Material article rather than title/date chrome alone.
+
+The subprocess boundary accepts only bounded canonical JSON results. Publisher failures use the
+text-free `vosslab.daily-blog.import-failure.v1` envelope with one allowlisted category
+(`snapshot_rejected`, `publication_conflict`, `staged_build_failed`, `commit_failed`, or
+`publisher_implementation_defect`) and phase (`receive`, `validate`, `preflight`, `stage`, or
+`commit`). Malformed publisher output, start failure, and timeout are producer-side typed boundary
+faults; foreign stderr and diagnostics do not enter run state or operator output.
+
+The producer treats unapproved links, active raw HTML, and related unsafe Markdown constructs as
+editorial ineligibility before promotion. Its portable `publication_source_safety.v1` identity and
+digest travel in the sealed contracts: the executable corpus has 35 cases and SHA-256
+`d50166736d79be7f7715cc0f7585fac71dfb2aecc1c631b10e01aeca2fb63c6b`. The publisher rechecks the
+source independently. Reuse is fail-closed: a bundle made under a different schema or safety
+identity is rebuilt rather than silently upgraded. The exact legacy publication-v3 reader remains
+only for the finite retained 2026-08-26 publication: it supports occupied-date inspection and
+replacement, not a new-import path. Remove that reader when that date is republished with the current
+contract or explicitly migrated.
 
 ## Testing and verification
 
@@ -126,7 +162,7 @@ style, permanent-test criteria, and focused test commands are in
   candidate generation and typed promotion semantics.
 - Change settings-owned concurrency, replication, rubric, or cache inputs without treating those
   values as durable artifact identity by themselves.
-- Advance a prompt contract by updating the registry, immutable receipt, and producer/publisher
+- Advance a prompt contract by updating central registry declarations, the immutable receipt, and producer/publisher
   contract together. Prompt wording remains a separately human-owned editorial change.
 
 ## Known gaps

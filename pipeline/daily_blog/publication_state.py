@@ -1,22 +1,31 @@
-"""Validate the publisher-owned current publication for one report date."""
+"""Classify one date-owned publisher publication through a shared integrity check."""
 
 # Standard Library
+import dataclasses
 import datetime
 import json
 import os
-import dataclasses
+import re
+import zoneinfo
 
 # local repo modules
-import daily_blog.publication_contract
 import daily_blog.config
 import daily_blog.io_utils
-import daily_blog.repository_contracts
-import daily_blog.schema
 import daily_blog.publisher
 
 
 PUBLICATION_SCHEMA_VERSION = daily_blog.publisher.PUBLISHER_PUBLICATION_RECORD_SCHEMA_VERSION
 PUBLICATION_RECORD_FIELDS = daily_blog.publisher.PUBLISHER_PUBLICATION_RECORD_FIELDS
+HISTORICAL_PUBLICATION_SCHEMA_VERSION = "vosslab.daily-blog.publication.v3"
+HISTORICAL_PUBLICATION_RECORD_FIELDS = frozenset({
+	"bundle_sha256", "editorial_projection_manifest", "evidence_manifest", "generator_revision",
+	"generator_run", "imported_at", "post_path", "report_date", "schema_version", "timezone",
+})
+_RUN_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
+
+
+class PublicationStateIntegrityError(RuntimeError):
+	"""One expected on-disk publication-integrity failure."""
 
 
 @dataclasses.dataclass(frozen=True)
@@ -34,46 +43,10 @@ def _archive_root(root: str, report_date: str) -> str:
 
 
 #============================================
-def _path_is_regular(path: str) -> bool:
-	"""Return whether one path is a physical regular file."""
-	return os.path.isfile(path) and not os.path.islink(path)
-
-
-#============================================
-def _manifest_artifact(
-	archive: daily_blog.publisher.PublicationArchiveReader,
-	manifest: object,
-	label: str,
-	required_fields: set[str],
-) -> tuple[dict, bytes]:
-	"""Validate and load one named manifest artifact."""
-	if not isinstance(manifest, dict) or set(manifest) != required_fields:
-		raise RuntimeError(f"Publisher bundle {label} manifest is invalid.")
-	path = manifest.get("path")
-	checksum = manifest.get("sha256")
-	if not isinstance(path, str) or not _is_sha256(checksum):
-		raise RuntimeError(f"Publisher bundle {label} manifest is invalid.")
-	if path == "post.md":
-		contents = archive.read_post()
-	elif path in {"evidence.json", "repository_roster.json", "editorial_projection.json"}:
-		contents = archive.read_json_artifact(path, label)
-	else:
-		raise RuntimeError(f"Publisher bundle {label} path is invalid.")
-	return manifest, contents
-
-
-#============================================
-def publication_record_path(
-	config: daily_blog.config.DailyBlogConfig,
-	report_date: str,
-) -> str:
+def publication_record_path(config: daily_blog.config.DailyBlogConfig, report_date: str) -> str:
 	"""Return the publisher-owned success record for one report date."""
-	return os.path.join(
-		os.path.abspath(config.daily_blog_repository),
-		"data",
-		"publications",
-		f"{report_date}.json",
-	)
+	root = os.path.abspath(config.daily_blog_repository)
+	return os.path.join(root, "data", "publications", f"{report_date}.json")
 
 
 #============================================
@@ -89,202 +62,173 @@ def _parse_report_date(value: str, label: str) -> datetime.date:
 
 
 #============================================
-def _is_sha256(value: object) -> bool:
-	"""Return whether one value is lowercase SHA-256 text."""
-	return (
-		isinstance(value, str)
-		and len(value) == 64
-		and not (set(value) - set("0123456789abcdef"))
-	)
-
-
-#============================================
-def _validate_imported_at(value: object, path: str) -> None:
-	"""Require the publisher's canonical whole-second UTC timestamp."""
-	if not isinstance(value, str) or not value.endswith("Z"):
-		raise RuntimeError(f"Publisher record imported_at is invalid: {path}")
-	try:
-		moment = datetime.datetime.fromisoformat(value.replace("Z", "+00:00"))
-	except ValueError as error:
-		raise RuntimeError(f"Publisher record imported_at is invalid: {path}") from error
-	canonical = moment.astimezone(datetime.timezone.utc).replace(microsecond=0)
-	if moment.microsecond or value != canonical.isoformat().replace("+00:00", "Z"):
-		raise RuntimeError(f"Publisher record imported_at is invalid: {path}")
-
-
-#============================================
 def _validate_publication_state(
-	config: daily_blog.config.DailyBlogConfig,
-	report_date: str,
-	value: dict,
-	path: str,
+	config: daily_blog.config.DailyBlogConfig, report_date: str, value: dict, path: str,
 ) -> None:
-	"""Require one coherent date-keyed record, archive, post, and release."""
+	"""Delegate archive, record, and installed-post integrity to the one primitive."""
 	if set(value) != PUBLICATION_RECORD_FIELDS:
-		raise RuntimeError(f"Publisher record fields are unsupported: {path}")
-	root = os.path.abspath(config.daily_blog_repository)
-	archive_relative = f"data/publication_bundles/{report_date}"
+		raise PublicationStateIntegrityError(f"Publisher record fields are unsupported: {path}")
+	try:
+		daily_blog.publisher.validate_committed_publication(
+			config.daily_blog_repository, report_date, value["bundle_sha256"],
+			expected_timezone=config.report_timezone,
+		)
+	except RuntimeError as error:
+		raise PublicationStateIntegrityError(str(error)) from error
+
+
+#============================================
+def _validate_historical_record(value: dict, report_date: str, path: str) -> None:
+	"""Accept only the exact v3 record layout retained by the publisher."""
+	if set(value) != HISTORICAL_PUBLICATION_RECORD_FIELDS:
+		raise PublicationStateIntegrityError(
+			f"Historical publisher record fields are unsupported: {path}"
+		)
+	if value["report_date"] != report_date:
+		raise PublicationStateIntegrityError(f"Publisher record date does not match its path: {path}")
+	bundle_sha256 = value["bundle_sha256"]
+	if (
+		not isinstance(bundle_sha256, str)
+		or daily_blog.publisher.SHA256_RE.fullmatch(bundle_sha256) is None
+	):
+		raise PublicationStateIntegrityError("Historical publisher record bundle checksum is invalid.")
+	generator_revision = value["generator_revision"]
+	if (
+		not isinstance(generator_revision, str)
+		or daily_blog.publisher.SHA256_RE.fullmatch(generator_revision) is None
+	):
+		raise PublicationStateIntegrityError("Historical publisher record generator revision is invalid.")
+	generator_run = value["generator_run"]
+	if not isinstance(generator_run, str) or _RUN_ID_RE.fullmatch(generator_run) is None:
+		raise PublicationStateIntegrityError("Historical publisher record generator run is invalid.")
+	if not isinstance(value["timezone"], str) or not value["timezone"]:
+		raise PublicationStateIntegrityError("Historical publisher record timezone is invalid.")
+	try:
+		zoneinfo.ZoneInfo(value["timezone"])
+	except zoneinfo.ZoneInfoNotFoundError as error:
+		raise PublicationStateIntegrityError(
+			"Historical publisher record timezone is invalid."
+		) from error
 	expected_paths = {
-		"evidence_manifest": f"{archive_relative}/evidence.json",
-		"editorial_projection_manifest": f"{archive_relative}/editorial_projection.json",
+		"editorial_projection_manifest": (
+			f"data/publication_bundles/{report_date}/editorial_projection.json"
+		),
+		"evidence_manifest": f"data/publication_bundles/{report_date}/evidence.json",
 		"post_path": f"docs/blog/posts/{report_date}.md",
 	}
-	for field, expected in expected_paths.items():
-		if value.get(field) != expected:
-			raise RuntimeError(f"Publisher record {field} is inconsistent: {path}")
-	if value.get("timezone") != config.report_timezone:
-		raise RuntimeError(f"Publisher record timezone is inconsistent: {path}")
-	if not isinstance(value.get("generator_run"), str) or not value["generator_run"]:
-		raise RuntimeError(f"Publisher record generator run is invalid: {path}")
-	if not _is_sha256(value.get("generator_revision")):
-		raise RuntimeError(f"Publisher record generator source fingerprint is invalid: {path}")
-	if not _is_sha256(value.get("bundle_sha256")):
-		raise RuntimeError(f"Publisher record bundle checksum is invalid: {path}")
-	_validate_imported_at(value.get("imported_at"), path)
-	if not isinstance(value.get("best_artifact_id"), str) or not value["best_artifact_id"]:
-		raise RuntimeError(f"Publisher record selected artifact is invalid: {path}")
-	with daily_blog.publisher.open_publication_archive(root, report_date) as archive:
-		try:
-			bundle = json.loads(archive.read_json_artifact("bundle.json", "bundle manifest").decode("utf-8"))
-		except (UnicodeDecodeError, json.JSONDecodeError) as error:
-			raise RuntimeError(f"Publisher bundle manifest is unavailable: {path}") from error
-		if not isinstance(bundle, dict):
-			raise RuntimeError(f"Publisher bundle manifest must be an object: {path}")
-		_validate_bundle(config, report_date, value, bundle, archive)
-		archived_post = archive.read_post()
-	installed_post_path = os.path.join(root, expected_paths["post_path"])
-	if not _path_is_regular(installed_post_path):
-		raise RuntimeError(f"Publisher installed post is unavailable: {path}")
-	with open(installed_post_path, "rb") as handle:
-		installed_post = handle.read()
-	if installed_post != archived_post:
-		raise RuntimeError(f"Publisher archived post does not match installed source: {path}")
-	if not _path_is_regular(os.path.join(root, "generated", "releases", report_date, "index.html")):
-		raise RuntimeError(f"Publisher installed release is unavailable: {path}")
-
-
-#============================================
-def _validate_bundle(
-	config: daily_blog.config.DailyBlogConfig,
-	report_date: str,
-	record: dict,
-	bundle: dict,
-	archive: daily_blog.publisher.PublicationArchiveReader,
-) -> None:
-	"""Verify every date-owned bundle artifact and its typed contracts."""
-	if bundle.get("schema_version") != daily_blog.schema.BUNDLE_SCHEMA_VERSION:
-		raise RuntimeError("Publisher bundle schema is unsupported.")
-	if bundle.get("report_date") != report_date:
-		raise RuntimeError("Publisher bundle date does not match its archive.")
-	if bundle.get("timezone") != config.report_timezone:
-		raise RuntimeError("Publisher bundle timezone is inconsistent.")
-	if not _is_sha256(bundle.get("bundle_sha256")):
-		raise RuntimeError("Publisher bundle checksum is invalid.")
-	if bundle.get("bundle_sha256") != daily_blog.publication_contract.bundle_sha256(bundle):
-		raise RuntimeError("Publisher bundle checksum does not match its manifest.")
-	if bundle["bundle_sha256"] != record["bundle_sha256"]:
-		raise RuntimeError("Publisher record checksum does not match its bundle.")
-	daily_blog.publication_contract.validate_bundle_identity_fields(bundle)
-	evidence_manifest, _evidence_bytes = _manifest_artifact(
-		archive, bundle.get("evidence"), "evidence", {"path", "packet_id", "sha256"}
-	)
-	roster_manifest, _roster_bytes = _manifest_artifact(
-		archive, bundle.get("repository_roster"), "repository roster",
-		{"path", "roster_id", "sha256"},
-	)
-	projection_manifest, _projection_bytes = _manifest_artifact(
-		archive, bundle.get("editorial_projection"), "editorial projection",
-		{"path", "projection_id", "sha256"},
-	)
-	post_manifest, post_bytes = _manifest_artifact(
-		archive, bundle.get("post"), "post", {"path", "sha256", "artifact_id"}
-	)
-	if evidence_manifest["path"] != "evidence.json":
-		raise RuntimeError("Publisher bundle evidence path is invalid.")
-	if roster_manifest["path"] != "repository_roster.json":
-		raise RuntimeError("Publisher bundle repository roster path is invalid.")
-	if projection_manifest["path"] != "editorial_projection.json":
-		raise RuntimeError("Publisher bundle editorial projection path is invalid.")
-	if post_manifest["path"] != "post.md":
-		raise RuntimeError("Publisher bundle post path is invalid.")
+	if any(value[field] != expected for field, expected in expected_paths.items()):
+		raise PublicationStateIntegrityError("Historical publisher record paths are inconsistent.")
+	imported_at = value["imported_at"]
+	if not isinstance(imported_at, str) or not imported_at.endswith("Z"):
+		raise PublicationStateIntegrityError("Historical publisher record import time is invalid.")
 	try:
-		evidence_value = json.loads(_evidence_bytes.decode("utf-8"))
-		roster_value = json.loads(_roster_bytes.decode("utf-8"))
-		projection_value = json.loads(_projection_bytes.decode("utf-8"))
-	except (UnicodeDecodeError, json.JSONDecodeError) as error:
-		raise RuntimeError("Publisher bundle artifact is not valid JSON.") from error
-	evidence = daily_blog.schema.EvidencePacket.from_dict(evidence_value)
-	roster = daily_blog.repository_contracts.RepositoryRoster.from_dict(roster_value)
-	projection = daily_blog.schema.EditorialProjection.from_dict(projection_value)
-	if daily_blog.io_utils.hash_value(evidence.to_dict()) != evidence_manifest["sha256"]:
-		raise RuntimeError("Publisher bundle evidence checksum does not match its artifact.")
-	if daily_blog.io_utils.hash_value(roster.to_dict()) != roster_manifest["sha256"]:
-		raise RuntimeError("Publisher bundle repository roster checksum does not match its artifact.")
-	if daily_blog.io_utils.hash_value(projection.to_dict()) != projection_manifest["sha256"]:
-		raise RuntimeError("Publisher bundle editorial projection checksum does not match its artifact.")
-	if evidence.report_date != report_date or evidence.timezone != config.report_timezone or not evidence.complete:
-		raise RuntimeError("Publisher bundle evidence packet is not current and complete.")
-	if evidence.packet_id != evidence_manifest["packet_id"]:
-		raise RuntimeError("Publisher bundle evidence identity is inconsistent.")
-	if roster.roster_id != roster_manifest["roster_id"]:
-		raise RuntimeError("Publisher bundle repository roster identity is inconsistent.")
-	if projection.projection_id != projection_manifest["projection_id"]:
-		raise RuntimeError("Publisher bundle editorial projection identity is inconsistent.")
-	if (
-		projection.packet_id != evidence.packet_id
-		or projection.report_date != report_date
-		or projection.timezone != config.report_timezone
-	):
-		raise RuntimeError("Publisher bundle projection does not match its evidence packet.")
-	if not {activity.repository for activity in evidence.activity} <= {
-		item.repository for item in roster.repositories
-	}:
-		raise RuntimeError("Publisher bundle evidence exceeds its repository roster.")
-	evidence_by_id = {item.evidence_id: item for item in evidence.items}
-	if not {excerpt.evidence_id for excerpt in projection.excerpts} <= set(evidence_by_id):
-		raise RuntimeError("Publisher bundle projection cites unavailable evidence.")
-	if not {card.repository for card in projection.repositories} <= {
-		item.repository for item in roster.repositories
-	}:
-		raise RuntimeError("Publisher bundle projection exceeds its repository roster.")
-	if daily_blog.io_utils.sha256_bytes(post_bytes) != post_manifest["sha256"]:
-		raise RuntimeError("Publisher bundle post checksum does not match its artifact.")
-	if (
-		bundle.get("best_artifact_id") != record.get("best_artifact_id")
-		or post_manifest.get("artifact_id") != record.get("best_artifact_id")
-	):
-		raise RuntimeError("Publisher record selected artifact does not bind its bundle post.")
-	_asset_paths: set[str] = set()
-	assets = bundle.get("assets")
-	if not isinstance(assets, list):
-		raise RuntimeError("Publisher bundle assets manifest is invalid.")
-	for asset in assets:
-		if not isinstance(asset, dict) or set(asset) != {
-			"path", "sha256", "evidence_id", "git_blob_hash", "publish_path"
-		}:
-			raise RuntimeError("Publisher bundle asset manifest is invalid.")
-		asset_path = asset["path"]
-		if not isinstance(asset_path, str) or asset_path in _asset_paths or not _is_sha256(asset["sha256"]):
-			raise RuntimeError("Publisher bundle asset manifest is invalid.")
-		_asset_paths.add(asset_path)
-		contents = archive.read_asset(asset_path)
-		if daily_blog.io_utils.sha256_bytes(contents) != asset["sha256"]:
-			raise RuntimeError("Publisher bundle asset checksum does not match its artifact.")
-		evidence_item = evidence_by_id.get(asset["evidence_id"])
-		if (
-			evidence_item is None
-			or evidence_item.asset_path != asset_path
-			or evidence_item.blob_hash != asset["git_blob_hash"]
-			or evidence_item.publish_path != asset["publish_path"]
-		):
-			raise RuntimeError("Publisher bundle asset provenance is inconsistent.")
+		moment = datetime.datetime.fromisoformat(imported_at.replace("Z", "+00:00"))
+	except ValueError as error:
+		raise PublicationStateIntegrityError(
+			"Historical publisher record import time is invalid."
+		) from error
+	canonical = moment.astimezone(datetime.UTC).replace(microsecond=0).isoformat()
+	canonical = canonical.replace("+00:00", "Z")
+	if moment.microsecond or canonical != imported_at:
+		raise PublicationStateIntegrityError("Historical publisher record import time is invalid.")
 
 
 #============================================
-def publication_exists(
-	config: daily_blog.config.DailyBlogConfig,
-	report_date: str,
-) -> bool:
+def _historical_archive_object(contents: bytes, label: str) -> dict:
+	"""Decode one bounded v3 archive object without accepting another JSON shape."""
+	try:
+		value = json.loads(contents.decode("utf-8"))
+	except (UnicodeDecodeError, json.JSONDecodeError) as error:
+		raise PublicationStateIntegrityError(
+			f"Historical publisher {label} is not valid JSON."
+		) from error
+	if not isinstance(value, dict):
+		raise PublicationStateIntegrityError(f"Historical publisher {label} must be an object.")
+	return value
+
+
+#============================================
+def _validate_historical_publication_state(
+	config: daily_blog.config.DailyBlogConfig, report_date: str, value: dict, path: str,
+) -> None:
+	"""Verify the finite v3 archive surface allowed only for existing-date policy."""
+	_validate_historical_record(value, report_date, path)
+	if value["timezone"] != config.report_timezone:
+		raise PublicationStateIntegrityError("Historical publisher record timezone is inconsistent.")
+	try:
+		with daily_blog.publisher.open_publication_archive(
+			config.daily_blog_repository, report_date,
+		) as archive:
+			if archive.entry_names() != {
+				"bundle.json", "evidence.json", "editorial_projection.json", "post.md",
+			}:
+				raise PublicationStateIntegrityError("Historical publisher archive shape is unsupported.")
+			bundle = _historical_archive_object(
+				archive.read_json_artifact("bundle.json", "historical bundle manifest"), "bundle manifest",
+			)
+			evidence = _historical_archive_object(
+				archive.read_historical_v3_evidence(), "evidence",
+			)
+			projection = _historical_archive_object(
+				archive.read_json_artifact("editorial_projection.json", "historical editorial projection"),
+				"editorial projection",
+			)
+			archived_post = archive.read_post()
+	except RuntimeError as error:
+		if isinstance(error, PublicationStateIntegrityError):
+			raise
+		raise PublicationStateIntegrityError(str(error)) from error
+	if bundle.get("schema_version") != "vosslab.daily-blog.bundle.v2":
+		raise PublicationStateIntegrityError("Historical publisher bundle schema is unsupported.")
+	if bundle.get("bundle_sha256") != value["bundle_sha256"] or (
+		daily_blog.publication_contract.bundle_sha256(bundle) != value["bundle_sha256"]
+	):
+		raise PublicationStateIntegrityError("Historical publisher bundle checksum is inconsistent.")
+	if bundle.get("report_date") != report_date or bundle.get("timezone") != value["timezone"]:
+		raise PublicationStateIntegrityError("Historical publisher bundle date or timezone is inconsistent.")
+	generator = bundle.get("generator")
+	if (
+		not isinstance(generator, dict)
+		or generator.get("revision") != value["generator_revision"]
+		or generator.get("run_id") != value["generator_run"]
+	):
+		raise PublicationStateIntegrityError("Historical publisher bundle generator is inconsistent.")
+	for manifest, artifact, label, expected_path in (
+		(bundle.get("evidence"), evidence, "evidence", "evidence.json"),
+		(
+			bundle.get("editorial_projection"), projection, "editorial projection",
+			"editorial_projection.json",
+		),
+	):
+		if (
+			not isinstance(manifest, dict)
+			or manifest.get("path") != expected_path
+			or manifest.get("sha256") != daily_blog.io_utils.hash_value(artifact)
+		):
+			raise PublicationStateIntegrityError(f"Historical publisher {label} checksum is inconsistent.")
+		if artifact.get("report_date") != report_date or artifact.get("timezone") != value["timezone"]:
+			raise PublicationStateIntegrityError(
+				f"Historical publisher {label} date or timezone is inconsistent."
+			)
+	if bundle.get("post") != {
+		"path": "post.md", "sha256": daily_blog.io_utils.sha256_bytes(archived_post),
+	}:
+		raise PublicationStateIntegrityError("Historical publisher post checksum is inconsistent.")
+	try:
+		installed_post = daily_blog.publisher._confined_file(
+			daily_blog.publisher._trusted_root(config.daily_blog_repository), value["post_path"],
+			daily_blog.publisher.MAX_POST_BYTES, "historical installed post",
+		)
+	except RuntimeError as error:
+		raise PublicationStateIntegrityError(str(error)) from error
+	if installed_post != archived_post:
+		raise PublicationStateIntegrityError(
+			"Historical archived post does not match the installed post."
+		)
+
+
+#============================================
+def publication_exists(config: daily_blog.config.DailyBlogConfig, report_date: str) -> bool:
 	"""Return whether one coherent current publication exists for the report date."""
 	inspection = inspect_publication(config, report_date)
 	if inspection.state == "missing":
@@ -296,32 +240,35 @@ def publication_exists(
 
 #============================================
 def inspect_publication(
-	config: daily_blog.config.DailyBlogConfig,
-	report_date: str,
+	config: daily_blog.config.DailyBlogConfig, report_date: str,
 ) -> PublicationInspection:
 	"""Classify a date as missing, current, or occupied-invalid without trusting it."""
 	_parse_report_date(report_date, "Report date")
 	root = os.path.abspath(config.daily_blog_repository)
 	path = publication_record_path(config, report_date)
 	occupied_paths = (
-		path,
-		_archive_root(root, report_date),
+		path, _archive_root(root, report_date),
 		os.path.join(root, "docs", "blog", "posts", f"{report_date}.md"),
 		os.path.join(root, "generated", "releases", report_date),
 	)
 	if not any(os.path.lexists(candidate) for candidate in occupied_paths):
 		return PublicationInspection("missing")
 	try:
-		if not _path_is_regular(path):
-			raise RuntimeError(f"Publisher record must be one physical file: {path}")
+		if not os.path.isfile(path) or os.path.islink(path):
+			raise PublicationStateIntegrityError(f"Publisher record must be one physical file: {path}")
 		value = daily_blog.io_utils.read_json(path)
 		if not isinstance(value, dict):
-			raise RuntimeError(f"Publisher record must be an object: {path}")
-		if value.get("schema_version") != PUBLICATION_SCHEMA_VERSION:
-			raise RuntimeError(f"Publisher record schema is unsupported: {path}")
-		if value.get("report_date") != report_date:
-			raise RuntimeError(f"Publisher record date does not match its path: {path}")
-		_validate_publication_state(config, report_date, value, path)
-	except Exception as error:
+			raise PublicationStateIntegrityError(f"Publisher record must be an object: {path}")
+		if value.get("schema_version") == PUBLICATION_SCHEMA_VERSION:
+			if value.get("report_date") != report_date:
+				raise PublicationStateIntegrityError(f"Publisher record date does not match its path: {path}")
+			_validate_publication_state(config, report_date, value, path)
+		elif value.get("schema_version") == HISTORICAL_PUBLICATION_SCHEMA_VERSION:
+			_validate_historical_publication_state(config, report_date, value, path)
+		else:
+			raise PublicationStateIntegrityError(f"Publisher record schema is unsupported: {path}")
+	except (
+		OSError, UnicodeDecodeError, json.JSONDecodeError, PublicationStateIntegrityError,
+	) as error:
 		return PublicationInspection("invalid", str(error))
 	return PublicationInspection("current")

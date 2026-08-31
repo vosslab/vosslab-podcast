@@ -6,10 +6,13 @@
 
 - Rebuilt the daily-blog production contract around immutable evidence, editorial projection,
   candidate validation, and a date-owned publication boundary.
-- This release introduced the producer/publisher bundle v5 interface. That interface is now
-  historical: the active handoff uses bundle v7, which carries the validated selected post and its
-  sealed artifact identity. `report_date` remains the sole publication identity; `bundle_sha256`
-  verifies manifest integrity without creating a second namespace.
+- This release introduced the producer/publisher bundle v5 interface. Later bundle-v7 and the
+  current bundle-v8 contracts carry the validated selected post and sealed artifact identity;
+  v8 also identifies the independently rechecked `publication_source_safety.v1` policy with its
+  executable 35-case SHA-256
+  `d50166736d79be7f7715cc0f7585fac71dfb2aecc1c631b10e01aeca2fb63c6b`. `report_date` remains the
+  sole publication identity; `bundle_sha256` verifies manifest integrity without creating a second
+  namespace.
 - Added a two-stage, non-publishing v4 maker-voice evidence boundary. Fresh capture seals the
   approved Aug. 23 and Aug. 26 experiment evidence; a separate calibration artifact scores the
   historical Aug. 22-26 posts; deterministic attestation recomputes their joint acceptance result.

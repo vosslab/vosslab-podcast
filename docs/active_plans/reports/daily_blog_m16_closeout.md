@@ -29,7 +29,7 @@ pipeline fault: the public command still completed the sealed publication path.
 
 | Check | Recorded result |
 | --- | --- |
-| Bundle schema | `vosslab.daily-blog.bundle.v7` |
+| Bundle schema | Historical `vosslab.daily-blog.bundle.v7` |
 | Retired payloads | No `candidates` or `referee` keys |
 | Artifact identity | `artifact-bf73776d8039763b9c043253` agrees across run, bundle, bundle post, import, and page verification |
 | Post digest | `b80044872fe8bed7306e1c5e3eebd211a9680e31a217b9e34982835d4cd989a1` agrees across producer, sealed bundle post receipt, and disposable publisher post |

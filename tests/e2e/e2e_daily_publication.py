@@ -8,7 +8,6 @@ reader-visible publication behavior, not editorial implementation topology.
 # Standard Library
 import contextlib
 import hashlib
-import io
 import json
 import pathlib
 import re
@@ -26,9 +25,11 @@ if str(REPO_ROOT) not in sys.path:
 import make_blog
 import daily_blog.artifacts
 import daily_blog.daily_outline_workflow
+import daily_blog.editorial_stage_config
+import daily_blog.observability
 import daily_blog.publication_workflow
 import daily_blog.publisher
-import daily_blog.recovery
+import daily_blog.publication_source_safety
 import daily_blog.repository_contracts
 import daily_blog.schema
 
@@ -57,6 +58,37 @@ def _initialize_publisher(root: pathlib.Path) -> None:
 		stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 	if result.returncode:
 		raise RuntimeError("Could not initialize the disposable publisher repository.")
+
+
+#============================================
+def _assert_source_safety_parity(publisher: pathlib.Path) -> None:
+	"""Require the copied publisher to execute the sealed safety corpus independently."""
+	program = """import hashlib
+import json
+import scripts.publication_source_safety as safety
+
+vector = safety.policy_vector_bytes()
+result = {
+    'sha256': hashlib.sha256(vector).hexdigest(),
+    'vector': vector.decode('ascii'),
+    'valid': [not safety.validate_post_source(case['post'], safety.POLICY_VECTOR['approved_paths']) for case in safety.POLICY_VECTOR['cases']],
+}
+print(json.dumps(result, sort_keys=True))
+"""
+	completed = subprocess.run(
+		[sys.executable, "-c", program], cwd=publisher, capture_output=True, check=True, text=True,
+	)
+	try:
+		actual = json.loads(completed.stdout)
+	except json.JSONDecodeError as error:
+		raise RuntimeError("Disposable publisher did not return a safety-corpus result.") from error
+	vector = daily_blog.publication_source_safety.policy_vector_bytes()
+	if actual["vector"].encode("ascii") != vector:
+		raise RuntimeError("Producer and disposable publisher safety corpora differ.")
+	if actual["sha256"] != hashlib.sha256(vector).hexdigest():
+		raise RuntimeError("Disposable publisher safety-corpus digest is invalid.")
+	if actual["valid"] != [case["valid"] for case in daily_blog.publication_source_safety.CANONICAL_VECTOR["cases"]]:
+		raise RuntimeError("Producer and disposable publisher safety semantics differ.")
 
 
 #============================================
@@ -112,13 +144,49 @@ def _source(root: pathlib.Path) -> tuple[
 #============================================
 def _post(title: str, evidence_ids: tuple[str, ...]) -> str:
 	"""Return a publisher-valid grounded post for the sealed offline runner."""
-	paragraph = " ".join("I checked the dated changelog and kept the reader-visible result concrete." for _ in range(36))
-	citations = " ".join("<!-- evidence: " + item + " -->" for item in evidence_ids)
+	fixture_evidence, second_evidence = evidence_ids
+	opening = (
+		"On 2026-08-23 I followed the change trail in "
+		"[vosslab/fixture](https://github.com/vosslab/fixture), then compared it with "
+		"[vosslab/second-fixture](https://github.com/vosslab/second-fixture). "
+		"The two dated changelog entries turn a broad publication claim into work a reader can verify. "
+		"<!-- evidence: " + fixture_evidence + " -->"
+	)
+	fixture_story = " ".join((
+		"The fixture repository records that the daily publication is observable.",
+		"I treated that as a reader-facing contract rather than a private implementation detail.",
+		"The useful question was whether a published post can identify the work, retain its evidence, and still be understandable after the run ends.",
+		"That led me to keep the explanation close to the dated change instead of inventing a larger product narrative.",
+		"A reader following the repository link can inspect the same small, durable claim that shaped this post.",
+		"<!-- evidence: " + fixture_evidence + " -->",
+	))
+	second_story = " ".join((
+		"The second fixture provides an independent check on the same publication path.",
+		"Its dated change confirms that the evidence set is not a single-repository anecdote.",
+		"I used the pair to describe the seam between collected activity and the page a reader receives.",
+		"That seam matters because replacement, receipts, and page verification should preserve the selected editorial artifact without silently changing its provenance.",
+		"The result is deliberately modest: two concrete repositories, two dated sources, and one traceable publication decision.",
+		"<!-- evidence: " + second_evidence + " -->",
+	))
+	closing = " ".join((
+		"For this fixture, the practical lesson is to make the proof visible at the same boundary where publication becomes durable.",
+		"I can point to the evidence comments, repository links, sealed post, and imported page without relying on an unstated model judgment.",
+		"That makes a replacement run intelligible as well: it may install a new selected artifact, but it must leave a receipt that binds the date and bytes together.",
+		"The surrounding pipeline can degrade editorially when a candidate fails, while an import or page failure remains an operational event with an explicit record.",
+		"I also kept the publication example small enough that the evidence trail remains visible without a separate dashboard.",
+		"The dated sources support the observed change, while the receipt supports the later claim that those selected bytes were imported.",
+		"Those are different facts, and the fixture keeps them separate so an editorial success cannot disguise an operational failure.",
+		"A future reader can therefore inspect the exact repository history and the final page as two connected but distinct forms of evidence.",
+		"That distinction is what makes a repeatable daily run more useful than a one-off generated summary.",
+		"<!-- evidence: " + fixture_evidence + " --> <!-- evidence: " + second_evidence + " -->",
+	))
 	return ("---\ndate: 2026-08-23\nslug: " + title.lower().replace(" ", "-")
 		+ "\ngenerator_run: controlled-e2e\nevidence_manifest: evidence.json\neditorial_projection: editorial_projection.json\n---\n"
-		+ f"# {title}\n\nOn {REPORT_DATE} I opened [vosslab/fixture](https://github.com/vosslab/fixture) and traced the durable publication seam. {citations}\n\n"
+		+ f"# {title}\n\n{opening}\n\n"
 		"<!-- more -->\n\n"
-		f"## What I followed\n\n{paragraph} {citations}\n\n"
+		f"## Following the fixture\n\n{fixture_story}\n\n"
+		f"## Comparing the second repository\n\n{second_story}\n\n"
+		f"## Keeping publication legible\n\n{closing}\n\n"
 		"## Project coverage\n\n- vosslab/fixture\n- vosslab/second-fixture\n")
 
 
@@ -147,37 +215,38 @@ class _OfflineRunner:
 	def _all_citations(self) -> str:
 		return " ".join("<!-- evidence: " + item + " -->" for item in self.evidence_ids)
 
-	def run(self, _route: object, prompt: str, _working: str) -> str:
-		"""Return a valid response from the requested result form, never a route name."""
-		evidence_id = self._evidence_id(prompt)
-		if all(token in prompt for token in ("`artifact_ids`", "`scores`", "`rationale`")):
+	def run(
+		self,
+		route: daily_blog.editorial_stage_config.RoleRoute,
+		prompt: str,
+		_working: str,
+	) -> str:
+		"""Return a response by the typed route identity, not mutable prompt prose."""
+		if type(route) is not daily_blog.editorial_stage_config.RoleRoute:
+			raise RuntimeError("Controlled runner requires one exact typed editorial route.")
+		name = route.name
+		if name == "daily_outline_ranking":
 			identifiers = self._story_ids(prompt)
 			return json.dumps({"artifact_ids": list(identifiers), "scores": {item: 90 for item in identifiers}, "rationale": "grounded"})
-		if all(token in prompt for token in ("`winner`", "`evidence_quality`", "`confidence`")):
+		if name == "final_synthesis_reviewer":
 			return '{"winner":"A","reason":"grounded","evidence_quality":"high","confidence":1}'
-		if all(token in prompt for token in ("`decision`", "`score`", "`reason`")):
+		if name in {
+			"repository_outline_reviewer", "repository_story_reviewer",
+			"daily_outline_outline_reviewer", "complete_post_reviewer",
+		}:
 			return '{"decision":"ACCEPT","score":90,"reason":"grounded"}'
-		if (
-			"eligible CompletePost" in prompt
-			or all(token in prompt for token in (
-				"generator_run:", "evidence_manifest:", "editorial_projection:",
-			))
-		):
+		if name in {
+			"complete_post_writer", "complete_post_editor", "final_synthesis_synthesis",
+		}:
 			return _post("Publication fixture", self.evidence_ids)
-		if "daily-outline-scope:" in prompt:
+		if name == "daily_outline_outline_writer":
 			return "<!-- daily-outline-scope: [\"vosslab/fixture\",\"vosslab/second-fixture\"] -->\n# Fixture outline\n\n" + self._all_citations() + "\n"
-		if "<!-- evidence:" in prompt:
-			return "# Grounded repository material\n\nConcrete work. <!-- evidence: " + evidence_id + " -->\n"
-		raise RuntimeError("Controlled response lacks a mechanically valid result boundary.")
-
-
-#============================================
-def _page_fault() -> daily_blog.recovery.PipelineFaultError:
-	"""Return the public structured fault used for the controlled failure branch."""
-	category = daily_blog.recovery.TerminalFaultCategory.IMPLEMENTATION_DEFECT
-	observation = daily_blog.recovery.GenerationObservation("page_verification", 0, 0, (), category)
-	fault = daily_blog.recovery.PipelineFault(category, 1, "", "", (observation,))
-	return daily_blog.recovery.PipelineFaultError(fault, "d" * 64)
+		if name in {
+			"repository_outline_generator", "repository_outline_merger",
+			"repository_story_writer", "repository_story_editor",
+		}:
+			return "# Grounded repository material\n\nConcrete work. <!-- evidence: " + self._evidence_id(prompt) + " -->\n"
+		raise RuntimeError("Controlled response uses an unsupported typed editorial route.")
 
 
 #============================================
@@ -190,7 +259,9 @@ def _runtime(
 
 	def page_verifier(repository: str, receipt: dict) -> dict:
 		if fail_page:
-			raise _page_fault()
+			# A reader-page filesystem failure is operational: it must retain the
+			# committed import while remaining visible to the public command.
+			raise OSError("Controlled reader page is unavailable.")
 		return daily_blog.publisher.verify_published_page(repository, receipt)
 
 	return daily_blog.publication_workflow.PublicationRuntime(
@@ -198,8 +269,9 @@ def _runtime(
 		mirror_refresh=lambda *_args: mirrors, activity_locator=lambda *_args: activities,
 		evidence_assembler=lambda *_args: (packet, {}),
 		route_runner=runner,
-		publisher_function=lambda repository, bundle_path, **kwargs: daily_blog.publisher.import_bundle(
-			repository, bundle_path, replace_existing=kwargs["replace_existing"]),
+	publisher_function=lambda repository, transfer, **kwargs: daily_blog.publisher.import_bundle(
+		repository, transfer, replace_existing=kwargs["replace_existing"]),
+		publisher_validator=daily_blog.publisher.validate_bundle_transfer,
 		page_verifier=page_verifier,
 	), runner
 
@@ -212,13 +284,17 @@ def _run_record(root: pathlib.Path, run_id: str) -> dict:
 
 
 #============================================
-def _assert_date_summary_retains_run(root: pathlib.Path, run_id: str) -> None:
-	"""Require the date-level operational summary to retain this terminal run."""
+def _assert_date_summary_retains_run(root: pathlib.Path, run_id: str) -> dict:
+	"""Return this run's parser-validated bounded terminal summary."""
 	path = root / "out" / "vosslab" / "daily_blog" / REPORT_DATE / "summary.jsonl"
 	if not path.is_file():
 		raise RuntimeError("Terminal run did not produce a date summary.")
-	if not any(json.loads(line).get("run_id") == run_id for line in path.read_text(encoding="utf-8").splitlines()):
-		raise RuntimeError("Date summary does not retain the terminal run.")
+	for line in path.read_text(encoding="utf-8").splitlines():
+		# The public parser enforces the terminal-summary byte envelope.
+		summary = daily_blog.observability.parse_terminal_summary_line(line)
+		if summary["run_id"] == run_id:
+			return summary
+	raise RuntimeError("Date summary does not retain the terminal run.")
 
 
 #============================================
@@ -255,6 +331,7 @@ def _success_and_overwrite() -> None:
 	with tempfile.TemporaryDirectory(prefix="daily-publication-e2e-") as temporary:
 		root, publisher = pathlib.Path(temporary), pathlib.Path(temporary) / "publisher"
 		_initialize_publisher(publisher)
+		_assert_source_safety_parity(publisher)
 		(root / "out").mkdir()
 		_write_settings(root / "settings.yaml", publisher, root / "mirrors")
 		with contextlib.ExitStack() as stack:
@@ -285,7 +362,7 @@ def _success_and_overwrite() -> None:
 
 #============================================
 def _post_import_failure() -> None:
-	"""Require one typed verification failure to retain the committed publication."""
+	"""Require an operational verification failure to retain the committed publication."""
 	with tempfile.TemporaryDirectory(prefix="daily-publication-e2e-") as temporary:
 		root, publisher = pathlib.Path(temporary), pathlib.Path(temporary) / "publisher"
 		_initialize_publisher(publisher)
@@ -296,17 +373,23 @@ def _post_import_failure() -> None:
 			stack.enter_context(unittest.mock.patch.object(make_blog, "SETTINGS_PATH", root / "settings.yaml"))
 			stack.enter_context(unittest.mock.patch.object(make_blog, "OUTPUT_ROOT", root / "out"))
 			stack.enter_context(unittest.mock.patch("daily_blog.orchestrator.new_run_id", return_value="controlled-page-failure"))
-			with contextlib.redirect_stderr(io.StringIO()) as stderr:
-				status = make_blog.command(["--date", REPORT_DATE], runtime=runtime)
-		if status != 2:
-			raise RuntimeError("Post-import verification failure did not return the public nonzero status.")
-		fault = json.loads(stderr.getvalue())
-		if fault["status"] != "pipeline_fault" or fault["report_date"] != REPORT_DATE:
-			raise RuntimeError("Post-import verification failure did not return a structured fault.")
+			try:
+				make_blog.command(["--date", REPORT_DATE], runtime=runtime)
+			except OSError as error:
+				if str(error) != "Controlled reader page is unavailable.":
+					raise RuntimeError("Public command propagated the wrong verification error.") from error
+			else:
+				raise RuntimeError("Operational page verification failure did not propagate.")
 		record = _run_record(root, "controlled-page-failure")
 		if record["state"] != "failed" or record["phases"]["page_verification"]["status"] != "failed":
 			raise RuntimeError("Post-import verification failure did not persist its failed phase.")
-		_assert_date_summary_retains_run(root, "controlled-page-failure")
+		summary = _assert_date_summary_retains_run(root, "controlled-page-failure")
+		if (
+			summary["failure_phase"] != "page_verification"
+			or summary["operational_failure_kind"] != "external_resource_error"
+			or summary["terminal_fault_category"]
+		):
+			raise RuntimeError("Terminal summary did not retain the bounded operational failure.")
 		post = root / "out" / "vosslab" / "daily_blog" / REPORT_DATE / "post.md"
 		bundle = publisher / "data" / "publication_bundles" / REPORT_DATE / "bundle.json"
 		publication = publisher / "data" / "publications" / (REPORT_DATE + ".json")

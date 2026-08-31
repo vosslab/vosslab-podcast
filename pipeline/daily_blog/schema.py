@@ -11,9 +11,10 @@ import daily_blog.json_contracts
 import daily_blog.repository_contracts
 
 
-BUNDLE_SCHEMA_VERSION = "vosslab.daily-blog.bundle.v7"
+BUNDLE_SCHEMA_VERSION = "vosslab.daily-blog.bundle.v8"
 EVIDENCE_SCHEMA_VERSION = "vosslab.daily-blog.evidence.v4"
 PROJECTION_SCHEMA_VERSION = "vosslab.daily-blog.editorial-projection.v2"
+BOUNDED_EVIDENCE_CONTEXT_SCHEMA_VERSION = "vosslab.daily-blog.bounded-evidence-context.v2"
 GENERATOR_VERSION = "daily-blog-generator-v2"
 PROMPT_VERSION = "daily-blog-prompts-v3"
 RUBRIC_VERSION = "daily-blog-rubric-v3"
@@ -799,3 +800,193 @@ class EditorialProjection:
 			raise RuntimeError("Editorial projection identity does not match its content.")
 		projection.render_context()
 		return projection
+
+
+@dataclasses.dataclass(frozen=True)
+class BoundedEvidenceContext:
+	"""Portable, survivor-scoped prompt context derived from full evidence packets.
+
+	The complete packets remain the provenance authority.  This contract carries
+	only exact, identity-bound excerpts selected for one bounded model frame.
+	"""
+
+	report_date: str
+	timezone: str
+	context_chars: int
+	effective_excerpt_chars: int
+	projection_limits: daily_blog.json_contracts.FrozenMapping
+	packet_ids: tuple[str, ...]
+	model_packet_ids: tuple[str, ...]
+	repositories: tuple[RepositoryCard, ...]
+	excerpts: tuple[EvidenceExcerpt, ...]
+	context_id: str
+	model_context_id: str
+	schema_version: str = BOUNDED_EVIDENCE_CONTEXT_SCHEMA_VERSION
+
+	#============================================
+	def content_dict(self) -> dict:
+		"""Return complete provenance content whose hash defines ``context_id``."""
+		return {
+			"schema_version": self.schema_version,
+			"report_date": self.report_date,
+			"timezone": self.timezone,
+			"context_chars": self.context_chars,
+			"effective_excerpt_chars": self.effective_excerpt_chars,
+			"projection_limits": self.projection_limits.to_dict(),
+			"packet_ids": list(self.packet_ids),
+			"model_packet_ids": list(self.model_packet_ids),
+			"repositories": [card.to_dict() for card in self.repositories],
+			"excerpts": [excerpt.to_dict() for excerpt in self.excerpts],
+		}
+
+	#============================================
+	def model_content_dict(self) -> dict:
+		"""Return host-portable content whose hash defines ``model_context_id``."""
+		return {
+			"schema_version": self.schema_version,
+			"report_date": self.report_date,
+			"timezone": self.timezone,
+			"context_chars": self.context_chars,
+			"effective_excerpt_chars": self.effective_excerpt_chars,
+			"projection_limits": self.projection_limits.to_dict(),
+			"model_packet_ids": list(self.model_packet_ids),
+			"repositories": [card.to_dict() for card in self.repositories],
+			"excerpts": [excerpt.to_dict() for excerpt in self.excerpts],
+		}
+
+	#============================================
+	def to_dict(self) -> dict:
+		"""Serialize complete context and both independently verifiable identities."""
+		value = self.content_dict()
+		value["context_id"] = self.context_id
+		value["model_context_id"] = self.model_context_id
+		return value
+
+	#============================================
+	def render_context(self, context_chars: int) -> str:
+		"""Render one complete portable model frame within the caller's cap."""
+		if type(context_chars) is not int or context_chars <= 0:
+			raise RuntimeError("Bounded evidence context cap must be a positive integer.")
+		if context_chars != self.context_chars:
+			raise RuntimeError("Bounded evidence context cap does not match its selection budget.")
+		value = self.model_content_dict()
+		value["model_context_id"] = self.model_context_id
+		text = daily_blog.io_utils.canonical_json_bytes(value).decode("utf-8")
+		if len(text) > context_chars:
+			raise RuntimeError(
+				f"Bounded evidence context requires {len(text)} characters "
+				+ f"and exceeds its {context_chars} limit."
+			)
+		return text
+
+	#============================================
+	@classmethod
+	def create(
+		cls,
+		report_date: str,
+		timezone_name: str,
+		context_chars: int,
+		effective_excerpt_chars: int,
+		projection_limits: collections.abc.Mapping[str, object],
+		packet_ids: list[str],
+		model_packet_ids: list[str],
+		repositories: list[RepositoryCard],
+		excerpts: list[EvidenceExcerpt],
+	) -> "BoundedEvidenceContext":
+		"""Create one immutable context and its provenance and portable identities."""
+		context = cls(
+			report_date=report_date,
+			timezone=timezone_name,
+			context_chars=context_chars,
+			effective_excerpt_chars=effective_excerpt_chars,
+			projection_limits=daily_blog.json_contracts.FrozenMapping.create(projection_limits),
+			packet_ids=tuple(packet_ids),
+			model_packet_ids=tuple(model_packet_ids),
+			repositories=tuple(repositories),
+			excerpts=tuple(excerpts),
+			context_id="",
+			model_context_id="",
+		)
+		context_id = daily_blog.io_utils.hash_value(context.content_dict())
+		model_context_id = daily_blog.io_utils.hash_value(context.model_content_dict())
+		return dataclasses.replace(
+			context,
+			context_id=context_id,
+			model_context_id=model_context_id,
+		)
+
+	#============================================
+	@classmethod
+	def from_dict(cls, value: dict) -> "BoundedEvidenceContext":
+		"""Deserialize and strictly verify one bounded evidence context."""
+		if value.get("schema_version") != BOUNDED_EVIDENCE_CONTEXT_SCHEMA_VERSION:
+			raise RuntimeError("Unsupported bounded evidence context schema.")
+		if type(value.get("context_chars")) is not int or value["context_chars"] <= 0:
+			raise RuntimeError("Bounded evidence context cap must be a positive integer.")
+		if type(value.get("effective_excerpt_chars")) is not int:
+			raise RuntimeError("Bounded evidence context effective excerpt cap must be an integer.")
+		if not isinstance(value.get("projection_limits"), dict):
+			raise RuntimeError("Bounded evidence context limits must be an object.")
+		if set(value["projection_limits"]) != {
+			"commit_subject_chars",
+			"context_chars",
+			"excerpt_chars",
+		}:
+			raise RuntimeError("Bounded evidence context limits use unsupported fields.")
+		if any(
+			type(limit) is not int or limit <= 0
+			for limit in value["projection_limits"].values()
+		):
+			raise RuntimeError("Bounded evidence context limits must be positive integers.")
+		if not 0 < value["effective_excerpt_chars"] <= value["projection_limits"]["excerpt_chars"]:
+			raise RuntimeError("Bounded evidence context effective excerpt cap is out of range.")
+		if not isinstance(value.get("packet_ids"), list) or not value["packet_ids"]:
+			raise RuntimeError("Bounded evidence context requires packet provenance.")
+		if not isinstance(value.get("model_packet_ids"), list):
+			raise RuntimeError("Bounded evidence context model packet identities must be a list.")
+		if not isinstance(value.get("repositories"), list):
+			raise RuntimeError("Bounded evidence context repositories must be a list.")
+		if not isinstance(value.get("excerpts"), list) or not value["excerpts"]:
+			raise RuntimeError("Bounded evidence context requires exact excerpts.")
+		packet_ids = value["packet_ids"]
+		model_packet_ids = value["model_packet_ids"]
+		if (
+			any(not isinstance(packet_id, str) or not packet_id for packet_id in packet_ids)
+			or len(set(packet_ids)) != len(packet_ids)
+			or packet_ids != sorted(packet_ids)
+		):
+			raise RuntimeError("Bounded evidence context packet identities are not canonical.")
+		if (
+			len(model_packet_ids) != len(packet_ids)
+			or any(not isinstance(packet_id, str) or not packet_id for packet_id in model_packet_ids)
+			or model_packet_ids != sorted(model_packet_ids)
+		):
+			raise RuntimeError("Bounded evidence context model identities do not align.")
+		cards = [RepositoryCard.from_dict(item) for item in value["repositories"]]
+		excerpts = [EvidenceExcerpt.from_dict(item) for item in value["excerpts"]]
+		if len({card.repository for card in cards}) != len(cards):
+			raise RuntimeError("Bounded evidence context has duplicate repository cards.")
+		if len({excerpt.excerpt_id for excerpt in excerpts}) != len(excerpts):
+			raise RuntimeError("Bounded evidence context has duplicate exact excerpts.")
+		card_repositories = {card.repository for card in cards}
+		if (
+			any(excerpt.repository not in card_repositories for excerpt in excerpts)
+			or {excerpt.repository for excerpt in excerpts} != card_repositories
+		):
+			raise RuntimeError("Bounded evidence context lacks repository evidence coverage.")
+		context = cls.create(
+			str(value["report_date"]),
+			str(value["timezone"]),
+			value["context_chars"],
+			value["effective_excerpt_chars"],
+			dict(value["projection_limits"]),
+			list(packet_ids),
+			list(model_packet_ids),
+			cards,
+			excerpts,
+		)
+		if context.context_id != value.get("context_id"):
+			raise RuntimeError("Bounded evidence context identity does not match its content.")
+		if context.model_context_id != value.get("model_context_id"):
+			raise RuntimeError("Bounded evidence model identity does not match its content.")
+		return context

@@ -2973,3 +2973,61 @@ Next actions
    topology, and schema pytest pruning under `docs/PYTEST_STYLE.md`; daily-outline readability;
    and config-facade ownership.
 2. This audit does not claim the repository is merge-ready.
+
+---
+Session Update: 2026-08-30 (daily-blog design audit fixes accepted)
+
+Change
+- Removed duplicate/dead editorial, atomic, and fixture route surfaces.
+- Established direct stage-config owners, direct Stage 5 phase helpers, exact Stage 6 result
+  construction, and private promotion decisions; command-sink validation was rechecked.
+- Pruned prompt, topology, and schema assertions that did not meet the permanent-test policy,
+  and corrected current documentation.
+
+Tests
+- Final all-daily-blog pytest-policy slice: 458 passed in 5.35s; slowest test was 0.10s.
+- Final focused integration: 346 passed in 4.50s.
+- Final hygiene: 1,550 passed in 12.60s.
+- Controlled no-egress publication E2E passed for initial publication, same-date replacement, and
+  failure preservation.
+- Source, security, and test-policy gates accepted; the protected contract remained exact. No full
+  suite was rerun.
+
+Next actions
+1. No required audit-design blocker remains.
+2. Optional live-route corroboration remains non-gating.
+
+---
+Session Update: 2026-08-30 (daily-blog rebuild final closeout)
+
+Change
+- Preserved reviewer original-response salvage after a failed repair and proved
+  that Stage-6 editor partial failure retains grounded peer work.
+- Completed the production recovery ladder: normal writer/editor peers lead,
+  then daily-outline expansion and repository-story merge generate whole-post
+  V4-author candidates. The strongest in-scope repository story remains terminal
+  provenance only and is never published or mechanically assembled.
+- Derived repository scope from authoritative citations under each stage ceiling
+  through Stage 8. The model marker is an assertion only; recovery digest v5
+  binds scope, full packet, artifact type, and recovery rung.
+- Centralized Stage 3--7/V4 prompt assets in the split prompt-registry package.
+  Stage-specific comparison/repair prose remains intentionally distinct; shared
+  mechanics are centralized. No prompt prose or prompt bytes changed.
+- Kept explicit-date replacement semantics unchanged under HUMAN_GUIDANCE.
+
+Tests
+- `pytest -q tests/test_daily_blog_*.py` passed 494 tests; `pytest -q tests/`
+  passed 3,345 tests. The final test-policy audit accepted 494 behavior tests and
+  1,027 hygiene checks.
+- The controlled `python3 tests/e2e/e2e_daily_publication.py` passed initial
+  import, same-date replacement, and forced page-fault preservation.
+- Prompt-registry package split/source gates passed 139 focused checks; 65
+  Markdown links, `git diff --check`, Bandit, pyflakes, and compilation passed.
+- `docs/BLOG_CONTRACT.md` remained byte-identical at SHA-256
+  `306674359d086e28a1b952da5b5774a23524eb2e424208dec8683da5d5378a00`.
+- This fixture-backed verification makes no live-model prose-quality claim.
+
+Next actions
+1. The implementation work in this rebuild-plan slice is closed.
+2. Ordinary operational monitoring and live-provider observation remain optional,
+   non-gating corroboration.

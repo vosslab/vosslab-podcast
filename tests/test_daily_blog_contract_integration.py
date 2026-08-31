@@ -13,12 +13,12 @@ import daily_blog.config
 import daily_blog.editorial_stage_config
 import daily_blog.acquisition_workflow
 import daily_blog.activation
-import daily_blog.contracts
 import daily_blog.editorial
 import daily_blog.io_utils
-import daily_blog.prompt_registry
+import daily_blog.prompt_registry.editorial_contracts
 import daily_blog.mirrors
 import daily_blog.orchestrator
+import daily_blog.publication_workflow
 import daily_blog.repository_contracts
 
 
@@ -35,6 +35,30 @@ def make_config(tmp_path: pathlib.Path) -> daily_blog.config.DailyBlogConfig:
 		},
 		prompt_limits={"author_chars": 60000, "referee_chars": 60000},
 	)
+
+
+#============================================
+def acquire_evidence(
+	config: daily_blog.config.DailyBlogConfig,
+	report_date: str,
+	roster: daily_blog.repository_contracts.RepositoryRoster,
+	runtime: daily_blog.publication_workflow.PublicationRuntime,
+) -> tuple[daily_blog.orchestrator.DailyPublicationOrchestrator, daily_blog.acquisition_workflow.AcquisitionResult]:
+	"""Run the public acquisition handoff with its durable phase lifecycle."""
+	orchestrator = daily_blog.orchestrator.DailyPublicationOrchestrator(
+		config, report_date, repository_loader=lambda *_args: roster, runtime=runtime,
+	)
+	coordinator = daily_blog.acquisition_workflow.AcquisitionCoordinator(
+		daily_blog.acquisition_workflow.AcquisitionDependencies(
+			orchestrator.config, orchestrator.runtime, orchestrator.report_date,
+			orchestrator.prompt_contract, orchestrator.generator_revision,
+			orchestrator.repository_loader, orchestrator.refresh_mirrors,
+			orchestrator.store, orchestrator.record, orchestrator.cache,
+			orchestrator._start, orchestrator._complete,
+		)
+	)
+	result = coordinator.acquire()
+	return orchestrator, result
 
 
 #============================================
@@ -92,6 +116,117 @@ def test_acquisition_persists_the_authoritative_roster_and_prompt_contract(
 
 
 #============================================
+def test_evidence_acquisition_does_not_reuse_another_report_dates_empty_activity(
+	tmp_path: pathlib.Path,
+) -> None:
+	"""A shared cache keeps otherwise identical no-activity days separate."""
+	record = daily_blog.repository_contracts.RepositoryRecord.from_dict({
+		"repository": "vosslab/example", "repository_url": "https://github.com/vosslab/example",
+		"clone_url": "https://github.com/vosslab/example.git", "created_at": "2026-08-23T00:00:00Z", "is_fork": False,
+	})
+	roster = daily_blog.repository_contracts.RepositoryRoster.create("vosslab", [record])
+	assembled_dates: list[str] = []
+
+	def assemble(report_date: str, timezone: str, *_args: object) -> tuple[daily_blog.schema.EvidencePacket, dict[str, bytes]]:
+		assembled_dates.append(report_date)
+		item = daily_blog.schema.EvidenceItem.create(
+			"commit_metadata", "vosslab/example", "a" * 40, "", "", "A grounded change.", "fixture",
+		)
+		packet = daily_blog.schema.EvidencePacket.create(
+			report_date, timezone, True, {}, [], [], [item],
+		)
+		return packet, {}
+
+	runtime = daily_blog.publication_workflow.PublicationRuntime(
+		mirror_refresh=lambda *_args: [], activity_locator=lambda *_args: [], evidence_assembler=assemble,
+	)
+	config = make_config(tmp_path)
+	acquire_evidence(config, "2026-08-22", roster, runtime)
+	_, second = acquire_evidence(config, "2026-08-23", roster, runtime)
+
+	assert second.packet.report_date == "2026-08-23"
+	assert assembled_dates[-1] == "2026-08-23"
+
+
+#============================================
+def test_evidence_acquisition_reassembles_when_cached_packet_lacks_its_asset(
+	tmp_path: pathlib.Path,
+) -> None:
+	"""A partial multi-file cache entry cannot become authoritative evidence."""
+	record = daily_blog.repository_contracts.RepositoryRecord.from_dict({
+		"repository": "vosslab/example", "repository_url": "https://github.com/vosslab/example",
+		"clone_url": "https://github.com/vosslab/example.git", "created_at": "2026-08-23T00:00:00Z", "is_fork": False,
+	})
+	roster = daily_blog.repository_contracts.RepositoryRoster.create("vosslab", [record])
+	assembled_dates: list[str] = []
+
+	def assemble(report_date: str, timezone: str, *_args: object) -> tuple[daily_blog.schema.EvidencePacket, dict[str, bytes]]:
+		assembled_dates.append(report_date)
+		item = daily_blog.schema.EvidenceItem.create(
+			"screenshot", "vosslab/example", "a" * 40, "", "", "Screenshot", "fixture",
+			asset_path="assets/image.png",
+		)
+		packet = daily_blog.schema.EvidencePacket.create(
+			report_date, timezone, True, {}, [], [], [item],
+		)
+		return packet, {"assets/image.png": b"image"}
+
+	runtime = daily_blog.publication_workflow.PublicationRuntime(
+		mirror_refresh=lambda *_args: [], activity_locator=lambda *_args: [], evidence_assembler=assemble,
+	)
+	config = make_config(tmp_path)
+	first, _result = acquire_evidence(config, "2026-08-23", roster, runtime)
+	phase = first.record.phases["evidence_assembly"]
+	asset = pathlib.Path(first.cache.asset_dir("evidence_assembly", phase.input_hash)) / "image.png"
+	asset.unlink()
+	_second, recovered = acquire_evidence(config, "2026-08-23", roster, runtime)
+
+	assert recovered.assets == {"assets/image.png": b"image"}
+	assert assembled_dates == ["2026-08-23", "2026-08-23"]
+
+
+#============================================
+def test_evidence_acquisition_reassembles_when_manifest_binds_another_packet(
+	tmp_path: pathlib.Path,
+) -> None:
+	"""An otherwise valid asset manifest must belong to the restored packet."""
+	record = daily_blog.repository_contracts.RepositoryRecord.from_dict({
+		"repository": "vosslab/example", "repository_url": "https://github.com/vosslab/example",
+		"clone_url": "https://github.com/vosslab/example.git", "created_at": "2026-08-23T00:00:00Z", "is_fork": False,
+	})
+	roster = daily_blog.repository_contracts.RepositoryRoster.create("vosslab", [record])
+	assembled_dates: list[str] = []
+
+	def assemble(report_date: str, timezone: str, *_args: object) -> tuple[daily_blog.schema.EvidencePacket, dict[str, bytes]]:
+		assembled_dates.append(report_date)
+		item = daily_blog.schema.EvidenceItem.create(
+			"screenshot", "vosslab/example", "a" * 40, "", "", "Screenshot", "fixture",
+			asset_path="assets/image.png",
+		)
+		packet = daily_blog.schema.EvidencePacket.create(
+			report_date, timezone, True, {}, [], [], [item],
+		)
+		return packet, {"assets/image.png": b"image"}
+
+	runtime = daily_blog.publication_workflow.PublicationRuntime(
+		mirror_refresh=lambda *_args: [], activity_locator=lambda *_args: [], evidence_assembler=assemble,
+	)
+	config = make_config(tmp_path)
+	first, _result = acquire_evidence(config, "2026-08-23", roster, runtime)
+	phase = first.record.phases["evidence_assembly"]
+	manifest = first.cache.load_json("evidence_assembly", phase.input_hash, "assets.json")
+	if type(manifest) is not dict:
+		raise RuntimeError("Test evidence cache manifest was not created.")
+	forged = dict(manifest)
+	forged["packet_id"] = "0" * 64
+	first.cache.store_json("evidence_assembly", phase.input_hash, "assets.json", forged)
+	_second, recovered = acquire_evidence(config, "2026-08-23", roster, runtime)
+
+	assert recovered.assets == {"assets/image.png": b"image"}
+	assert assembled_dates == ["2026-08-23", "2026-08-23"]
+
+
+#============================================
 def test_publication_resolves_through_one_explicit_contract_owner(
 	tmp_path: pathlib.Path,
 ) -> None:
@@ -100,8 +235,8 @@ def test_publication_resolves_through_one_explicit_contract_owner(
 		make_config(tmp_path), "2026-08-23"
 	)
 
-	assert orchestrator.editorial_contract is daily_blog.prompt_registry.PRODUCTION_EDITORIAL_CONTRACT
-	assert daily_blog.prompt_registry.is_production_contract(orchestrator.editorial_contract)
+	assert orchestrator.editorial_contract is daily_blog.prompt_registry.editorial_contracts.PRODUCTION_EDITORIAL_CONTRACT
+	assert daily_blog.prompt_registry.editorial_contracts.is_production_contract(orchestrator.editorial_contract)
 
 
 #============================================
@@ -138,7 +273,7 @@ def test_maker_activation_rejects_tampered_f4_receipt(
 #============================================
 def test_example_resource_validation_requires_the_canonical_resource() -> None:
 	"""Example blocks are accepted only for the registry's exact resource object."""
-	registry = daily_blog.prompt_registry
+	registry = daily_blog.prompt_registry.editorial_contracts
 	blocks = {"aug-23": "Local maker example."}
 	for block_id in registry.V4_VOICE_RESOURCE.external_block_ids:
 		blocks[block_id] = registry.EXTERNAL_EXAMPLE_BLOCKS[block_id]
@@ -152,26 +287,26 @@ def test_example_resource_validation_requires_the_canonical_resource() -> None:
 #============================================
 def test_registry_helpers_reject_a_replaced_registered_contract() -> None:
 	"""Public registry helpers only accept the exact registered contract object."""
-	contract = daily_blog.prompt_registry.V4_THREE_EXAMPLES_CORPUS_V2_CONTRACT
+	contract = daily_blog.prompt_registry.editorial_contracts.V4_THREE_EXAMPLES_CORPUS_V2_CONTRACT
 	forged = dataclasses.replace(
 		contract,
 		author_template="untrusted.txt",
 	)
 	with pytest.raises(RuntimeError, match="trusted registry"):
-		daily_blog.prompt_registry.prompt_paths(forged)
+		daily_blog.prompt_registry.editorial_contracts.prompt_paths(forged)
 	with pytest.raises(RuntimeError, match="trusted registry"):
-		daily_blog.prompt_registry.policy_for_contract(forged)
+		daily_blog.prompt_registry.editorial_contracts.policy_for_contract(forged)
 	with pytest.raises(RuntimeError, match="trusted registry"):
-		daily_blog.prompt_registry.resolve_selection(
+		daily_blog.prompt_registry.editorial_contracts.resolve_selection(
 			forged,
-			daily_blog.prompt_registry.V4_THREE_EXAMPLES_CORPUS_V2_SELECTION,
+			daily_blog.prompt_registry.editorial_contracts.V4_THREE_EXAMPLES_CORPUS_V2_SELECTION,
 		)
 
 
 #============================================
 def test_registry_mappings_and_registered_values_are_immutable() -> None:
 	"""Registry mappings cannot be changed to redirect a trusted contract binding."""
-	registry = daily_blog.prompt_registry
+	registry = daily_blog.prompt_registry.editorial_contracts
 	for mapping, key, value in (
 		(registry.EXAMPLE_RESOURCES, "v4-voice", registry.V4_VOICE_RESOURCE),
 		(registry.VALIDATION_POLICIES, "v4-maker", registry.V4_MAKER_VALIDATION_POLICY),

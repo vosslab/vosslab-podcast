@@ -15,6 +15,7 @@ import uuid
 
 
 MAX_JSON_BYTES = 128 * 1024
+MAX_EVIDENCE_BYTES = 128 * 1024 * 1024
 MAX_POST_BYTES = 2 * 1024 * 1024
 MAX_ASSET_BYTES = 8 * 1024 * 1024
 _DIRECTORY_FLAGS = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
@@ -115,7 +116,8 @@ def _read_regular_at(directory_fd: int, name: str, maximum_bytes: int) -> bytes:
 def _read_json_at(directory_fd: int, name: str) -> object:
 	"""Read one bounded JSON artifact through the held bundle descriptor."""
 	try:
-		return json.loads(_read_regular_at(directory_fd, name, MAX_JSON_BYTES).decode("utf-8"))
+		maximum = MAX_EVIDENCE_BYTES if name == "evidence.json" else MAX_JSON_BYTES
+		return json.loads(_read_regular_at(directory_fd, name, maximum).decode("utf-8"))
 	except (UnicodeDecodeError, json.JSONDecodeError) as error:
 		raise RuntimeError("Publication JSON artifact is invalid.") from error
 
@@ -222,7 +224,12 @@ class PublicationStorage:
 							_direct_name(leaf, "asset name")
 							_write_regular_at(assets_fd, leaf, contents, MAX_ASSET_BYTES)
 						else:
-							_write_regular_at(stage_fd, name, contents, MAX_POST_BYTES if name == "post.md" else MAX_JSON_BYTES)
+							maximum = (
+								MAX_POST_BYTES if name == "post.md"
+								else MAX_EVIDENCE_BYTES if name == "evidence.json"
+								else MAX_JSON_BYTES
+							)
+							_write_regular_at(stage_fd, name, contents, maximum)
 				os.fsync(stage_fd)
 			try:
 				publication_info = os.stat("publication", dir_fd=date_fd, follow_symlinks=False)
@@ -250,7 +257,7 @@ class PublicationStorage:
 			with _directory(date_fd, "publication", False) as publication_fd:
 				result = {
 					"bundle.json": _read_regular_at(publication_fd, "bundle.json", MAX_JSON_BYTES),
-					"evidence.json": _read_regular_at(publication_fd, "evidence.json", MAX_JSON_BYTES),
+					"evidence.json": _read_regular_at(publication_fd, "evidence.json", MAX_EVIDENCE_BYTES),
 					"repository_roster.json": _read_regular_at(publication_fd, "repository_roster.json", MAX_JSON_BYTES),
 					"editorial_projection.json": _read_regular_at(publication_fd, "editorial_projection.json", MAX_JSON_BYTES),
 					"post.md": _read_regular_at(publication_fd, "post.md", MAX_POST_BYTES),

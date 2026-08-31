@@ -2,6 +2,7 @@
 
 # Standard Library
 import dataclasses
+import json
 from pathlib import Path
 
 # PIP3 modules
@@ -11,32 +12,95 @@ import pytest
 import daily_blog.agents
 import daily_blog.artifacts
 import daily_blog.config
+import daily_blog.daily_outline_workflow
 import daily_blog.editorial_stage_config
 import daily_blog.final_synthesis_config
 import daily_blog.routes
 import daily_blog.schema
+import daily_blog.repository_contracts
 import daily_blog.stage6
 import daily_blog.stage7
 import daily_blog.replication
+import daily_blog.io_utils
+
+
+_CONTEXT_LIMITS = {
+	"commit_subject_chars": 120,
+	"context_chars": 60000,
+	"excerpt_chars": 1000,
+}
+
+
+def _recovery_sources(
+	story: daily_blog.artifacts.RepoStory,
+	packet: daily_blog.schema.EvidencePacket,
+) -> daily_blog.stage6.Stage6RecoverySources:
+	"""Return reviewed lower-rung sources for the shared Stage 6 boundary."""
+	evidence_id = packet.items[0].evidence_id
+	repository_outline = daily_blog.artifacts.RepoOutline.create(
+		packet.report_date, (packet,), story.repositories[0],
+		"Outline <!-- evidence: " + evidence_id + " -->", (evidence_id,),
+	)
+	ranking_hash = "a" * 64
+	payload = {
+		"candidate_id": "ranking-1", "accepted_review_ids": ["review-1"],
+		"ranking_content_sha256": ranking_hash,
+	}
+	promoted = daily_blog.daily_outline_workflow.PromotedRanking(
+		"ranking-promotion-" + daily_blog.io_utils.sha256_text(
+			json.dumps(payload, sort_keys=True, separators=(",", ":")),
+		)[:24],
+		"ranking-1", ranking_hash, (story.content_hash,), ((story.content_hash, 100),),
+		"Grounded ranking rationale.", ("review-1",),
+	)
+	return daily_blog.stage6.Stage6RecoverySources(
+		(story,), (repository_outline,), (packet,), promoted, story.artifact_id,
+	)
 
 
 def _input(tmp_path: Path) -> daily_blog.stage6.Stage6Input:
 	item = daily_blog.schema.EvidenceItem.create("dated_changelog", "owner/repository", "a" * 40,
 		"CHANGELOG.md", "b" * 40, "Grounded change.", "git show")
-	packet = daily_blog.schema.EvidencePacket.create("2026-08-29", "America/Chicago", True, {}, [], [], [item])
+	activity = daily_blog.schema.RepositoryActivity(
+		"owner/repository", "https://github.com/owner/repository", "/fixture/repository",
+		"a" * 40, (), (), (), False,
+		(daily_blog.repository_contracts.RepositoryLifecycleEvent(
+			"repository_created", "2020-01-01T00:00:00Z", False, "fixture",
+		),),
+	)
+	packet = daily_blog.schema.EvidencePacket.create(
+		"2026-08-29", "America/Chicago", True, {}, [], [activity], [item],
+	)
 	story = daily_blog.artifacts.RepoStory.create(packet.report_date, (packet,), "owner/repository",
 		"Story <!-- evidence: " + item.evidence_id + " -->", (item.evidence_id,))
 	outline: daily_blog.artifacts.DailyOutline = daily_blog.artifacts.DailyOutline.create(
 		packet.report_date, (packet,), ("owner/repository",),
 		"Outline <!-- evidence: " + item.evidence_id + " -->", (item.evidence_id,))
-	return daily_blog.stage6.Stage6Input(outline, (story,), (packet,), str(tmp_path),
-		str(tmp_path / packet.report_date / "post.md"))
+	return daily_blog.stage6.Stage6Input(
+		outline, (story,), (packet,), str(tmp_path),
+		str(tmp_path / packet.report_date / "post.md"), _recovery_sources(story, packet),
+		daily_blog.stage6.build_stage6_evidence_context(
+			outline, (story,), (packet,), _CONTEXT_LIMITS,
+		),
+	)
 
 
 def _post(value: daily_blog.stage6.Stage6Input, title: str) -> daily_blog.artifacts.CompletePost:
+	evidence_id = value.daily_outline.evidence_ids[0]
+	introduction = (
+		"I connected [owner/repository](https://github.com/owner/repository) to a small design "
+		"decision and enjoyed seeing the boundary become clear. "
+	) * 4
+	detail = (
+		"I followed the implementation through its useful constraint, the behavior it changed, "
+		"and the next question worth testing with the grounded evidence in view. "
+	) * 18
 	return daily_blog.artifacts.CompletePost.create(value.report_date, value.packets,
-		value.daily_outline.repositories, "# " + title + "\n\nGrounded. <!-- evidence: "
-		+ value.daily_outline.evidence_ids[0] + " -->\n", value.daily_outline.evidence_ids,
+		value.daily_outline.repositories, "# " + title + "\n\n" + introduction.strip()
+		+ "<!-- evidence: " + evidence_id + " -->\n\n<!-- more -->\n\n## The useful boundary\n\n"
+		+ detail.strip() + "<!-- evidence: " + evidence_id + " -->\n\n## Project coverage\n\n"
+		+ "I recorded owner/repository in the evidence packet. <!-- evidence: " + evidence_id + " -->\n",
+		value.daily_outline.evidence_ids,
 		value.report_date, value.output_path)
 
 
@@ -71,6 +135,22 @@ def _stage7_input(
 			"stage6", "succeeded", 0, 0, 0, 0, 0, 0, incumbent.artifact_id, ()),),
 	)
 	return daily_blog.stage7.Stage7Input(value, stage6_result), incumbent
+
+
+#============================================
+def test_stage7_retains_the_frozen_stage6_surface_but_uses_portable_model_identity(
+	tmp_path: Path,
+) -> None:
+	"""One Stage-6 surface binds admission while relocated route cache keys stay semantic."""
+	value, _incumbent = _stage7_input(tmp_path)
+	surface = value.stage6_input.publication_surface
+	identity = value.identity_dict()
+	model_identity = value.model_identity_dict()
+
+	assert identity["publication_surface_packet_id"] == surface.packet.packet_id
+	assert identity["publication_surface_projection_id"] == surface.projection.projection_id
+	assert "publication_surface_packet_id" not in model_identity
+	assert "publication_surface_projection_id" not in model_identity
 
 
 def _config(tmp_path: Path) -> daily_blog.config.DailyBlogConfig:

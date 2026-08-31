@@ -7,8 +7,8 @@ import pathlib
 import re
 
 # local repo modules
-import daily_blog.contracts
-import daily_blog.prompt_registry
+import daily_blog.prompt_registry.definitions
+import daily_blog.prompt_registry.editorial_contracts
 import daily_blog.editorial
 import daily_blog.io_utils
 
@@ -43,9 +43,9 @@ class MakerActivation:
 		return value
 
 	@property
-	def contract(self) -> daily_blog.contracts.EditorialContract:
+	def contract(self) -> daily_blog.prompt_registry.definitions.EditorialContract:
 		"""Return the exact selected production contract."""
-		return daily_blog.prompt_registry.V4_THREE_EXAMPLES_CORPUS_V2_CONTRACT
+		return daily_blog.prompt_registry.editorial_contracts.V4_THREE_EXAMPLES_CORPUS_V2_CONTRACT
 
 
 #============================================
@@ -108,7 +108,7 @@ def _require_sha256(value: object) -> str:
 def _expected_prompt_identity() -> dict[str, object]:
 	"""Load the current exact v4-three prompt snapshot identity."""
 	snapshot = daily_blog.editorial.load_prompt_contract_snapshot(
-		daily_blog.prompt_registry.V4_THREE_EXAMPLES_CORPUS_V2_CONTRACT
+		daily_blog.prompt_registry.editorial_contracts.V4_THREE_EXAMPLES_CORPUS_V2_CONTRACT
 	)
 	return daily_blog.editorial.prompt_contract_identity(snapshot=snapshot)
 
@@ -132,7 +132,7 @@ def _validate_receipt(receipt: dict[str, object]) -> None:
 		raise RuntimeError("Daily-blog maker activation is invalid.")
 	if activation_id != _activation_id(receipt):
 		raise RuntimeError("Daily-blog maker activation integrity is invalid.")
-	contract = daily_blog.prompt_registry.V4_THREE_EXAMPLES_CORPUS_V2_CONTRACT
+	contract = daily_blog.prompt_registry.editorial_contracts.V4_THREE_EXAMPLES_CORPUS_V2_CONTRACT
 	if receipt.get("selected_contract") != contract.name:
 		raise RuntimeError("Daily-blog maker activation does not select the production contract.")
 	prompt_identity = receipt.get("editorial_prompt_contract")
@@ -140,7 +140,7 @@ def _validate_receipt(receipt: dict[str, object]) -> None:
 		raise RuntimeError("Daily-blog maker activation prompt snapshot is invalid.")
 	if receipt.get("editorial_prompt_contract_sha256") != daily_blog.io_utils.hash_value(prompt_identity):
 		raise RuntimeError("Daily-blog maker activation prompt identity is invalid.")
-	policy = daily_blog.prompt_registry.policy_for_contract(contract)
+	policy = daily_blog.prompt_registry.editorial_contracts.policy_for_contract(contract)
 	if receipt.get("candidate_validation") != {
 		"name": policy.name,
 		"version": policy.version,

@@ -21,12 +21,39 @@ import daily_blog.final_synthesis_config
 import daily_blog.final_synthesis_prompts
 import daily_blog.io_utils
 import daily_blog.locks
+import daily_blog.prompt_registry.definitions
+import daily_blog.prompt_registry.loader
+import daily_blog.projection
 import daily_blog.replication
 import daily_blog.repository_contracts
 import daily_blog.route_cache
 import daily_blog.schema
 import daily_blog.stage6
 import daily_blog.stage7
+
+
+def _valid_post_body(
+	packets: tuple[object, ...], evidence_ids: tuple[str, ...], title: str = "A day of connected work",
+) -> str:
+	"""Return a grounded V4-shaped body for the supplied cache request scope."""
+	repositories = sorted([
+		(activity.repository, activity.repository_url)
+		for packet in packets for activity in packet.activity
+	], key=lambda item: item[0])
+	links = ", ".join("[" + repository + "](" + url + ")" for repository, url in repositories)
+	evidence = "<!-- evidence: " + ", ".join(evidence_ids) + " -->"
+	narrative = (
+		"I kept the small changes connected to their source material, checked how they fit the work "
+		"already underway, and wrote down the practical consequence before moving to the next thread. "
+	) * 12
+	coverage = ", ".join(repository for repository, _url in repositories)
+	return (
+		"# " + title + "\n\n"
+		"I followed one grounded thread through the work, keeping the useful detail visible while "
+		"leaving room for the next decision. " + evidence + "\n\n<!-- more -->\n\n"
+		"## Grounded notes\n\nToday I returned to " + links + ". " + narrative + evidence
+		+ "\n\n## Project coverage\n\nI tracked active work in " + coverage + ".\n"
+	)
 
 
 def _request(name: str = "one", *, prompt: str = "trusted input") -> daily_blog.agents.RouteRequest:
@@ -61,8 +88,19 @@ def _stage5_alias_input(
 		"dated_changelog", "owner/repository", "a" * 40, "CHANGELOG.md", "b" * 40,
 		"Grounded change.", "git show",
 	)
+	commit = daily_blog.schema.CommitActivity(
+		"a" * 40, (), "Author", "author@example.com", "2026-08-29T12:00:00Z",
+		"2026-08-29T12:00:00Z", "Grounded change.",
+	)
+	activity = daily_blog.schema.RepositoryActivity(
+		"owner/repository", "https://github.com/owner/repository", "/portable/repository",
+		"a" * 40, (commit,), (daily_blog.schema.RevisionRange("", "a" * 40),),
+		("a" * 40,), False, (daily_blog.repository_contracts.RepositoryLifecycleEvent(
+			"repository_created", "2020-01-01T00:00:00Z", False, "github_owner_roster",
+		),),
+	)
 	packet = daily_blog.schema.EvidencePacket.create(
-		"2026-08-29", "America/Chicago", True, {}, [], [], [item],
+		"2026-08-29", "America/Chicago", True, {}, [], [activity], [item],
 	)
 	outline = daily_blog.artifacts.RepoOutline.create(
 		packet.report_date, (packet,), item.repository,
@@ -72,7 +110,13 @@ def _stage5_alias_input(
 		packet.report_date, (packet,), item.repository,
 		"Story <!-- evidence: " + item.evidence_id + " -->", (item.evidence_id,),
 	)
-	return daily_blog.daily_outline_workflow.DailyOutlineInput((story,), (outline,), (packet,), str(root)), story
+	context_limits = {"context_chars": 5000, "excerpt_chars": 600, "commit_subject_chars": 120}
+	context = daily_blog.projection.build_bounded_evidence_context(
+		(packet,), context_limits, context_limits["context_chars"],
+	)
+	return daily_blog.daily_outline_workflow.DailyOutlineInput(
+		(story,), (outline,), (packet,), context, str(root),
+	), story
 
 
 class _Stage5AliasRunner:
@@ -103,9 +147,11 @@ def _rendered_stage7_request(
 	"""Build one Stage 7 request through its real bounded prompt/provenance path."""
 	resolved = daily_blog.editorial.resolve_snapshot(None, None, None)
 	templates = daily_blog.editorial.validate_prompt_templates(snapshot=resolved)
-	prompt_contract = daily_blog.final_synthesis_prompts.load_final_synthesis_prompt_contract()
+	prompt_set = daily_blog.prompt_registry.loader.load_prompt_set(
+		daily_blog.prompt_registry.definitions.FINAL_SYNTHESIS_PROMPT_SET,
+	)
 	identity = {
-		**daily_blog.final_synthesis_prompts.final_synthesis_prompt_identity(prompt_contract),
+		**daily_blog.final_synthesis_prompts.final_synthesis_prompt_identity(prompt_set),
 		"rubric_version": resolved.contract.prompt_version,
 		"rubric_sha256": daily_blog.io_utils.sha256_text(templates["rubric"]),
 		"v4_contract": resolved.contract.prompt_version,
@@ -119,7 +165,9 @@ def _rendered_stage7_request(
 		"provenance_chars": min(config.prompt_limits["provenance_chars"], daily_blog.final_synthesis_prompts.MAX_PROVENANCE_CHARS),
 	}
 	alternatives = daily_blog.stage7._alternatives(value)
-	prompt, synthesis_identity = daily_blog.stage7._prompt_data(value, alternatives, templates, identity, limits)
+	prompt, synthesis_identity = daily_blog.stage7._prompt_data(
+		value, alternatives, templates, identity, limits, prompt_set,
+	)
 	return daily_blog.stage7._request(
 		value, "execution-run", "7_1", "synthesizer", "1", config.synthesis_route, prompt, config,
 		working_directory, resolved.contract.prompt_version, synthesis_identity,
@@ -174,37 +222,62 @@ def _real_stage_requests(
 		"2026-08-29", packets, tuple(sorted(item.repositories[0] for item in stories)),
 		"Daily outline " + " ".join("<!-- evidence: " + item + " -->" for item in evidence_ids), evidence_ids,
 	)
-	stage5_input = daily_blog.daily_outline_workflow.DailyOutlineInput(stories, outlines, packets, str(root))
+	context_limits = {"context_chars": 5000, "excerpt_chars": 600, "commit_subject_chars": 120}
+	evidence_context = daily_blog.projection.build_bounded_evidence_context(
+		packets, context_limits, context_limits["context_chars"],
+	)
+	stage5_input = daily_blog.daily_outline_workflow.DailyOutlineInput(
+		stories, outlines, packets, evidence_context, str(root),
+	)
+	ranking_hash = "a" * 64
+	ranking_payload = {
+		"candidate_id": "ranking-1", "accepted_review_ids": ["review-1"],
+		"ranking_content_sha256": ranking_hash,
+	}
+	promoted_ranking = daily_blog.daily_outline_workflow.PromotedRanking(
+		"ranking-promotion-" + daily_blog.io_utils.sha256_text(
+			json.dumps(ranking_payload, sort_keys=True, separators=(",", ":")),
+		)[:24],
+		"ranking-1", ranking_hash, tuple(sorted(item.content_hash for item in stories)),
+		tuple(sorted((item.content_hash, 100) for item in stories)),
+		"Grounded ranking rationale.", ("review-1",),
+	)
+	sources = daily_blog.stage6.Stage6RecoverySources(
+		stories, outlines, packets, promoted_ranking, stories[0].artifact_id,
+	)
 	stage6_input = daily_blog.stage6.Stage6Input(
 		daily_outline, stories, packets, str(root), str(root / "2026-08-29" / "post.md"),
+		sources, evidence_context,
 	)
 	stage5_config = daily_blog.editorial_stage_config.DailyOutlineConfig()
 	final_config = daily_blog.final_synthesis_config.FinalSynthesisConfig()
-	stage5_contract = daily_blog.daily_outline_prompts.load_daily_outline_prompt_contract()
-	stage5_identity = daily_blog.daily_outline_prompts.daily_outline_prompt_identity(stage5_contract)
+	stage5_prompts = daily_blog.prompt_registry.loader.load_prompt_set(
+		daily_blog.prompt_registry.definitions.DAILY_OUTLINE_PROMPT_SET,
+	)
+	stage5_identity = daily_blog.daily_outline_prompts.daily_outline_prompt_identity(stage5_prompts)
 	stage5 = daily_blog.daily_outline_workflow._request(
 		stage5_input, "5_1", "ranker", "1", stage5_config.ranking_route,
 		daily_blog.daily_outline_prompts.render_story_ranking(
 			stage5_input.render_stories(), stage5_input.render_outlines(), stage5_input.render_evidence(),
-			"ranker-1", stage5_contract,
+			"ranker-1", stage5_prompts,
 		), stage5_config, stage5_identity, tuple(item.content_hash for item in stories),
 	)
 	post_config = daily_blog.editorial_stage_config.CompletePostConfig()
 	resolved = daily_blog.editorial.resolve_snapshot(None, None, None)
-	post_contract = daily_blog.complete_post_editor_prompts.load_complete_post_editor_prompt_contract()
+	post_prompts = daily_blog.prompt_registry.loader.load_prompt_set(
+		daily_blog.prompt_registry.definitions.COMPLETE_POST_EDITOR_PROMPT_SET,
+	)
 	stage6 = daily_blog.stage6._request(
 		stage6_input, "execution-run", "6_1", "writer", "1", post_config.writer_route,
 		daily_blog.editorial.render_author_prompt(
 			stage6_input, "stage6-" + daily_blog.io_utils.sha256_text(stage6_input.render_context())[:24] + "-writer-1",
 			post_config.prompt_limits["writer_chars"], snapshot=resolved,
 		), post_config, str(root), resolved.contract.prompt_version,
-		daily_blog.complete_post_editor_prompts.complete_post_editor_prompt_identity(post_contract),
+		daily_blog.complete_post_editor_prompts.complete_post_editor_prompt_identity(post_prompts),
 	)
 	incumbent = daily_blog.artifacts.CompletePost.create(
 		"2026-08-29", packets, daily_outline.repositories,
-		"Post owner/alpha owner/beta " + " ".join(
-			"<!-- evidence: " + item + " -->" for item in evidence_ids
-		), evidence_ids,
+		_valid_post_body(packets, evidence_ids), evidence_ids,
 		"2026-08-29", stage6_input.output_path,
 	)
 	seed = daily_blog.agents.RouteRequest(
@@ -232,6 +305,7 @@ def _real_stage_requests(
 	return stage5, stage6, stage7
 
 
+#============================================
 def test_validated_effect_resumes_and_changed_input_does_not_reuse(tmp_path: pathlib.Path) -> None:
 	"""Equivalent logical input resumes, while changed editorial input is fresh."""
 	cache = _cache(tmp_path)
@@ -252,7 +326,8 @@ def test_multi_repository_requests_resume_after_root_relocation_but_changed_evid
 	for request in original:
 		cache.commit((daily_blog.route_cache.RouteCacheEffect(request, _result(request)),))
 
-	assert all(cache.load(request) is not None for request in relocated)
+	resumed = tuple((request.step, cache.load(request) is not None) for request in relocated)
+	assert all(value for _step, value in resumed), resumed
 	changed_evidence = _real_stage_requests(tmp_path / "changed-root", "/portable/third", marker="c")
 	assert cache.load(changed_evidence[0]) is None
 
@@ -260,8 +335,9 @@ def test_multi_repository_requests_resume_after_root_relocation_but_changed_evid
 def test_stage5_portable_rank_alias_selects_the_current_runtime_story(tmp_path: pathlib.Path) -> None:
 	"""A portable ranking alias resolves to the current story rather than a stale artifact path."""
 	value, story = _stage5_alias_input(tmp_path / "stage5")
+	alias = value.story_ranking_aliases.alias_for(story.content_hash)
 	ranking = json.dumps({
-		"artifact_ids": [story.content_hash], "scores": {story.content_hash: 90}, "rationale": "grounded",
+		"artifact_ids": [alias], "scores": {alias: 90}, "rationale": "grounded",
 	})
 	outline = (
 		'<!-- daily-outline-scope: ["owner/repository"] -->\n# Daily outline\n\n'

@@ -12,12 +12,147 @@ import daily_blog.artifacts
 import daily_blog.editorial_stage_config
 import daily_blog.daily_outline_prompts
 import daily_blog.io_utils
+import daily_blog.prompt_registry.definitions
+import daily_blog.prompt_registry.loader
+import daily_blog.projection
 import daily_blog.replication
 import daily_blog.routes
 import daily_blog.schema
 
 
 _SCOPE = re.compile(r"^<!-- daily-outline-scope: (\[[^\r\n]*\]) -->$")
+_SHA256 = re.compile(r"[0-9a-f]{64}\Z")
+STORY_RANKING_ALIAS_MAP_VERSION = "story-ranking-alias-map.v1"
+
+
+@dataclasses.dataclass(frozen=True)
+class StoryRankingAliasMap:
+	"""Map model-visible Stage 5 story aliases to durable canonical hashes."""
+
+	version: str
+	mappings: tuple[tuple[str, str], ...]
+	identity_sha256: str
+
+	def __post_init__(self) -> None:
+		if (
+			type(self.version) is not str
+			or self.version != STORY_RANKING_ALIAS_MAP_VERSION
+			or type(self.mappings) is not tuple
+			or not self.mappings
+			or any(
+				type(item) is not tuple
+				or len(item) != 2
+				or type(item[0]) is not str
+				or type(item[1]) is not str
+				for item in self.mappings
+			)
+			or type(self.identity_sha256) is not str
+		):
+			raise RuntimeError("Story-ranking alias map fields are invalid.")
+		width = max(2, len(str(len(self.mappings))))
+		expected_aliases = tuple(
+			"story-" + str(index).zfill(width)
+			for index in range(1, len(self.mappings) + 1)
+		)
+		aliases = tuple(alias for alias, _content_hash in self.mappings)
+		content_hashes = tuple(content_hash for _alias, content_hash in self.mappings)
+		if (
+			aliases != expected_aliases
+			or len(set(content_hashes)) != len(content_hashes)
+			or any(_SHA256.fullmatch(content_hash) is None for content_hash in content_hashes)
+		):
+			raise RuntimeError("Story-ranking alias map is not an exact bijection.")
+		canonical = {
+			"version": self.version,
+			"mappings": [[alias, content_hash] for alias, content_hash in self.mappings],
+		}
+		if self.identity_sha256 != daily_blog.io_utils.hash_value(canonical):
+			raise RuntimeError("Story-ranking alias map identity conflicts with its mappings.")
+
+	@classmethod
+	def from_stories(
+		cls, stories: tuple[daily_blog.artifacts.RepoStory, ...],
+	) -> "StoryRankingAliasMap":
+		"""Create one repository-sorted, stable alias map from exact stories."""
+		if (
+			type(stories) is not tuple
+			or not stories
+			or any(type(story) is not daily_blog.artifacts.RepoStory for story in stories)
+		):
+			raise RuntimeError("Story-ranking aliases require exact repository stories.")
+		ordered = tuple(sorted(stories, key=lambda story: (story.repositories[0], story.content_hash)))
+		width = max(2, len(str(len(ordered))))
+		mappings = tuple(
+			("story-" + str(index).zfill(width), story.content_hash)
+			for index, story in enumerate(ordered, start=1)
+		)
+		canonical = {
+			"version": STORY_RANKING_ALIAS_MAP_VERSION,
+			"mappings": [[alias, content_hash] for alias, content_hash in mappings],
+		}
+		return cls(
+			STORY_RANKING_ALIAS_MAP_VERSION,
+			mappings,
+			daily_blog.io_utils.hash_value(canonical),
+		)
+
+	@property
+	def aliases(self) -> tuple[str, ...]:
+		"""Return exact model-visible aliases in stable repository order."""
+		return tuple(alias for alias, _content_hash in self.mappings)
+
+	@property
+	def content_hashes(self) -> tuple[str, ...]:
+		"""Return canonical story hashes in the corresponding alias order."""
+		return tuple(content_hash for _alias, content_hash in self.mappings)
+
+	def content_hash_for(self, alias: object) -> str:
+		"""Resolve one exact model alias without prefix or heuristic matching."""
+		if type(alias) is not str:
+			raise daily_blog.daily_outline_prompts.DailyOutlineRankingParseError(
+				"invalid_aliases"
+			)
+		for mapped_alias, content_hash in self.mappings:
+			if alias == mapped_alias:
+				return content_hash
+		raise daily_blog.daily_outline_prompts.DailyOutlineRankingParseError(
+			"invalid_aliases"
+		)
+
+	def alias_for(self, content_hash: object) -> str:
+		"""Project one canonical story hash to its exact model alias."""
+		if type(content_hash) is not str:
+			raise RuntimeError("Story-ranking canonical identity is invalid.")
+		for alias, mapped_hash in self.mappings:
+			if content_hash == mapped_hash:
+				return alias
+		raise RuntimeError("Story-ranking canonical identity is absent from alias map.")
+
+	def cache_identity(self) -> dict[str, object]:
+		"""Return the sealed alias-map identity used by every Stage 5 route cache key."""
+		return {
+			"version": self.version,
+			"identity_sha256": self.identity_sha256,
+			"mappings": [[alias, content_hash] for alias, content_hash in self.mappings],
+		}
+
+	def to_dict(self) -> dict[str, object]:
+		"""Return the complete versioned map for exact identity verification."""
+		return self.cache_identity()
+
+	@classmethod
+	def from_dict(cls, value: object) -> "StoryRankingAliasMap":
+		"""Load one exact persisted map without accepting alternate representations."""
+		if type(value) is not dict or set(value) != {"version", "identity_sha256", "mappings"}:
+			raise RuntimeError("Story-ranking alias map serialization is invalid.")
+		mappings = value["mappings"]
+		if type(mappings) is not list:
+			raise RuntimeError("Story-ranking alias map serialization is invalid.")
+		return cls(
+			value["version"],
+			tuple(tuple(item) if type(item) is list else item for item in mappings),
+			value["identity_sha256"],
+		)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -25,10 +160,16 @@ class DailyOutlineInput:
 	repo_stories: tuple[daily_blog.artifacts.RepoStory, ...]
 	repo_outlines: tuple[daily_blog.artifacts.RepoOutline, ...]
 	packets: tuple[daily_blog.schema.EvidencePacket, ...]
+	evidence_context: daily_blog.schema.BoundedEvidenceContext
 	working_directory: str
 
 	def __post_init__(self) -> None:
-		if type(self.repo_stories) is not tuple or type(self.repo_outlines) is not tuple or type(self.packets) is not tuple:
+		if (
+			type(self.repo_stories) is not tuple
+			or type(self.repo_outlines) is not tuple
+			or type(self.packets) is not tuple
+			or type(self.evidence_context) is not daily_blog.schema.BoundedEvidenceContext
+		):
 			raise RuntimeError("Daily-outline input requires tuples.")
 		if not self.repo_stories or len(self.repo_stories) != len(self.repo_outlines) or not self.packets:
 			raise RuntimeError("Daily-outline input requires complete repository artifacts and packets.")
@@ -55,7 +196,13 @@ class DailyOutlineInput:
 			if packet.report_date != date or packet.packet_id != daily_blog.io_utils.hash_value(packet.content_dict()):
 				raise RuntimeError("Daily-outline packet identity or report date is invalid.")
 		for artifact in stories + outlines:
-			if artifact.report_date != date or len(artifact.repositories) != 1 or not daily_blog.artifacts.evaluate_eligibility(artifact, packets).eligible:
+			if (
+				artifact.report_date != date
+				or len(artifact.repositories) != 1
+				or not daily_blog.artifacts.evaluate_eligibility(
+					artifact, packets, allowed_repositories=artifact.repositories,
+				).eligible
+			):
 				raise RuntimeError("Daily-outline artifact provenance or eligibility conflicts.")
 		if tuple(sorted(item.repositories[0] for item in stories)) != tuple(sorted(item.repositories[0] for item in outlines)) or len({item.repositories[0] for item in stories}) != len(stories):
 			raise RuntimeError("Daily-outline input repositories must align exactly.")
@@ -71,6 +218,13 @@ class DailyOutlineInput:
 				local_packet_ids.add(packet_id)
 		if local_packet_ids != packet_ids:
 			raise RuntimeError("Daily-outline packet union contains an orphan local packet.")
+		# The full packets stay authoritative for eligibility and publication.  The
+		# separately sealed frame is the only evidence body exposed to Stage 5 routes.
+		daily_blog.schema.BoundedEvidenceContext.from_dict(self.evidence_context.to_dict())
+		daily_blog.projection.validate_bounded_evidence_context(packets, self.evidence_context)
+		if self.evidence_context.context_chars > daily_blog.daily_outline_prompts.MAX_EVIDENCE_CONTEXT_CHARS:
+			raise RuntimeError("Daily-outline evidence context exceeds its prompt limit.")
+		self.evidence_context.render_context(self.evidence_context.context_chars)
 
 	@property
 	def report_date(self) -> str:
@@ -80,6 +234,11 @@ class DailyOutlineInput:
 	def repositories(self) -> tuple[str, ...]:
 		return tuple(sorted(item.repositories[0] for item in self.repo_stories))
 
+	@property
+	def story_ranking_aliases(self) -> StoryRankingAliasMap:
+		"""Return the model-only alias boundary for this canonical story set."""
+		return StoryRankingAliasMap.from_stories(self.repo_stories)
+
 	def _render(self, value: object, maximum: int, label: str) -> str:
 		rendered = json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
 		if len(rendered) > maximum:
@@ -87,10 +246,12 @@ class DailyOutlineInput:
 		return rendered
 
 	def render_stories(self) -> str:
+		aliases = self.story_ranking_aliases
 		stories = []
 		for item in sorted(self.repo_stories, key=lambda item: (item.repositories, item.content_hash)):
 			projected = daily_blog.schema.model_cache_artifact(item.to_dict())
-			projected["artifact_id"] = item.content_hash
+			projected.pop("content_hash", None)
+			projected["artifact_id"] = aliases.alias_for(item.content_hash)
 			stories.append(projected)
 		return self._render({"stories": stories}, daily_blog.daily_outline_prompts.MAX_STORIES_CONTEXT_CHARS, "stories")
 
@@ -98,13 +259,12 @@ class DailyOutlineInput:
 		outlines = []
 		for item in sorted(self.repo_outlines, key=lambda item: (item.repositories, item.content_hash)):
 			projected = daily_blog.schema.model_cache_artifact(item.to_dict())
-			projected["artifact_id"] = item.content_hash
+			projected.pop("content_hash", None)
 			outlines.append(projected)
 		return self._render({"outlines": outlines}, daily_blog.daily_outline_prompts.MAX_REPOSITORY_OUTLINES_CONTEXT_CHARS, "repository outlines")
 
 	def render_evidence(self) -> str:
-		packets = sorted(self.packets, key=daily_blog.schema.model_cache_packet_identity)
-		return self._render([daily_blog.schema.model_cache_packet_content(item) for item in packets], daily_blog.daily_outline_prompts.MAX_EVIDENCE_CONTEXT_CHARS, "evidence")
+		return self.evidence_context.render_context(self.evidence_context.context_chars)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -139,6 +299,14 @@ class RankingCandidate:
 
 	def to_dict(self) -> dict[str, object]:
 		return {"artifact_ids": list(self.artifact_ids), "scores": dict(self.scores), "rationale": self.rationale}
+
+	def model_dict(self, aliases: StoryRankingAliasMap) -> dict[str, object]:
+		"""Project durable ranking content into the model-only alias namespace."""
+		return {
+			"artifact_ids": [aliases.alias_for(item) for item in self.artifact_ids],
+			"scores": {aliases.alias_for(item): score for item, score in self.scores},
+			"rationale": self.rationale,
+		}
 
 
 @dataclasses.dataclass(frozen=True)
@@ -215,6 +383,14 @@ class PromotedRanking:
 	def to_dict(self) -> dict[str, object]:
 		return {"promotion_id": self.promotion_id, "candidate_id": self.candidate_id, "artifact_ids": list(self.artifact_ids), "scores": dict(self.scores), "rationale": self.rationale, "method": self.method}
 
+	def model_dict(self, aliases: StoryRankingAliasMap) -> dict[str, object]:
+		"""Project durable promotion content into the model-only alias namespace."""
+		return {
+			"artifact_ids": [aliases.alias_for(item) for item in self.artifact_ids],
+			"scores": {aliases.alias_for(item): score for item, score in self.scores},
+			"rationale": self.rationale,
+		}
+
 
 @dataclasses.dataclass(frozen=True)
 class DailyOutlineResult:
@@ -238,9 +414,62 @@ class DailyOutlineResult:
 
 def _request(value: DailyOutlineInput, step: str, role: str, ordinal: str, route: daily_blog.editorial_stage_config.RoleRoute, prompt: str, config: daily_blog.editorial_stage_config.DailyOutlineConfig, contract_identity: dict[str, object], input_ids: tuple[str, ...] = (), assignment: daily_blog.replication.ReviewAssignment | None = None, repair_of: str = "") -> daily_blog.agents.RouteRequest:
 	assignment_value = {} if assignment is None else {"pair_index": assignment.pair_index, "reviewer_index": assignment.reviewer_index, "display_order": assignment.display_order}
-	identity = {"report_date": value.report_date, "repositories": list(value.repositories), "packet_ids": sorted(daily_blog.schema.model_cache_packet_identity(item) for item in value.packets), "story_ids": sorted(item.content_hash for item in value.repo_stories), "outline_ids": sorted(item.content_hash for item in value.repo_outlines), "step": step, "role": role, "ordinal": ordinal, "input_ids": sorted(input_ids), "prompt_identity": contract_identity, "assignment": assignment_value}
+	identity = {"report_date": value.report_date, "repositories": list(value.repositories), "packet_ids": sorted(daily_blog.schema.model_cache_packet_identity(item) for item in value.packets), "evidence_context_model_id": value.evidence_context.model_context_id, "story_ranking_alias_map": value.story_ranking_aliases.cache_identity(), "story_ids": sorted(item.content_hash for item in value.repo_stories), "outline_ids": sorted(item.content_hash for item in value.repo_outlines), "step": step, "role": role, "ordinal": ordinal, "input_ids": sorted(input_ids), "prompt_identity": contract_identity, "assignment": assignment_value}
 	input_hash = daily_blog.io_utils.hash_value(identity)
-	return daily_blog.agents.RouteRequest(f"stage5_{step}_{role}_{ordinal}_{input_hash[:12]}", f"daily_outline_{step}", route, prompt, value.working_directory, role, config.route_retry_attempts, config.maximum_parallel_calls, repair_of, input_hash=input_hash, contract_version=daily_blog.daily_outline_prompts.DAILY_OUTLINE_PROMPT_VERSION + ":" + str(contract_identity["integrity_sha256"]), cache_input_hash=input_hash)
+	return daily_blog.agents.RouteRequest(f"stage5_{step}_{role}_{ordinal}_{input_hash[:12]}", f"daily_outline_{step}", route, prompt, value.working_directory, role, config.route_retry_attempts, config.maximum_parallel_calls, repair_of, input_hash=input_hash, contract_version=daily_blog.prompt_registry.definitions.DAILY_OUTLINE_PROMPT_SET.version + ":" + STORY_RANKING_ALIAS_MAP_VERSION + ":" + value.story_ranking_aliases.identity_sha256 + ":" + str(contract_identity["integrity_sha256"]), cache_input_hash=input_hash)
+
+
+def _parse_model_ranking(
+	response: str, aliases: StoryRankingAliasMap,
+) -> dict[str, object]:
+	"""Parse exact model aliases, then restore canonical hashes before durability."""
+	if type(response) is not str or len(response) > daily_blog.daily_outline_prompts.MAX_RESPONSE_CHARS:
+		raise daily_blog.daily_outline_prompts.DailyOutlineRankingParseError(
+			"response_limit"
+		)
+	try:
+		value = json.loads(response.strip(), object_pairs_hook=_strict_json_object)
+	except (json.JSONDecodeError, ValueError) as error:
+		raise daily_blog.daily_outline_prompts.DailyOutlineRankingParseError(
+			"invalid_json"
+		) from error
+	if type(value) is not dict or set(value) != {"artifact_ids", "scores", "rationale"}:
+		raise daily_blog.daily_outline_prompts.DailyOutlineRankingParseError(
+			"invalid_fields"
+		)
+	if type(value["artifact_ids"]) is not list or any(type(item) is not str for item in value["artifact_ids"]):
+		raise daily_blog.daily_outline_prompts.DailyOutlineRankingParseError(
+			"invalid_order"
+		)
+	if type(value["scores"]) is not dict or any(type(item) is not str for item in value["scores"]):
+		raise daily_blog.daily_outline_prompts.DailyOutlineRankingParseError(
+			"invalid_scores"
+		)
+	if set(value["artifact_ids"]) != set(aliases.aliases) or set(value["scores"]) != set(aliases.aliases):
+		raise daily_blog.daily_outline_prompts.DailyOutlineRankingParseError(
+			"invalid_aliases"
+		)
+	canonical_response = json.dumps({
+		"artifact_ids": [aliases.content_hash_for(item) for item in value["artifact_ids"]],
+		"scores": {
+			aliases.content_hash_for(alias): score
+			for alias, score in value["scores"].items()
+		},
+		"rationale": value["rationale"],
+	}, sort_keys=True, separators=(",", ":"))
+	return daily_blog.daily_outline_prompts.parse_story_ranking(
+		canonical_response, aliases.content_hashes,
+	)
+
+
+def _strict_json_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
+	"""Reject duplicate JSON members before a ranking identity is interpreted."""
+	value: dict[str, object] = {}
+	for key, item in pairs:
+		if key in value:
+			raise ValueError("Daily-story ranking contains duplicate JSON members.")
+		value[key] = item
+	return value
 
 
 def _candidate(request: daily_blog.agents.RouteRequest, result: daily_blog.agents.AgentResult, ranking: dict[str, object]) -> RankingCandidate:
@@ -256,15 +485,27 @@ def _outline(value: DailyOutlineInput, result: daily_blog.agents.AgentResult) ->
 	if match is None:
 		raise daily_blog.agents.RepairableStructuredOutput("Daily outline lacks its exact scope marker.")
 	try:
-		repositories = json.loads(match.group(1))
+		declared_repositories = json.loads(match.group(1))
 	except json.JSONDecodeError as error:
 		raise daily_blog.agents.RepairableStructuredOutput("Daily outline scope is not JSON.") from error
-	if type(repositories) is not list or not repositories or any(type(item) is not str or not item for item in repositories) or tuple(repositories) != tuple(sorted(set(repositories))) or not set(repositories).issubset(value.repositories):
+	if type(declared_repositories) is not list or not declared_repositories or any(type(item) is not str or not item for item in declared_repositories) or tuple(declared_repositories) != tuple(sorted(set(declared_repositories))) or not set(declared_repositories).issubset(value.repositories):
 		raise daily_blog.agents.RepairableStructuredOutput("Daily outline scope is invalid.")
 	evidence_ids = daily_blog.artifacts.evidence_references(content)
 	if not evidence_ids:
 		raise daily_blog.agents.RepairableStructuredOutput("Daily outline has no evidence reference.")
-	return daily_blog.artifacts.DailyOutline.create(value.report_date, value.packets, tuple(repositories), content, evidence_ids, daily_blog.artifacts.referenced_image_paths(content))
+	try:
+		repositories = daily_blog.artifacts.resolve_evidence_scope(
+			evidence_ids, value.packets, value.repositories,
+		)
+	except daily_blog.artifacts.EvidenceScopeError as error:
+		raise daily_blog.agents.RepairableStructuredOutput(
+			"Daily outline evidence scope is invalid."
+		) from error
+	if tuple(declared_repositories) != repositories:
+		raise daily_blog.agents.RepairableStructuredOutput(
+			"Daily outline scope marker conflicts with cited evidence."
+		)
+	return daily_blog.artifacts.DailyOutline.create(value.report_date, value.packets, repositories, content, evidence_ids, daily_blog.artifacts.referenced_image_paths(content))
 
 
 def _generation_reliability(step: str, generation: daily_blog.replication.ReplicationResult, reasons: tuple[str, ...] = ()) -> daily_blog.replication.StepReliability:
@@ -274,9 +515,13 @@ def _generation_reliability(step: str, generation: daily_blog.replication.Replic
 	return daily_blog.replication.StepReliability(step, "degraded" if reason_set else "succeeded", len(generation.candidates), succeeded, len(generation.candidates) - succeeded, sum(item.result.ok and item.result.resumed for item in generation.candidates), 0, 0, "", tuple(sorted(reason_set)))
 
 
-def _ranking_reliability(rankings: tuple[RankingObservation, ...]) -> daily_blog.replication.StepReliability:
-	reasons = tuple(sorted({item.failure for item in rankings if item.failure}))
-	return daily_blog.replication.StepReliability("5.1", "degraded" if reasons else "succeeded", len(rankings), sum(item.candidate is not None for item in rankings), sum(item.candidate is None for item in rankings), sum(item.result.ok and item.result.resumed for item in rankings), 0, 0, "", reasons)
+def _ranking_reliability(
+	rankings: tuple[RankingObservation, ...], fallback_used: bool,
+) -> daily_blog.replication.StepReliability:
+	reasons = {item.failure for item in rankings if item.failure}
+	if fallback_used:
+		reasons.add("ranking_fallback_used")
+	return daily_blog.replication.StepReliability("5.1", "degraded" if reasons else "succeeded", len(rankings), sum(item.candidate is not None for item in rankings), sum(item.candidate is None for item in rankings), sum(item.result.ok and item.result.resumed for item in rankings), 0, 0, "", tuple(sorted(reasons)))
 
 
 def _promotion_reliability(promotion: object) -> daily_blog.replication.StepReliability:
@@ -323,12 +568,13 @@ def _promote_ranking(candidates: tuple[RankingCandidate, ...], reviews: tuple[Ra
 class _DailyOutlinePreparation:
 	"""Validated shared inputs for all Stage 5 route roles."""
 
-	contract: daily_blog.daily_outline_prompts.DailyOutlinePromptContract
+	prompts: daily_blog.prompt_registry.loader.LoadedPromptSet
 	identity: dict[str, object]
 	stories_json: str
 	outlines_json: str
 	evidence_json: str
 	story_ids: tuple[str, ...]
+	story_aliases: StoryRankingAliasMap
 	route_runner: object
 
 
@@ -340,22 +586,25 @@ def _prepare_daily_outline(
 	config: daily_blog.editorial_stage_config.DailyOutlineConfig,
 	budget: daily_blog.agents.RouteBudget,
 	runner: object | None,
-	contract: daily_blog.daily_outline_prompts.DailyOutlinePromptContract | None,
+	prompts: daily_blog.prompt_registry.loader.LoadedPromptSet | None,
 ) -> _DailyOutlinePreparation:
 	"""Validate the coordinator boundary and build its immutable route context."""
 	# ASVS 2.2.1/2.3.1: exact trusted inputs are validated before route work,
 	# then the coordinator passes only the resulting ordered context downstream.
 	if type(value) is not DailyOutlineInput or type(config) is not daily_blog.editorial_stage_config.DailyOutlineConfig or type(budget) is not daily_blog.agents.RouteBudget:
 		raise RuntimeError("Daily-outline workflow requires exact input, configuration, and RouteBudget.")
-	contract_value = contract or daily_blog.daily_outline_prompts.load_daily_outline_prompt_contract()
-	identity = daily_blog.daily_outline_prompts.daily_outline_prompt_identity(contract_value)
+	prompt_value = daily_blog.prompt_registry.loader.resolve_loaded_prompt_set(
+		prompts, daily_blog.prompt_registry.definitions.DAILY_OUTLINE_PROMPT_SET,
+	)
+	identity = daily_blog.daily_outline_prompts.daily_outline_prompt_identity(prompt_value)
 	return _DailyOutlinePreparation(
-		contract_value,
+		prompt_value,
 		identity,
 		value.render_stories(),
 		value.render_outlines(),
 		value.render_evidence(),
 		tuple(item.content_hash for item in value.repo_stories),
+		value.story_ranking_aliases,
 		runner if runner is not None else daily_blog.routes.CommandRouteRunner(),
 	)
 
@@ -367,39 +616,45 @@ def _observe_rankings(
 	prepared: _DailyOutlinePreparation,
 	cache_load: collections.abc.Callable[[daily_blog.agents.RouteRequest], daily_blog.agents.AgentResult | None] | None,
 	cache_accept: collections.abc.Callable[[daily_blog.agents.RouteRequest, daily_blog.agents.AgentResult], None] | None,
-) -> tuple[tuple[RankingObservation, ...], tuple[RankingCandidate, ...]]:
-	"""Run independent rankers and retain each source observation."""
-	requests = tuple(
-		_request(
-			value, "5_1", "ranker", str(index), config.ranking_route,
-			daily_blog.daily_outline_prompts.render_story_ranking(
-				prepared.stories_json, prepared.outlines_json, prepared.evidence_json,
-				"ranker-" + str(index), prepared.contract,
-			),
-			config, prepared.identity, prepared.story_ids,
+) -> tuple[tuple[RankingObservation, ...], tuple[RankingCandidate, ...], bool]:
+	"""Run primary rankers, then one independent wave when none parse."""
+	def observe_wave(step: str, role: str, replica_prefix: str) -> tuple[RankingObservation, ...]:
+		requests = tuple(
+			_request(
+				value, step, role, str(index), config.ranking_route,
+				daily_blog.daily_outline_prompts.render_story_ranking(
+					prepared.stories_json, prepared.outlines_json, prepared.evidence_json,
+					replica_prefix + str(index), prepared.prompts,
+				),
+				config, prepared.identity, prepared.story_ids,
+			)
+			for index in range(config.ranker_count)
 		)
-		for index in range(config.ranker_count)
-	)
-	results = daily_blog.agents.execute_requests(
-		list(requests), prepared.route_runner, config.maximum_parallel_calls, budget, cache_load,
-	)
-	observations: list[RankingObservation] = []
-	for request, result in zip(requests, results, strict=True):
-		try:
-			candidate = None
-			if result.ok:
-				parsed = daily_blog.daily_outline_prompts.parse_story_ranking(result.text, prepared.story_ids)
-				candidate = _candidate(request, result, parsed)
-			if candidate is not None and not result.resumed and cache_accept is not None:
-				cache_accept(request, result)
-			observations.append(RankingObservation(
-				request, result, candidate,
-				"" if candidate else (result.failure or "ineligible_generation"),
-			))
-		except daily_blog.daily_outline_prompts.DailyOutlineRankingParseError:
-			observations.append(RankingObservation(request, result, None, "ineligible_generation"))
-	rankings = tuple(observations)
-	return rankings, tuple(item.candidate for item in rankings if item.candidate is not None)
+		results = daily_blog.agents.execute_requests(
+			list(requests), prepared.route_runner, config.maximum_parallel_calls, budget, cache_load,
+		)
+		observations: list[RankingObservation] = []
+		for request, result in zip(requests, results, strict=True):
+			try:
+				candidate = None
+				if result.ok:
+					candidate = _candidate(request, result, _parse_model_ranking(result.text, prepared.story_aliases))
+				if candidate is not None and not result.resumed and cache_accept is not None:
+					cache_accept(request, result)
+				observations.append(RankingObservation(
+					request, result, candidate,
+					"" if candidate else (result.failure or "ineligible_generation"),
+				))
+			except daily_blog.daily_outline_prompts.DailyOutlineRankingParseError as error:
+				observations.append(RankingObservation(request, result, None, error.category))
+		return tuple(observations)
+
+	primary = observe_wave("5_1", "ranker", "ranker-")
+	if any(item.candidate is not None for item in primary):
+		return primary, tuple(item.candidate for item in primary if item.candidate is not None), False
+	fallback = observe_wave("5_1_fallback", "ranker_fallback", "ranker-fallback-")
+	rankings = primary + fallback
+	return rankings, tuple(item.candidate for item in rankings if item.candidate is not None), True
 
 
 def _observe_ranking_reviews(
@@ -418,9 +673,9 @@ def _observe_ranking_reviews(
 			value, "5_2", "ranking_reviewer", candidate.candidate_id + "_" + str(index),
 			config.outline_reviewer_route,
 			daily_blog.daily_outline_prompts.render_story_ranking_review(
-				json.dumps(candidate.to_dict(), sort_keys=True, separators=(",", ":")),
+				json.dumps(candidate.model_dict(prepared.story_aliases), sort_keys=True, separators=(",", ":")),
 				prepared.stories_json, prepared.outlines_json, prepared.evidence_json,
-				"ranking-reviewer-" + str(index), prepared.contract,
+				"ranking-reviewer-" + str(index), prepared.prompts,
 			),
 			config, prepared.identity, (candidate.candidate_id,),
 		)
@@ -476,7 +731,7 @@ def _observe_ranking_review_repairs(
 			value, "5_2_repair", "ranking_reviewer_repair", source.request_id,
 			config.outline_reviewer_route,
 			daily_blog.daily_outline_prompts.render_story_ranking_review_repair(
-				result.text, prepared.contract,
+				result.text, prepared.prompts,
 			),
 			config, prepared.identity, (candidate.candidate_id,), None, source.request_id,
 		)
@@ -513,13 +768,15 @@ def _replicate_outlines(
 	cache_accept: collections.abc.Callable[[daily_blog.agents.RouteRequest, daily_blog.agents.AgentResult], None] | None,
 ) -> daily_blog.replication.ReplicationResult:
 	"""Generate independent whole-outline candidates from the promoted ranking."""
-	ranking_json = json.dumps(promoted.to_dict(), sort_keys=True, separators=(",", ":"))
+	ranking_json = json.dumps(
+		promoted.model_dict(prepared.story_aliases), sort_keys=True, separators=(",", ":"),
+	)
 	requests = tuple(
 		_request(
 			value, "5_3", "outline_writer", str(index), config.outline_writer_route,
 			daily_blog.daily_outline_prompts.render_daily_outline_writer(
 				ranking_json, prepared.stories_json, prepared.outlines_json,
-				prepared.evidence_json, "outline-writer-" + str(index), prepared.contract,
+				prepared.evidence_json, "outline-writer-" + str(index), prepared.prompts,
 			),
 			config, prepared.identity, prepared.story_ids,
 		)
@@ -528,7 +785,9 @@ def _replicate_outlines(
 	return daily_blog.replication.replicate(
 		requests, prepared.route_runner, budget, daily_blog.artifacts.DailyOutline,
 		lambda item: _outline(value, item),
-		lambda item: daily_blog.artifacts.evaluate_eligibility(item, value.packets),
+		lambda item: daily_blog.artifacts.evaluate_eligibility(
+			item, value.packets, allowed_repositories=value.repositories,
+		),
 		cache_load, cache_accept,
 	)
 
@@ -554,7 +813,7 @@ def _review_outlines(
 			config.outline_reviewer_route,
 			daily_blog.daily_outline_prompts.render_daily_outline_comparison(
 				prepared.stories_json, prepared.outlines_json, prepared.evidence_json,
-				left.content, right.content, prepared.contract,
+				left.content, right.content, prepared.prompts,
 			),
 			config, prepared.identity, (left.content_hash, right.content_hash), assignment,
 		)
@@ -574,7 +833,7 @@ def _review_outlines(
 			value, "5_4_repair", "outline_reviewer_repair", item.request.cache_input_hash,
 			config.outline_reviewer_route,
 			daily_blog.daily_outline_prompts.render_daily_outline_verdict_repair(
-				response, prepared.contract,
+				response, prepared.prompts,
 			),
 			config, prepared.identity, (daily_blog.io_utils.sha256_text(response),),
 			item.assignment, item.request.cache_input_hash,
@@ -597,13 +856,14 @@ def _daily_outline_result(
 	generation: daily_blog.replication.ReplicationResult,
 	review: daily_blog.replication.ReviewResult,
 	had_candidates: bool,
+	ranking_fallback_used: bool,
 	value: DailyOutlineInput,
 ) -> DailyOutlineResult:
 	"""Build the typed terminal outcome and its stage-level reliability record."""
 	return DailyOutlineResult(
 		promotion, rankings, ranking_reviews, promoted, generation, review,
 		(
-			_ranking_reliability(rankings),
+			_ranking_reliability(rankings, ranking_fallback_used),
 			_ranking_promotion_reliability(ranking_reviews, promoted, had_candidates),
 			_generation_reliability(
 				"5.3", generation,
@@ -619,10 +879,10 @@ def _daily_outline_result(
 #============================================
 
 
-def run_daily_outline(value: DailyOutlineInput, config: daily_blog.editorial_stage_config.DailyOutlineConfig, budget: daily_blog.agents.RouteBudget, runner: object | None = None, contract: daily_blog.daily_outline_prompts.DailyOutlinePromptContract | None = None, cache_load: collections.abc.Callable[[daily_blog.agents.RouteRequest], daily_blog.agents.AgentResult | None] | None = None, cache_accept: collections.abc.Callable[[daily_blog.agents.RouteRequest, daily_blog.agents.AgentResult], None] | None = None) -> DailyOutlineResult:
+def run_daily_outline(value: DailyOutlineInput, config: daily_blog.editorial_stage_config.DailyOutlineConfig, budget: daily_blog.agents.RouteBudget, runner: object | None = None, prompts: daily_blog.prompt_registry.loader.LoadedPromptSet | None = None, cache_load: collections.abc.Callable[[daily_blog.agents.RouteRequest], daily_blog.agents.AgentResult | None] | None = None, cache_accept: collections.abc.Callable[[daily_blog.agents.RouteRequest, daily_blog.agents.AgentResult], None] | None = None) -> DailyOutlineResult:
 	"""Coordinate ranking, replication, review, and promotion for Stage 5."""
-	prepared = _prepare_daily_outline(value, config, budget, runner, contract)
-	rankings, candidates = _observe_rankings(
+	prepared = _prepare_daily_outline(value, config, budget, runner, prompts)
+	rankings, candidates, ranking_fallback_used = _observe_rankings(
 		value, config, budget, prepared, cache_load, cache_accept,
 	)
 	ranking_reviews = _observe_ranking_reviews(
@@ -639,7 +899,7 @@ def run_daily_outline(value: DailyOutlineInput, config: daily_blog.editorial_sta
 		)
 		return _daily_outline_result(
 			promotion, rankings, ranking_reviews, None, empty_generation,
-			daily_blog.replication.ReviewResult((), ()), bool(candidates), value,
+			daily_blog.replication.ReviewResult((), ()), bool(candidates), ranking_fallback_used, value,
 		)
 	generation = _replicate_outlines(
 		value, config, budget, prepared, promoted, cache_load, cache_accept,
@@ -654,14 +914,16 @@ def run_daily_outline(value: DailyOutlineInput, config: daily_blog.editorial_sta
 		)
 		return _daily_outline_result(
 			promotion, rankings, ranking_reviews, promoted, generation,
-			daily_blog.replication.ReviewResult((), ()), True, value,
+			daily_blog.replication.ReviewResult((), ()), True, ranking_fallback_used, value,
 		)
 	review = _review_outlines(
 		value, config, budget, prepared, peers, cache_load, cache_accept,
 	)
 	promotion = daily_blog.replication.promote(
 		peers, daily_blog.artifacts.DailyOutline,
-		lambda item: daily_blog.artifacts.evaluate_eligibility(item, value.packets),
+		lambda item: daily_blog.artifacts.evaluate_eligibility(
+			item, value.packets, allowed_repositories=value.repositories,
+		),
 		review.votes,
 	)
 	if len(peers) == 1 and isinstance(promotion, daily_blog.artifacts.SelectedPeer):
@@ -669,5 +931,5 @@ def run_daily_outline(value: DailyOutlineInput, config: daily_blog.editorial_sta
 			promotion.artifact, daily_blog.artifacts.DailyOutline, ("review_unavailable",),
 		)
 	return _daily_outline_result(
-		promotion, rankings, ranking_reviews, promoted, generation, review, True, value,
+		promotion, rankings, ranking_reviews, promoted, generation, review, True, ranking_fallback_used, value,
 	)

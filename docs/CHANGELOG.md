@@ -2,13 +2,37 @@
 
 ### Behavior or Interface Changes
 
-- Advanced the producer-to-publisher publication contract to
-  `vosslab.daily-blog.bundle.v7`. The sealed handoff now contains only the
+- Advanced the active producer-to-publisher contract to
+  `vosslab.daily-blog.bundle.v8`. New bundles seal the portable
+  `publication_source_safety.v1` version, executable 35-case corpus, and SHA-256
+  `d50166736d79be7f7715cc0f7585fac71dfb2aecc1c631b10e01aeca2fb63c6b` alongside the selected
+  artifact and grounded inputs. The producer marks unsafe reader-visible Markdown ineligible, the
+  publisher independently rechecks it, and cache/reuse rejects stale schema or policy identity.
+  Bundle-v7 and exact publication-v3 handling remain historical compatibility paths only; new
+  imports continue to write publication v5 records.
+
+- Historically advanced the producer-to-publisher publication contract to
+  `vosslab.daily-blog.bundle.v7`. That sealed handoff contained only the
   validated Stage-8 selected post and its artifact identity; candidate and
   referee topology remains in producer-owned run artifacts.
-- Completed the M15 ownership migration: the acquisition, repository editorial,
-  and publication-finalization modules now own their respective phases, with
-  typed incumbent establishment, replacement, and repair transitions.
+- The acquisition, repository editorial, and publication-finalization modules
+  own their respective phases, with typed incumbent establishment, replacement,
+  and repair transitions.
+- Recovery now promotes ordinary writer/editor peers before two sequential,
+  whole-post V4-author paths: daily-outline expansion and repository-story
+  merge. The strongest in-scope repository story is terminal provenance only
+  and is never publishable or mechanically assembled.
+- Repository scope is derived from authoritative cited evidence through Stage 8.
+  Model-declared scope is an assertion checked against that provenance, not the
+  authority. Recovery digests v5 bind scope, full packet, artifact type, and
+  recovery rung.
+- The prompt registry is a package with a documentation-only root and distinct
+  definitions, loader, and editorial-contract leaves. It centrally declares all
+  Stage 3--7 and V4 assets while each stage keeps its own editorial rendering.
+- The producer's historical bundle-v7 deployment handed the validated snapshot to the sibling importer
+  through a bounded hash-bound standard-input envelope. The publisher record is
+  `vosslab.daily-blog.publication.v5`; the producer's `import-receipt.v2` binds
+  the committed archive, installed post, and canonical reader-body digest.
 
 ### Fixes and Maintenance
 
@@ -23,30 +47,56 @@
   run-evidence documentation, archived the root-plan review and repaired its
   tracker link, and removed the permanent M5 comment tag while adding the
   required Stage-6 and Stage-7 function separators.
+- Removed the duplicate Stage-6 implementation plus retired atomic-path and
+  fixture-route compatibility surfaces. Runtime configuration now has explicit
+  stage owners, and the Stage-5 coordinator is split into readable phase helpers.
+- Stage 6 now requires its current result shape, promotion is internal to its
+  current editorial decision boundary, and the concrete editorial route runner
+  revalidates sealed command, prompt, and working-directory inputs at the
+  subprocess sink.
+- Pruned prompt-byte, replica-topology, raw-schema, and default-storage tests
+  that did not meet [PYTEST_STYLE.md](PYTEST_STYLE.md)'s durable-behavior rule.
+- Preserved original reviewer-response salvage when a repair attempt fails, and
+  added Stage-6 editor partial-failure coverage that retains grounded peer work.
+- Parsed-but-ineligible primary candidates now proceed through recovery, while
+  forged lineage and eligibility faults remain terminal. Stage 5/6 typed terminal
+  faults commit validated cache effects for resumption, and route capacity
+  accounts for the two sequential recovery envelopes.
+- Unified local publication inspection with the same committed-publication
+  archive validator used for importer receipts. Reader-page verification now
+  checks the full ordered source-body projection inside the dated Material
+  article, rather than accepting matching title and date chrome alone.
 
 ### Decisions and Failures
 
-- Remaining review work requires design-level follow-up before merge: the
-  unreachable duplicate `editorial_workflow.py`, dead fixture-route and
-  atomic-path surfaces, prompt/topology/schema pytest pruning, and
-  daily-outline/config readability and ownership. These items are not fixed by
-  this record.
+- Retained stage-specific comparison and repair prose because the current assets
+  are materially different. Shared mechanics are centralized, but no prompt
+  prose or prompt bytes changed without human approval.
+- Explicit-date replacement semantics remain governed by
+  [HUMAN_GUIDANCE.md](HUMAN_GUIDANCE.md): interactive occupied dates require an
+  exact `y`; scheduled `--yesterday` remains unattended.
 
 ### Developer Tests and Notes
 
-- Focused bundle, publication-state, publisher, and Stage-5 integration
-  coverage passed, followed by the controlled no-egress publication E2E.
-- The final M15 aggregate E2E passed 7/7. One full pytest run reported 3,513
-  passed and one stale transition failure; the stale test was corrected and a
-  focused closure passed 206 checks. No second broad run was performed.
-- The M16 fixture-backed, no-egress public `--yesterday` demonstration ran twice
-  for fixed `2026-08-28`; the second run automatically replaced the date and
-  reached a completed/degraded outcome with bundle-v7, publication-v4, sealed
-  reader-page integrity, and no external route. It is not a prose-quality claim.
+- Final focused integration coverage passed 346 tests. Focused hygiene, source
+  size, typing, lint, security, and Markdown-link checks passed 1,550 tests.
+- The controlled no-egress publication E2E passed through the public
+  `--yesterday` entrypoint. It verifies sealed, date-owned publication integrity
+  and same-date replacement; it does not claim live prose quality.
+- Independent final source, security, and permanent-test-policy reviews accepted
+  the current ownership, validation, and offline durable-behavior boundaries.
 - `docs/BLOG_CONTRACT.md` remained byte-identical at SHA-256
   `306674359d086e28a1b952da5b5774a23524eb2e424208dec8683da5d5378a00`.
-- Focused verification of the pre-merge audit fixes is pending; this record does
-  not add a test-result claim.
+- The audit-fix record above reflects the final focused verification results.
+- At this point in the migration, the manager-verified full fast suite passed
+  3,356 tests after the then-current fixes. Subsequent focused fixes retain their
+  own listed verification; this entry does not claim a later full-suite rerun.
+- Daily-blog pytest coverage passed 494 tests. The permanent-test-policy audit
+  accepted 494 behavior tests and 1,027 hygiene checks.
+- The controlled `e2e_daily_publication.py` passed initial import, replacement,
+  and forced page-fault preservation. Prompt-registry package split/source gates
+  passed 139 focused checks; Markdown links (65), diff check, Bandit, pyflakes,
+  and compilation passed.
 
 ## 2026-08-29 (M13 observability/retention and M14 validation acceptance)
 

@@ -1,8 +1,9 @@
 """Validated publication bundle creation at one stable path per report date."""
 
 # Standard Library
-import os
 import dataclasses
+import datetime
+import os
 import re
 
 # local repo modules
@@ -12,6 +13,7 @@ import daily_blog.io_utils
 import daily_blog.artifacts
 import daily_blog.json_contracts
 import daily_blog.publication_storage
+import daily_blog.publication_source_safety
 
 
 GENERATOR_CONTRACT_VERSION = "vosslab.daily-blog.generator-source.v1"
@@ -23,6 +25,108 @@ GENERATOR_SUPPORT_PATHS = (
 _IDENTITY_TOKEN = object()
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 ACTIVATION_ID_RE = re.compile(r"^daily-blog-maker-activation-[0-9a-f]{64}$")
+SEALED_BUNDLE_TRANSFER_SCHEMA_VERSION = "vosslab.daily-blog.bundle-transfer.v1"
+SEALED_BUNDLE_TRANSFER_MAGIC = (SEALED_BUNDLE_TRANSFER_SCHEMA_VERSION + "\n").encode("ascii")
+MAX_TRANSFER_BYTES = daily_blog.publication_storage.MAX_EVIDENCE_BYTES
+_CORE_TRANSFER_PATHS = frozenset({
+	"bundle.json", "evidence.json", "repository_roster.json", "editorial_projection.json", "post.md",
+})
+
+
+@dataclasses.dataclass(frozen=True)
+class SealedBundleTransferEntry:
+	"""One bounded, hash-bound byte member of the publisher handoff."""
+
+	path: str
+	contents: bytes
+	sha256: str
+
+	#============================================
+	def __post_init__(self) -> None:
+		"""Reject non-canonical names, bounds, and digests at the handoff boundary."""
+		maximum = _transfer_path_limit(self.path)
+		if type(self.contents) is not bytes or len(self.contents) > maximum:
+			raise RuntimeError("Sealed bundle transfer entry exceeds its schema envelope.")
+		if type(self.sha256) is not str or self.sha256 != daily_blog.io_utils.sha256_bytes(self.contents):
+			raise RuntimeError("Sealed bundle transfer entry checksum is invalid.")
+
+
+@dataclasses.dataclass(frozen=True)
+class SealedBundleTransfer:
+	"""The sole byte snapshot that a producer may hand to a publisher."""
+
+	report_date: str
+	bundle_sha256: str
+	entries: tuple[SealedBundleTransferEntry, ...]
+
+	#============================================
+	def __post_init__(self) -> None:
+		"""Require one exact, sorted, bounded transfer envelope."""
+		try:
+			if datetime.date.fromisoformat(self.report_date).isoformat() != self.report_date:
+				raise ValueError
+		except (TypeError, ValueError) as error:
+			raise RuntimeError("Sealed bundle transfer report date is invalid.") from error
+		if type(self.bundle_sha256) is not str or SHA256_RE.fullmatch(self.bundle_sha256) is None:
+			raise RuntimeError("Sealed bundle transfer bundle checksum is invalid.")
+		if type(self.entries) is not tuple or not self.entries:
+			raise RuntimeError("Sealed bundle transfer entries are invalid.")
+		if any(type(entry) is not SealedBundleTransferEntry for entry in self.entries):
+			raise RuntimeError("Sealed bundle transfer entries are invalid.")
+		paths = tuple(entry.path for entry in self.entries)
+		if paths != tuple(sorted(paths)) or len(set(paths)) != len(paths) or not _CORE_TRANSFER_PATHS <= set(paths):
+			raise RuntimeError("Sealed bundle transfer entries are incomplete or unordered.")
+		if self._encoded_size() > MAX_TRANSFER_BYTES:
+			raise RuntimeError("Sealed bundle transfer exceeds its aggregate schema envelope.")
+
+	#============================================
+	def _header_bytes(self) -> bytes:
+		"""Build the exact canonical header whose size participates in the cap."""
+		header = {
+			"schema_version": SEALED_BUNDLE_TRANSFER_SCHEMA_VERSION,
+			"report_date": self.report_date,
+			"bundle_sha256": self.bundle_sha256,
+			"entries": [
+				{"path": entry.path, "size": len(entry.contents), "sha256": entry.sha256}
+				for entry in self.entries
+			],
+		}
+		header_bytes = daily_blog.io_utils.canonical_json_bytes(header)
+		if len(header_bytes) > daily_blog.publication_storage.MAX_JSON_BYTES:
+			raise RuntimeError("Sealed bundle transfer header exceeds its schema envelope.")
+		return header_bytes
+
+	#============================================
+	def _encoded_size(self) -> int:
+		"""Measure the exact pre-read stdin envelope before allocating its body."""
+		return len(SEALED_BUNDLE_TRANSFER_MAGIC) + 8 + len(self._header_bytes()) + sum(
+			len(entry.contents) for entry in self.entries
+		)
+
+	#============================================
+	def to_bytes(self) -> bytes:
+		"""Encode the canonical binary stdin envelope without reopening a path."""
+		header_bytes = self._header_bytes()
+		if self._encoded_size() > MAX_TRANSFER_BYTES:
+			raise RuntimeError("Sealed bundle transfer exceeds its aggregate schema envelope.")
+		return SEALED_BUNDLE_TRANSFER_MAGIC + len(header_bytes).to_bytes(8, "big") + header_bytes + b"".join(
+			entry.contents for entry in self.entries
+		)
+
+
+#============================================
+def _transfer_path_limit(path: object) -> int:
+	"""Return the single supported storage envelope for one transfer path."""
+	if type(path) is not str:
+		raise RuntimeError("Sealed bundle transfer path is invalid.")
+	if path == "evidence.json":
+		return daily_blog.publication_storage.MAX_EVIDENCE_BYTES
+	if path in {"bundle.json", "repository_roster.json", "editorial_projection.json"}:
+		return daily_blog.publication_storage.MAX_JSON_BYTES
+	if path == "post.md":
+		return daily_blog.publication_storage.MAX_POST_BYTES
+	daily_blog.schema.validate_bundle_asset_path(path)
+	return daily_blog.publication_storage.MAX_ASSET_BYTES
 
 
 @dataclasses.dataclass(frozen=True, init=False)
@@ -95,11 +199,14 @@ def publication_identity(
 
 #============================================
 def _validate_contract_identity(value: object) -> dict[str, object]:
-	"""Copy the primitive contract fields required by the bundle-v7 manifest."""
-	if not isinstance(value, dict) or set(value) != {
+	"""Copy the primitive contract fields required by the bundle-v8 manifest."""
+	base_fields = {
 		"evidence_schema", "editorial_projection_schema", "prompt_version",
 		"rubric_version", "candidate_validation",
-	}:
+	}
+	if not isinstance(value, dict) or set(value) not in (
+		base_fields, base_fields | {"publication_source_safety"},
+	):
 		raise RuntimeError("Publication contract identity is invalid.")
 	candidate_validation = value["candidate_validation"]
 	if not isinstance(candidate_validation, dict) or set(candidate_validation) != {
@@ -110,13 +217,17 @@ def _validate_contract_identity(value: object) -> dict[str, object]:
 		"evidence_schema", "editorial_projection_schema", "prompt_version", "rubric_version"
 	)) or not all(isinstance(candidate_validation[key], str) and candidate_validation[key] for key in candidate_validation) or not SHA256_RE.fullmatch(candidate_validation["sha256"]):
 		raise RuntimeError("Publication contract identity is invalid.")
-	return {
+	result = {
 		"evidence_schema": value["evidence_schema"],
 		"editorial_projection_schema": value["editorial_projection_schema"],
 		"prompt_version": value["prompt_version"],
 		"rubric_version": value["rubric_version"],
 		"candidate_validation": dict(candidate_validation),
 	}
+	if "publication_source_safety" in value and value["publication_source_safety"] != daily_blog.publication_source_safety.policy_identity():
+		raise RuntimeError("Publication source-safety policy identity is invalid.")
+	result["publication_source_safety"] = daily_blog.publication_source_safety.policy_identity()
+	return result
 
 
 #============================================
@@ -162,10 +273,6 @@ def _validate_activation_receipt_binding(
 	if prompt_contract["candidate_validation"] != contracts["candidate_validation"]:
 		raise RuntimeError("Publication prompt contract does not bind the validation policy.")
 	return {"activation_id": activation_id, "editorial_prompt_contract_sha256": prompt_sha}
-
-
-# Backward-internal spelling used by generator_revision; it performs the same strict validation.
-_validated_contracts = _validate_contract_identity
 
 
 #============================================
@@ -229,7 +336,7 @@ def generator_revision(
 	contracts: dict[str, object],
 ) -> str:
 	"""Hash the exact running source, active prompts, and settings contract."""
-	validated_contracts = _validated_contracts(contracts)
+	validated_contracts = _validate_contract_identity(contracts)
 	files = []
 	for logical_path, physical_path in _generator_contract_paths(
 		repository_root,
@@ -265,6 +372,126 @@ def bundle_sha256(bundle: dict) -> str:
 
 
 #============================================
+def validate_bundle_manifest_coherence(
+	bundle: dict,
+	packet: daily_blog.schema.EvidencePacket,
+	evidence_value: object,
+) -> None:
+	"""Bind the v8 manifest-wide publication identity to active evidence."""
+	if (
+		bundle.get("report_date") != packet.report_date
+		or bundle.get("timezone") != packet.timezone
+	):
+		raise RuntimeError("Cached publication bundle date or timezone is invalid.")
+	active_evidence = packet.to_dict()
+	if evidence_value != active_evidence:
+		raise RuntimeError("Cached publication bundle evidence does not match the packet.")
+	expected_manifest = {
+		"path": "evidence.json",
+		"packet_id": packet.packet_id,
+		"sha256": daily_blog.io_utils.hash_value(active_evidence),
+	}
+	if bundle.get("evidence") != expected_manifest:
+		raise RuntimeError("Cached publication bundle evidence manifest is invalid.")
+
+
+#============================================
+def _approved_screenshot_paths(packet: daily_blog.schema.EvidencePacket) -> tuple[str, ...]:
+	"""Return the packet-owned paths that publication source may embed."""
+	return tuple(sorted(
+		item.publish_path for item in packet.items
+		if item.kind == "screenshot" and type(item.publish_path) is str and item.publish_path
+	))
+
+
+#============================================
+def sealed_bundle_transfer(bundle: object, artifacts: object) -> SealedBundleTransfer:
+	"""Validate one v8 byte snapshot and freeze it for one publisher invocation."""
+	if type(bundle) is not dict or type(artifacts) is not dict:
+		raise RuntimeError("Sealed bundle transfer requires exact bundle artifacts.")
+	if not _CORE_TRANSFER_PATHS <= set(artifacts) or any(
+		type(path) is not str or type(contents) is not bytes for path, contents in artifacts.items()
+	):
+		raise RuntimeError("Sealed bundle transfer artifacts are incomplete.")
+	for path in artifacts:
+		if path not in _CORE_TRANSFER_PATHS:
+			_transfer_path_limit(path)
+	bundle_value = daily_blog.publication_storage.json_artifact(artifacts["bundle.json"])
+	if not isinstance(bundle_value, dict) or bundle_value != bundle:
+		raise RuntimeError("Sealed bundle transfer manifest does not match its bytes.")
+	if bundle.get("schema_version") != daily_blog.schema.BUNDLE_SCHEMA_VERSION:
+		raise RuntimeError("Sealed bundle transfer schema is invalid.")
+	if bundle.get("bundle_sha256") != bundle_sha256(bundle):
+		raise RuntimeError("Sealed bundle transfer manifest checksum is invalid.")
+	validate_bundle_identity_fields(bundle)
+	evidence_value = daily_blog.publication_storage.json_artifact(artifacts["evidence.json"])
+	if not isinstance(evidence_value, dict):
+		raise RuntimeError("Sealed bundle transfer evidence is invalid.")
+	packet = daily_blog.schema.EvidencePacket.from_dict(evidence_value)
+	validate_bundle_manifest_coherence(bundle, packet, evidence_value)
+	try:
+		post_source = artifacts["post.md"].decode("utf-8")
+	except UnicodeDecodeError as error:
+		raise RuntimeError("Sealed bundle transfer post is invalid.") from error
+	if daily_blog.publication_source_safety.validate_post_source(
+		post_source, _approved_screenshot_paths(packet),
+	):
+		raise RuntimeError("Sealed bundle transfer post source is unsafe.")
+	roster_value = daily_blog.publication_storage.json_artifact(artifacts["repository_roster.json"])
+	if not isinstance(roster_value, dict):
+		raise RuntimeError("Sealed bundle transfer roster is invalid.")
+	roster = daily_blog.repository_contracts.RepositoryRoster.from_dict(roster_value)
+	roster_manifest = bundle.get("repository_roster")
+	if roster_manifest != {
+		"path": "repository_roster.json", "roster_id": roster.roster_id,
+		"sha256": daily_blog.io_utils.hash_value(roster.to_dict()),
+	}:
+		raise RuntimeError("Sealed bundle transfer roster manifest is invalid.")
+	if not {activity.repository for activity in packet.activity} <= {item.repository for item in roster.repositories}:
+		raise RuntimeError("Sealed bundle transfer activity exceeds its roster.")
+	projection_value = daily_blog.publication_storage.json_artifact(artifacts["editorial_projection.json"])
+	if not isinstance(projection_value, dict):
+		raise RuntimeError("Sealed bundle transfer projection is invalid.")
+	projection = daily_blog.schema.EditorialProjection.from_dict(projection_value)
+	if projection.packet_id != packet.packet_id or bundle.get("editorial_projection") != {
+		"path": "editorial_projection.json", "projection_id": projection.projection_id,
+		"sha256": daily_blog.io_utils.hash_value(projection.to_dict()),
+	}:
+		raise RuntimeError("Sealed bundle transfer projection manifest is invalid.")
+	post_manifest = bundle.get("post")
+	post_bytes = artifacts["post.md"]
+	try:
+		post_bytes.decode("utf-8")
+	except UnicodeDecodeError as error:
+		raise RuntimeError("Sealed bundle transfer post is invalid.") from error
+	if not isinstance(post_manifest, dict) or set(post_manifest) != {"path", "sha256", "artifact_id"} or (
+		post_manifest.get("path") != "post.md" or post_manifest.get("sha256") != daily_blog.io_utils.sha256_bytes(post_bytes)
+		or post_manifest.get("artifact_id") != bundle.get("best_artifact_id")
+	):
+		raise RuntimeError("Sealed bundle transfer selected post binding is invalid.")
+	manifest_assets: dict[str, str] = {}
+	if not isinstance(bundle.get("assets"), list):
+		raise RuntimeError("Sealed bundle transfer asset manifest is invalid.")
+	for item in bundle["assets"]:
+		if not isinstance(item, dict) or set(item) != {"path", "sha256", "evidence_id", "git_blob_hash", "publish_path"}:
+			raise RuntimeError("Sealed bundle transfer asset manifest is invalid.")
+		path = daily_blog.schema.validate_bundle_asset_path(item["path"])
+		if path in manifest_assets or type(item["sha256"]) is not str:
+			raise RuntimeError("Sealed bundle transfer asset manifest is invalid.")
+		manifest_assets[path] = item["sha256"]
+	if set(artifacts) != _CORE_TRANSFER_PATHS | set(manifest_assets):
+		raise RuntimeError("Sealed bundle transfer artifacts do not match their manifest.")
+	for path, sha256 in manifest_assets.items():
+		if sha256 != daily_blog.io_utils.sha256_bytes(artifacts[path]):
+			raise RuntimeError("Sealed bundle transfer asset checksum is invalid.")
+	entries = tuple(
+		SealedBundleTransferEntry(path, artifacts[path], daily_blog.io_utils.sha256_bytes(artifacts[path]))
+		for path in sorted(artifacts)
+	)
+	return SealedBundleTransfer(packet.report_date, bundle["bundle_sha256"], entries)
+
+
+#============================================
 def load_reusable_bundle(
 	record: dict,
 	date_root: str,
@@ -273,7 +500,7 @@ def load_reusable_bundle(
 	assets: dict[str, bytes],
 	identity: PublicationIdentity,
 	repository_roster: daily_blog.repository_contracts.RepositoryRoster | None = None,
-) -> tuple[str, dict]:
+) -> tuple[str, dict, SealedBundleTransfer]:
 	"""Verify and return the completed bundle at the stable date path."""
 	identity = _require_identity(identity)
 	resolved_revision = identity.revision
@@ -324,8 +551,7 @@ def load_reusable_bundle(
 	if bundle.get("editorial_prompt_contract") != identity.prompt_contract_dict():
 		raise RuntimeError("Cached publication bundle prompt contract has changed.")
 	evidence = daily_blog.publication_storage.json_artifact(artifacts["evidence.json"])
-	if evidence != packet.to_dict():
-		raise RuntimeError("Cached publication bundle evidence does not match the packet.")
+	validate_bundle_manifest_coherence(bundle, packet, evidence)
 	projection_value = daily_blog.publication_storage.json_artifact(artifacts["editorial_projection.json"])
 	if projection_value != projection.to_dict():
 		raise RuntimeError("Cached publication bundle projection does not match the active projection.")
@@ -354,6 +580,10 @@ def load_reusable_bundle(
 		raise RuntimeError("Cached publication bundle selected artifact binding is invalid.")
 	if daily_blog.io_utils.sha256_text(post) != post_manifest["sha256"]:
 		raise RuntimeError("Cached publication bundle post hash does not match its content.")
+	if daily_blog.publication_source_safety.validate_post_source(
+		post, _approved_screenshot_paths(packet),
+	):
+		raise RuntimeError("Cached publication bundle post source is unsafe.")
 	expected_assets = {
 		path: daily_blog.io_utils.sha256_bytes(contents) for path, contents in assets.items()
 	}
@@ -378,7 +608,8 @@ def load_reusable_bundle(
 			raise RuntimeError("Cached publication bundle asset is unavailable.")
 		if daily_blog.io_utils.sha256_bytes(contents) != expected_hash:
 			raise RuntimeError("Cached publication bundle asset hash does not match its content.")
-	return bundle_path, bundle
+	transfer = sealed_bundle_transfer(bundle, artifacts)
+	return bundle_path, bundle, transfer
 
 
 class BundleWriter:
@@ -437,7 +668,7 @@ class BundleWriter:
 		assets: dict[str, bytes],
 		repository_roster: daily_blog.repository_contracts.RepositoryRoster,
 		selected_post: daily_blog.artifacts.CompletePost,
-	) -> tuple[str, dict]:
+	) -> tuple[str, dict, SealedBundleTransfer]:
 		"""Write and atomically promote the current date-owned publication bundle."""
 		_require_identity(self.identity)
 		if not packet.complete:
@@ -455,6 +686,10 @@ class BundleWriter:
 		if selected_post.report_date != packet.report_date:
 			raise RuntimeError("Publication bundle selected post has a different report date.")
 		post = selected_post.content
+		if daily_blog.publication_source_safety.validate_post_source(
+			post, _approved_screenshot_paths(packet),
+		):
+			raise RuntimeError("Publication bundle selected post source is unsafe.")
 		best_artifact_id = selected_post.artifact_id
 		post_hash = daily_blog.io_utils.sha256_text(post)
 		evidence_value = packet.to_dict()
@@ -513,5 +748,6 @@ class BundleWriter:
 			"post.md": post.encode("utf-8"),
 			**assets,
 		}
+		transfer = sealed_bundle_transfer(bundle, artifacts)
 		bundle_path = storage.write(artifacts)
-		return bundle_path, bundle
+		return bundle_path, bundle, transfer

@@ -11,12 +11,16 @@ import daily_blog.agents
 import daily_blog.artifacts
 import daily_blog.editorial_stage_config
 import daily_blog.io_utils
+import daily_blog.publication_admission
 import daily_blog.recovery
 import daily_blog.replication
 import daily_blog.run_contracts
 import daily_blog.run_state
 import daily_blog.schema
 import daily_blog.stage_recovery_coordinator
+
+
+_LIMITS = {"commit_subject_chars": 120, "context_chars": 12000, "excerpt_chars": 1000}
 
 
 def _candidate(ok: bool, root: pathlib.Path) -> daily_blog.replication.ReplicatedCandidate:
@@ -68,13 +72,17 @@ def _input(
 ) -> daily_blog.stage_recovery_coordinator.StageRecoveryInput:
 	"""Build one no-artifact stage result with real source route counts."""
 	packet = _packet()
+	surface = daily_blog.publication_admission.build_surface(
+		(packet,), (packet.items[0].repository,), _LIMITS,
+	)
 	return daily_blog.stage_recovery_coordinator.StageRecoveryInput(
 		packet.report_date, "stage4/no_artifact/recovery", daily_blog.artifacts.CompletePost,
 		daily_blog.artifacts.NoArtifact(daily_blog.artifacts.CompletePost, reason.value),
 		daily_blog.replication.ReplicationResult(
 			daily_blog.artifacts.CompletePost, (_candidate(ok, root),),
 		),
-		(_summary(),), (packet,), str(root), ("a" * 64,), ("b" * 64,), None, (),
+		(_summary(),), (packet,), (packet.items[0].repository,), str(root),
+		surface, ("a" * 64,), ("b" * 64,), None, (),
 	)
 
 

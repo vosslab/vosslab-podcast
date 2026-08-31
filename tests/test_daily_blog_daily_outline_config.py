@@ -1,7 +1,6 @@
 """Settings contracts for replicated Stage 5 ranking and daily outlines."""
 
 # Standard Library
-import dataclasses
 import pathlib
 
 # PIP3 modules
@@ -22,27 +21,6 @@ def write_settings(tmp_path: pathlib.Path, daily_outline: dict[str, object]) -> 
 		"daily_blog": {"daily_outline": daily_outline},
 	}, sort_keys=False), encoding="utf-8")
 	return settings_path
-
-
-#============================================
-@pytest.mark.parametrize(
-	("changes", "match"),
-	(
-		({"ranker_count": True}, "ranker_count"),
-		({"outline_writer_count": 1}, "outline_writer_count"),
-		({"reviewer_count": False}, "reviewer_count"),
-		({"maximum_parallel_calls": 17}, "maximum_parallel_calls"),
-		({"route_retry_attempts": True}, "route_retry_attempts"),
-		({"max_route_calls": 0}, "max_route_calls"),
-		({"prompt_limits": {"ranking_chars": 1}}, "prompt_limits"),
-	),
-)
-def test_daily_outline_config_rejects_unsafe_controls(
-	changes: dict[str, object], match: str,
-) -> None:
-	"""Unsafe Stage 5 controls cannot admit route work."""
-	with pytest.raises(RuntimeError, match=match):
-		dataclasses.replace(daily_blog.editorial_stage_config.DailyOutlineConfig(), **changes)
 
 
 #============================================

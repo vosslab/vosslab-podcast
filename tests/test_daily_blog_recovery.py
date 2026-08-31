@@ -108,6 +108,8 @@ def digest_step() -> daily_blog.recovery.EvidenceDigestStep:
 	((observation(fault=daily_blog.recovery.TerminalFaultCategory.EVIDENCE_UNAVAILABLE),), daily_blog.recovery.TerminalFaultCategory.EVIDENCE_UNAVAILABLE),
 	((observation(fault=daily_blog.recovery.TerminalFaultCategory.CONFIGURATION),), daily_blog.recovery.TerminalFaultCategory.CONFIGURATION),
 	((observation(fault=daily_blog.recovery.TerminalFaultCategory.IMPLEMENTATION_DEFECT),), daily_blog.recovery.TerminalFaultCategory.IMPLEMENTATION_DEFECT),
+	((observation(fault=daily_blog.recovery.TerminalFaultCategory.ROUTE_UNAVAILABLE),), daily_blog.recovery.TerminalFaultCategory.ROUTE_UNAVAILABLE),
+	((observation(fault=daily_blog.recovery.TerminalFaultCategory.NO_ELIGIBLE_GENERATION),), daily_blog.recovery.TerminalFaultCategory.NO_ELIGIBLE_GENERATION),
 ])
 def test_fault_categories_are_discriminated_from_typed_observations(
 	item: tuple[daily_blog.recovery.GenerationObservation, ...], expected: daily_blog.recovery.TerminalFaultCategory,
@@ -380,6 +382,9 @@ def test_digest_is_deterministic_and_binds_meaningful_provenance() -> None:
 	assert daily_blog.recovery.canonical_evidence_digest(dataclasses.replace(base, prompt_identities=("e" * 64,)))[1] != digest
 	assert daily_blog.recovery.canonical_evidence_digest(dataclasses.replace(
 		base, ranking_promotion_ids=("ranking-promotion-aaaaaaaaaaaaaaaaaaaaaaaa",),
+	))[1] != digest
+	assert daily_blog.recovery.canonical_evidence_digest(dataclasses.replace(
+		base, allowed_repositories=("vosslab/recovery",),
 	))[1] != digest
 	assert payload["stage_key"] == base.stage_key
 

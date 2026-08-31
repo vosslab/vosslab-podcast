@@ -10,6 +10,7 @@ import re
 import daily_blog.io_utils
 import daily_blog.replication
 import daily_blog.editorial
+import daily_blog.publisher_contract
 import daily_blog.recovery
 
 
@@ -27,8 +28,9 @@ LEGAL_PHASES = (
 	"stage6_complete_post",
 	"stage7_final_synthesis",
 	"publication_validation",
-	"post_write",
 	"bundle_creation",
+	"publisher_preflight",
+	"post_write",
 	"site_import",
 	"page_verification",
 )
@@ -43,10 +45,22 @@ LEGACY_FAILURE_KINDS = frozenset({
 	"timeout",
 	"unexpected_error",
 })
+# Publisher subprocess outcomes are intentionally operational categories, not
+# editorial faults.  Keep the exact protocol allowlist in the producer-owned
+# contract so durable records accept only text-free boundary classifications.
+PUBLISHER_FAILURE_KINDS = (
+	daily_blog.publisher_contract.IMPORT_FAILURE_CATEGORIES
+	| frozenset({
+		daily_blog.publisher_contract.PUBLISHER_PROTOCOL_FAILURE,
+		daily_blog.publisher_contract.PUBLISHER_TIMEOUT,
+		daily_blog.publisher_contract.PUBLISHER_START_FAILURE,
+	})
+)
+OPERATIONAL_FAILURE_KINDS = LEGACY_FAILURE_KINDS | PUBLISHER_FAILURE_KINDS
 TERMINAL_FAULT_KINDS = frozenset(
 	category.value for category in daily_blog.recovery.TerminalFaultCategory
 )
-FAILURE_KINDS = LEGACY_FAILURE_KINDS | TERMINAL_FAULT_KINDS
+FAILURE_KINDS = OPERATIONAL_FAILURE_KINDS | TERMINAL_FAULT_KINDS
 PUBLISHABLE_ARTIFACT_ID_RE = re.compile(r"^artifact-[0-9a-f]{24}$")
 RANKING_PROMOTION_ID_RE = re.compile(r"^ranking-promotion-[0-9a-f]{24}$")
 MAX_LOGICAL_PATH_CHARS = 1024
@@ -242,6 +256,10 @@ def classify_exception(error: BaseException) -> str:
 	"""
 	if isinstance(error, daily_blog.recovery.PipelineFaultError):
 		return error.category.value
+	if isinstance(error, daily_blog.publisher_contract.PublisherCommandError):
+		if error.category in PUBLISHER_FAILURE_KINDS:
+			return error.category
+		return daily_blog.publisher_contract.PUBLISHER_PROTOCOL_FAILURE
 	if isinstance(error, daily_blog.editorial.EditorialBlockedError):
 		return "editorial_blocked"
 	if isinstance(error, TimeoutError):

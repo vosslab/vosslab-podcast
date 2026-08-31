@@ -13,7 +13,7 @@ import daily_blog.io_utils
 import daily_blog.replication
 
 
-RECOVERY_SCHEMA_VERSION = "vosslab.daily-blog.recovery.v4"
+RECOVERY_SCHEMA_VERSION = "vosslab.daily-blog.recovery.v5"
 MAX_DIGEST_PACKETS = 256
 MAX_DIGEST_EVIDENCE_REFS = 4096
 MAX_DIGEST_OBSERVATIONS = 512
@@ -24,7 +24,8 @@ DATE_RE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}\Z")
 SHA256_RE = re.compile(r"[0-9a-f]{64}\Z")
 IDENTIFIER_RE = re.compile(r"[a-z][a-z0-9_.:-]{0,127}\Z")
 STAGE_KEY_RE = re.compile(
-	r"(?:(?:stage[346]|recovery)/[a-z0-9_.:-]+/[a-z0-9_.:-]+"
+	r"(?:stage[346]/[a-z0-9_.:-]+/[a-z0-9_.:-]+"
+	r"|recovery/[a-z0-9_.:-]+/[a-z0-9_.:-]+(?:/6\.[1-4])?"
 	r"|stage5/daily_outline/(?:5\.[1-5]|terminal))\Z"
 )
 RANKING_PROMOTION_ID_RE = re.compile(r"ranking-promotion-[0-9a-f]{24}\Z")
@@ -131,6 +132,8 @@ def classify_pipeline_fault(observations: tuple[GenerationObservation, ...]) -> 
 		TerminalFaultCategory.CONFIGURATION,
 		TerminalFaultCategory.EVIDENCE_UNAVAILABLE,
 		TerminalFaultCategory.IMPLEMENTATION_DEFECT,
+		TerminalFaultCategory.ROUTE_UNAVAILABLE,
+		TerminalFaultCategory.NO_ELIGIBLE_GENERATION,
 	):
 		if any(item.explicit_fault is category for item in observations):
 			return category
@@ -221,12 +224,43 @@ def _validate_recovery_generation(
 
 
 @dataclasses.dataclass(frozen=True)
+class RecoveryRungReliability:
+	"""Bounded editorial facts from one invoked recovery rung."""
+
+	rung: RecoveryRung
+	summaries: tuple[daily_blog.replication.StepReliability, ...]
+
+	def __post_init__(self) -> None:
+		if type(self.rung) is not RecoveryRung or type(self.summaries) is not tuple or not self.summaries:
+			raise RecoveryConfigurationError("Recovery rung reliability is invalid.")
+		if any(type(item) is not daily_blog.replication.StepReliability for item in self.summaries):
+			raise RecoveryConfigurationError("Recovery rung reliability summaries are invalid.")
+		if len({item.step for item in self.summaries}) != len(self.summaries):
+			raise RecoveryConfigurationError("Recovery rung reliability steps must be unique.")
+		for item in self.summaries:
+			item.validate()
+
+
+def _validate_rung_reliability(
+	value: tuple[RecoveryRungReliability, ...], observations: tuple[GenerationObservation, ...],
+) -> None:
+	"""Keep optional detailed facts aligned with invoked recovery paths."""
+	if type(value) is not tuple or len(value) > len(observations):
+		raise RecoveryConfigurationError("Recovery rung reliability is invalid.")
+	if any(type(item) is not RecoveryRungReliability for item in value):
+		raise RecoveryConfigurationError("Recovery rung reliability is invalid.")
+	if len({item.rung for item in value}) != len(value):
+		raise RecoveryConfigurationError("Recovery rung reliability repeats a rung.")
+
+
+@dataclasses.dataclass(frozen=True)
 class RecoveryAttempt:
 	"""One typed rung outcome plus its exact bounded generation observation."""
 
 	outcome: RecoveryOutcome
 	observation: GenerationObservation
 	recovery_generation: daily_blog.replication.ReplicationResult | None = None
+	step_reliability: tuple[daily_blog.replication.StepReliability, ...] = ()
 
 	#============================================
 	def __post_init__(self) -> None:
@@ -250,6 +284,14 @@ class RecoveryAttempt:
 				self.recovery_generation, self.outcome.expected_type, self.observation,
 				None if type(self.outcome) is daily_blog.artifacts.NoArtifact else self.outcome.artifact,
 			)
+		if type(self.step_reliability) is not tuple or any(
+			type(item) is not daily_blog.replication.StepReliability for item in self.step_reliability
+		):
+			raise RecoveryConfigurationError("Recovery attempt step reliability is invalid.")
+		if len({item.step for item in self.step_reliability}) != len(self.step_reliability):
+			raise RecoveryConfigurationError("Recovery attempt reliability steps must be unique.")
+		for item in self.step_reliability:
+			item.validate()
 
 
 @dataclasses.dataclass(frozen=True)
@@ -298,6 +340,7 @@ class RecoveryResult:
 	depth: int
 	observations: tuple[GenerationObservation, ...]
 	recovery_generation: daily_blog.replication.ReplicationResult | None = None
+	rung_reliability: tuple[RecoveryRungReliability, ...] = ()
 
 	#============================================
 	def __post_init__(self) -> None:
@@ -320,6 +363,7 @@ class RecoveryResult:
 				self.recovery_generation, daily_blog.artifacts.CompletePost,
 				self.observations[-1], self.artifact,
 			)
+		_validate_rung_reliability(self.rung_reliability, self.observations)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -329,8 +373,8 @@ class PipelineFault:
 	``depth`` is a closed-ladder position: zero records a pre-ladder terminal
 	diagnosis and a positive value records no more calls than the closed ladder
 	and its retained observations.  The category is always re-derived from those
-	validated observations, including explicit evidence, configuration, and
-	implementation terminal facts.
+	validated observations, including explicit terminal facts from a bounded
+	upstream boundary.
 	"""
 
 	category: TerminalFaultCategory
@@ -338,6 +382,7 @@ class PipelineFault:
 	strongest_artifact_id: str
 	strongest_artifact_type: str
 	observations: tuple[GenerationObservation, ...]
+	rung_reliability: tuple[RecoveryRungReliability, ...] = ()
 
 	#============================================
 	def __post_init__(self) -> None:
@@ -358,6 +403,7 @@ class PipelineFault:
 		}:
 			raise RecoveryConfigurationError("Pipeline fault artifact type is invalid.")
 		_validate_observations(self.observations)
+		_validate_rung_reliability(self.rung_reliability, self.observations)
 		if self.depth > len(self.observations):
 			raise RecoveryConfigurationError("Pipeline fault depth exceeds its observations.")
 		if self.category is not classify_pipeline_fault(self.observations):
@@ -400,11 +446,13 @@ def _validate_paths(paths: tuple[RecoveryPath, ...]) -> None:
 
 #============================================
 def _fault(category: TerminalFaultCategory, depth: int, incumbent: RecoveryIncumbent | None,
-	observations: tuple[GenerationObservation, ...]) -> PipelineFault:
+	observations: tuple[GenerationObservation, ...],
+	rung_reliability: tuple[RecoveryRungReliability, ...] = (),
+) -> PipelineFault:
 	"""Build one validated terminal result without copying unsafe diagnostic text."""
 	return PipelineFault(
 		category, depth, "" if incumbent is None else incumbent.artifact.artifact_id,
-		"" if incumbent is None else type(incumbent.artifact).__name__, observations,
+		"" if incumbent is None else type(incumbent.artifact).__name__, observations, rung_reliability,
 	)
 
 
@@ -423,6 +471,7 @@ def recover_ladder(
 	if incumbent is not None and not eligible(incumbent.artifact):
 		raise RecoveryConfigurationError("Recovery incumbent must remain mechanically eligible.")
 	observations: list[GenerationObservation] = []
+	rung_reliability: list[RecoveryRungReliability] = []
 	for depth, path in enumerate(paths, start=1):
 		if incumbent is not None and RUNG_ORDER.index(incumbent.rung) < RUNG_ORDER.index(path.rung):
 			if type(incumbent.artifact) is not daily_blog.artifacts.CompletePost:
@@ -432,6 +481,8 @@ def recover_ladder(
 		if type(attempt) is not RecoveryAttempt:
 			raise RecoveryConfigurationError("Recovery path returned an invalid attempt.")
 		observations.append(attempt.observation)
+		if attempt.step_reliability:
+			rung_reliability.append(RecoveryRungReliability(path.rung, attempt.step_reliability))
 		outcome = attempt.outcome
 		expected_type = RUNG_ARTIFACT_TYPES[path.rung]
 		if expected_type is None:
@@ -441,7 +492,7 @@ def recover_ladder(
 		if type(outcome) is daily_blog.artifacts.NoArtifact:
 			category = no_artifact_category(outcome, attempt.observation)
 			if category not in ORDINARY_NO_ARTIFACT:
-				return _fault(category, depth, incumbent, tuple(observations))
+				return _fault(category, depth, incumbent, tuple(observations), tuple(rung_reliability))
 			continue
 		candidate = outcome.artifact
 		if type(candidate) is not expected_type or not eligible(candidate):
@@ -450,7 +501,8 @@ def recover_ladder(
 		if prior is not None and type(prior) is not daily_blog.artifacts.CompletePost:
 			# Repository material is lower-rung provenance, never a publishable peer.
 			# A higher whole post may replace it without a cross-type comparison.
-			return RecoveryResult(candidate, depth, tuple(observations), attempt.recovery_generation)
+			return RecoveryResult(candidate, depth, tuple(observations), attempt.recovery_generation,
+				tuple(rung_reliability))
 		chosen = promote(prior, candidate)
 		if type(chosen) is not daily_blog.artifacts.CompletePost or not eligible(chosen):
 			raise RecoveryConfigurationError("Recovery promotion returned an ineligible artifact.")
@@ -462,8 +514,10 @@ def recover_ladder(
 		return RecoveryResult(
 			chosen, depth, tuple(observations),
 			attempt.recovery_generation if chosen is candidate else None,
+			tuple(rung_reliability),
 		)
-	return _fault(classify_pipeline_fault(tuple(observations)), len(paths), incumbent, tuple(observations))
+	return _fault(classify_pipeline_fault(tuple(observations)), len(paths), incumbent, tuple(observations),
+		tuple(rung_reliability))
 
 
 #============================================
@@ -576,6 +630,7 @@ class EvidenceDigestInput:
 	fault: PipelineFault
 	promoted_artifact_ids: tuple[str, ...] = ()
 	ranking_promotion_ids: tuple[str, ...] = ()
+	allowed_repositories: tuple[str, ...] = ()
 
 	#============================================
 	def __post_init__(self) -> None:
@@ -609,6 +664,10 @@ class EvidenceDigestInput:
 			raise RecoveryConfigurationError("Evidence digest promoted artifacts are invalid.")
 		if type(self.ranking_promotion_ids) is not tuple or len(self.ranking_promotion_ids) > MAX_PROMOTED_ARTIFACT_IDS or any(type(item) is not str or RANKING_PROMOTION_ID_RE.fullmatch(item) is None for item in self.ranking_promotion_ids) or tuple(sorted(set(self.ranking_promotion_ids))) != self.ranking_promotion_ids:
 			raise RecoveryConfigurationError("Evidence digest ranking promotions are invalid.")
+		if type(self.allowed_repositories) is not tuple or any(
+			type(item) is not str or not item for item in self.allowed_repositories
+		) or tuple(sorted(set(self.allowed_repositories))) != self.allowed_repositories:
+			raise RecoveryConfigurationError("Evidence digest allowed repository scope is invalid.")
 
 
 #============================================
@@ -627,6 +686,7 @@ def canonical_evidence_digest(value: EvidenceDigestInput) -> tuple[dict[str, obj
 		"rubric_identities": list(value.rubric_identities),
 		"promoted_artifact_ids": list(value.promoted_artifact_ids),
 		"ranking_promotion_ids": list(value.ranking_promotion_ids),
+		"allowed_repositories": list(value.allowed_repositories),
 		"retained_artifact_id": value.fault.strongest_artifact_id,
 		"retained_artifact_type": value.fault.strongest_artifact_type,
 		"ladder_depth": value.fault.depth,

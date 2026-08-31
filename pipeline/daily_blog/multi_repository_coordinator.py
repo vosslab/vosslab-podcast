@@ -9,6 +9,8 @@ import daily_blog.agents
 import daily_blog.artifacts
 import daily_blog.config
 import daily_blog.io_utils
+import daily_blog.prompt_registry.definitions
+import daily_blog.prompt_registry.loader
 import daily_blog.repository_outline_prompts
 import daily_blog.repository_outline_workflow
 import daily_blog.repository_story_prompts
@@ -29,8 +31,8 @@ class RepositoryJobInput:
 	runner: object | None
 	rubric: str
 	rubric_sha256: str
-	outline_contract: daily_blog.repository_outline_prompts.RepositoryOutlinePromptContract
-	story_contract: daily_blog.repository_story_prompts.RepositoryStoryPromptContract
+	outline_prompts: daily_blog.prompt_registry.loader.LoadedPromptSet
+	story_prompts: daily_blog.prompt_registry.loader.LoadedPromptSet
 	cache_load: collections.abc.Callable[[daily_blog.agents.RouteRequest], daily_blog.agents.AgentResult | None]
 	cache_accept: collections.abc.Callable[[daily_blog.agents.RouteRequest, daily_blog.agents.AgentResult], None]
 
@@ -46,11 +48,17 @@ class RepositoryJobInput:
 			or not os.path.isdir(self.working_directory)
 			or type(self.rubric) is not str or not self.rubric
 			or daily_blog.io_utils.sha256_text(self.rubric) != self.rubric_sha256
-			or type(self.outline_contract) is not daily_blog.repository_outline_prompts.RepositoryOutlinePromptContract
-			or type(self.story_contract) is not daily_blog.repository_story_prompts.RepositoryStoryPromptContract
+			or type(self.outline_prompts) is not daily_blog.prompt_registry.loader.LoadedPromptSet
+			or type(self.story_prompts) is not daily_blog.prompt_registry.loader.LoadedPromptSet
 			or not all(callable(item) for item in (self.cache_load, self.cache_accept))
 		):
 			raise RuntimeError("Repository editorial job input is invalid.")
+		daily_blog.prompt_registry.loader.resolve_loaded_prompt_set(
+			self.outline_prompts, daily_blog.prompt_registry.definitions.REPOSITORY_OUTLINE_PROMPT_SET,
+		)
+		daily_blog.prompt_registry.loader.resolve_loaded_prompt_set(
+			self.story_prompts, daily_blog.prompt_registry.definitions.REPOSITORY_STORY_PROMPT_SET,
+		)
 		daily_blog.schema.EvidencePacket.from_dict(self.packet.to_dict())
 		if {item.repository for item in self.packet.items} != {self.repository}:
 			raise RuntimeError("Repository editorial job input packet scope conflicts.")
@@ -61,21 +69,30 @@ class RepositoryJobResult:
 	"""Typed local editorial outcome returned without durable side effects."""
 	repository: str
 	packet: daily_blog.schema.EvidencePacket
-	outline_result: daily_blog.repository_outline_workflow.RepositoryOutlineResult
+	outline_result: daily_blog.repository_outline_workflow.RepositoryOutlineResult | None
 	story_result: daily_blog.repository_story_workflow.RepositoryStoryResult | None
 	outline: daily_blog.artifacts.RepoOutline | None
 	story: daily_blog.artifacts.RepoStory | None
+	terminal_fault: daily_blog.recovery.TerminalFaultCategory | None = None
 
 	def __post_init__(self) -> None:
 		if (
 			type(self.repository) is not str or not self.repository
 			or type(self.packet) is not daily_blog.schema.EvidencePacket
-			or type(self.outline_result) is not daily_blog.repository_outline_workflow.RepositoryOutlineResult
+			or self.outline_result is not None and type(self.outline_result) is not daily_blog.repository_outline_workflow.RepositoryOutlineResult
 			or self.story_result is not None and type(self.story_result) is not daily_blog.repository_story_workflow.RepositoryStoryResult
 			or self.outline is not None and type(self.outline) is not daily_blog.artifacts.RepoOutline
 			or self.story is not None and type(self.story) is not daily_blog.artifacts.RepoStory
 		):
 			raise RuntimeError("Repository editorial job result is invalid.")
+		if self.terminal_fault is not None and type(self.terminal_fault) is not daily_blog.recovery.TerminalFaultCategory:
+			raise RuntimeError("Repository editorial job result terminal fault is invalid.")
+		if self.outline_result is None:
+			if any(item is not None for item in (self.story_result, self.outline, self.story)) or self.terminal_fault is None:
+				raise RuntimeError("Repository editorial failed job result is invalid.")
+			return
+		if self.terminal_fault is not None:
+			raise RuntimeError("Repository editorial successful job result cannot retain a terminal fault.")
 		if self.outline is not self.outline_result.artifact or (
 			self.story_result is None and self.story is not None
 		) or (self.story_result is not None and self.story is not self.story_result.artifact):
@@ -91,15 +108,85 @@ class RepositoryJobResult:
 	@property
 	def degraded(self) -> bool:
 		"""Identify ordinary local editorial loss without reclassifying faults."""
-		return self.outline is None or self.story is None
+		return self.terminal_fault is None and (self.outline is None or self.story is None)
 
 	@property
 	def reliability(self) -> tuple[object, ...]:
 		"""Expose bounded Stage 3/4 summaries for the serial run owner."""
-		values = list(self.outline_result.reliability)
+		if self.outline_result is None:
+			return (daily_blog.replication.StepReliability(
+				"repository_job", "degraded", 1, 0, 1, 0, 0, 0, "",
+				("terminal_" + str(self.terminal_fault),),
+			),)
+		values = [daily_blog.replication.StepReliability(
+			"repository_job", "succeeded", 1, 1, 0, 0, 0, 0, "", (),
+		)]
+		values.extend(self.outline_result.reliability)
 		if self.story_result is not None:
 			values.extend(self.story_result.reliability)
 		return tuple(values)
+
+
+def _failed_job_result(
+	value: RepositoryJobInput, fault: daily_blog.recovery.TerminalFaultCategory,
+) -> RepositoryJobResult:
+	"""Record one bounded rejected worker outcome without retaining diagnostics."""
+	return RepositoryJobResult(value.repository, value.packet, None, None, None, None, fault)
+
+
+#============================================
+def _terminal_fault_from_error(error: Exception) -> daily_blog.recovery.TerminalFaultCategory:
+	"""Project a worker exception into its bounded operator-facing diagnosis."""
+	if isinstance(error, daily_blog.recovery.PipelineFaultError):
+		return error.category
+	if isinstance(error, (
+		daily_blog.agents.EditorialTerminalError,
+		daily_blog.recovery.RecoveryConfigurationError,
+	)):
+		return daily_blog.recovery.TerminalFaultCategory.CONFIGURATION
+	return daily_blog.recovery.TerminalFaultCategory.IMPLEMENTATION_DEFECT
+
+
+#============================================
+def _worst_terminal_fault(
+	faults: collections.abc.Iterable[daily_blog.recovery.TerminalFaultCategory],
+) -> daily_blog.recovery.TerminalFaultCategory | None:
+	"""Choose a stable bounded diagnosis when independently isolated jobs fail."""
+	values = frozenset(faults)
+	for category in (
+		daily_blog.recovery.TerminalFaultCategory.CONFIGURATION,
+		daily_blog.recovery.TerminalFaultCategory.EVIDENCE_UNAVAILABLE,
+		daily_blog.recovery.TerminalFaultCategory.IMPLEMENTATION_DEFECT,
+		daily_blog.recovery.TerminalFaultCategory.ROUTE_UNAVAILABLE,
+		daily_blog.recovery.TerminalFaultCategory.NO_ELIGIBLE_GENERATION,
+	):
+		if category in values:
+			return category
+	return None
+
+
+def _accept_job_result(
+	value: RepositoryJobInput, result: object,
+) -> RepositoryJobResult:
+	"""Validate one future result and its complete pair before accepting its cache."""
+	if type(result) is not RepositoryJobResult:
+		raise RuntimeError("Repository editorial worker returned an invalid result.")
+	if result.repository != value.repository or result.packet is not value.packet:
+		raise RuntimeError("Repository editorial worker result conflicts with its submitted input.")
+	if result.terminal_fault is not None:
+		raise RuntimeError("Repository editorial worker cannot return a terminal result.")
+	if result.packet.activity[0].repository != result.repository:
+		raise RuntimeError("Repository editorial result packet identity conflicts.")
+	if result.outline is None or result.story is None:
+		return result
+	if (
+		result.outline.repositories != (result.repository,)
+		or result.story.repositories != (result.repository,)
+		or result.outline.packet_ids != result.story.packet_ids
+		or result.outline.packet_ids != (result.packet.packet_id,)
+	):
+		raise RuntimeError("Repository editorial paired artifacts have invalid provenance.")
+	return result
 
 
 @dataclasses.dataclass(frozen=True)
@@ -226,7 +313,7 @@ def _run_job(value: RepositoryJobInput) -> RepositoryJobResult:
 	)
 	outline_result = daily_blog.repository_outline_workflow.run_repository_outline(
 		outline_value, value.config.repository_outline, value.budget, value.runner,
-		contract=value.outline_contract, cache_load=value.cache_load, cache_accept=value.cache_accept,
+		loaded_prompts=value.outline_prompts, cache_load=value.cache_load, cache_accept=value.cache_accept,
 	)
 	outline = outline_result.artifact
 	if outline is None:
@@ -237,7 +324,7 @@ def _run_job(value: RepositoryJobInput) -> RepositoryJobResult:
 	story_result = daily_blog.repository_story_workflow.run_repository_story(
 		story_value, value.config.repository_story, value.budget, value.runner,
 		rubric=value.rubric, rubric_sha256=value.rubric_sha256,
-		contract=value.story_contract, cache_load=value.cache_load, cache_accept=value.cache_accept,
+		loaded_prompts=value.story_prompts, cache_load=value.cache_load, cache_accept=value.cache_accept,
 	)
 	return RepositoryJobResult(value.repository, value.packet, outline_result, story_result,
 		outline, story_result.artifact)
@@ -278,19 +365,23 @@ def run_repository_editorial(
 	):
 		raise RuntimeError("Repository editorial coordinator requires a physical working directory.")
 	_validate_projection_set(packet, projected)
-	outline_contract = daily_blog.repository_outline_prompts.load_repository_outline_prompt_contract()
-	story_contract = daily_blog.repository_story_prompts.load_repository_story_prompt_contract()
+	outline_prompts = daily_blog.prompt_registry.loader.load_prompt_set(
+		daily_blog.prompt_registry.definitions.REPOSITORY_OUTLINE_PROMPT_SET,
+	)
+	story_prompts = daily_blog.prompt_registry.loader.load_prompt_set(
+		daily_blog.prompt_registry.definitions.REPOSITORY_STORY_PROMPT_SET,
+	)
 	jobs = []
 	for local in projected:
 		buffer = daily_blog.route_cache.BufferedRouteEffects(cache)
 		jobs.append((RepositoryJobInput(
 			local.activity[0].repository, local, working_directory, config, budget, runner,
-			rubric, rubric_sha256, outline_contract, story_contract,
+			rubric, rubric_sha256, outline_prompts, story_prompts,
 			buffer.load, buffer.accept,
 		), buffer))
 	results = []
 	accepted_buffers = []
-	terminal_fault = None
+	terminal_faults: set[daily_blog.recovery.TerminalFaultCategory] = set()
 	if jobs:
 		with concurrent.futures.ThreadPoolExecutor(max_workers=min(len(jobs), budget.maximum_parallel_calls)) as executor:
 			futures = {
@@ -300,41 +391,23 @@ def run_repository_editorial(
 			for future in concurrent.futures.as_completed(futures):
 				item, buffer = futures[future]
 				try:
-					result = future.result()
-					if type(result) is not RepositoryJobResult:
-						raise RuntimeError("Repository editorial worker returned an invalid result.")
-					if result.repository != item.repository or result.packet is not item.packet:
-						raise RuntimeError("Repository editorial worker result conflicts with its submitted input.")
+					result = _accept_job_result(item, future.result())
 					results.append(result)
 					accepted_buffers.append(buffer)
 				except Exception as error:
-					if isinstance(error, (
-						daily_blog.agents.EditorialTerminalError,
-						daily_blog.recovery.RecoveryConfigurationError,
-					)):
-						terminal_fault = daily_blog.recovery.TerminalFaultCategory.CONFIGURATION
-					elif terminal_fault is None:
-						terminal_fault = daily_blog.recovery.TerminalFaultCategory.IMPLEMENTATION_DEFECT
+					fault = _terminal_fault_from_error(error)
+					results.append(_failed_job_result(item, fault))
+					terminal_faults.add(fault)
 	ordered = tuple(sorted(results, key=lambda item: item.repository.casefold()))
 	if len({item.repository for item in ordered}) != len(ordered):
 		raise RuntimeError("Repository editorial results cannot repeat a repository.")
-	pairs = []
-	for result in ordered:
-		if result.packet.activity[0].repository != result.repository:
-			raise RuntimeError("Repository editorial result packet identity conflicts.")
-		if result.outline is None or result.story is None:
-			continue
-		if (
-			result.outline.repositories != (result.repository,)
-			or result.story.repositories != (result.repository,)
-			or result.outline.packet_ids != result.story.packet_ids
-			or not result.outline.packet_ids
-			or result.outline.packet_ids != (result.packet.packet_id,)
-		):
-			raise RuntimeError("Repository editorial paired artifacts have invalid provenance.")
-		pairs.append(result)
+	pairs = tuple(
+		result for result in ordered
+		if result.outline is not None and result.story is not None
+	)
 	packets = tuple(sorted((item.packet for item in pairs), key=lambda item: item.packet_id))
 	stories = tuple(sorted((item.story for item in pairs if item.story is not None), key=lambda item: item.artifact_id))
 	outlines = tuple(sorted((item.outline for item in pairs if item.outline is not None), key=lambda item: item.artifact_id))
 	effects = _canonical_effects(cache, accepted_buffers)
+	terminal_fault = _worst_terminal_fault(terminal_faults)
 	return RepositoryEditorialJoin(ordered, stories, outlines, packets, effects, terminal_fault)

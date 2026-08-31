@@ -14,6 +14,8 @@ import daily_blog.artifacts
 import daily_blog.config
 import daily_blog.editorial_stage_config
 import daily_blog.io_utils
+import daily_blog.prompt_registry.definitions
+import daily_blog.prompt_registry.loader
 import daily_blog.replication
 import daily_blog.repository_story_prompts
 import daily_blog.routes
@@ -67,7 +69,9 @@ class RepositoryStoryInput:
 				raise RuntimeError("Repository-story packet report date conflicts with outline.")
 			if {item.repository for item in packet.items} != {self.outline.repositories[0]}:
 				raise RuntimeError("Repository-story packets must isolate the outline repository.")
-		if not daily_blog.artifacts.evaluate_eligibility(self.outline, self.packets).eligible:
+		if not daily_blog.artifacts.evaluate_eligibility(
+			self.outline, self.packets, allowed_repositories=self.outline.repositories,
+		).eligible:
 			raise RuntimeError("Repository-story input outline is not mechanically eligible.")
 
 	#============================================
@@ -187,7 +191,9 @@ def _eligible(
 	value: RepositoryStoryInput, item: daily_blog.artifacts.EditorialArtifact,
 ) -> daily_blog.artifacts.EligibilityResult:
 	"""Apply the shared mechanical gate against this exact repository evidence."""
-	return daily_blog.artifacts.evaluate_eligibility(item, value.packets)
+	return daily_blog.artifacts.evaluate_eligibility(
+		item, value.packets, allowed_repositories=(value.repository,),
+	)
 
 
 #============================================
@@ -284,7 +290,7 @@ def _validate_rubric(rubric: object, rubric_sha256: object) -> tuple[str, str]:
 def run_repository_story(
 	value: RepositoryStoryInput, config: daily_blog.editorial_stage_config.RepositoryStoryConfig,
 	budget: daily_blog.agents.RouteBudget, runner: object | None = None, *, rubric: str,
-	rubric_sha256: str, contract: daily_blog.repository_story_prompts.RepositoryStoryPromptContract | None = None,
+	rubric_sha256: str, loaded_prompts: daily_blog.prompt_registry.loader.LoadedPromptSet | None = None,
 	cache_load: collections.abc.Callable[
 		[daily_blog.agents.RouteRequest], daily_blog.agents.AgentResult | None,
 	] | None = None,
@@ -305,16 +311,16 @@ def run_repository_story(
 	rubric_text, rubric_identity = _validate_rubric(rubric, rubric_sha256)
 	if incumbent is not None and not _eligible(value, incumbent).eligible:
 		raise RuntimeError("Repository-story incumbent is not mechanically eligible.")
-	contract_value = contract or daily_blog.repository_story_prompts.load_repository_story_prompt_contract()
-	if type(contract_value) is not daily_blog.repository_story_prompts.RepositoryStoryPromptContract:
-		raise RuntimeError("Repository-story workflow prompt contract is invalid.")
-	contract_identity = daily_blog.repository_story_prompts.repository_story_prompt_identity(contract_value)
+	loaded_value = daily_blog.prompt_registry.loader.resolve_loaded_prompt_set(
+		loaded_prompts, daily_blog.prompt_registry.definitions.REPOSITORY_STORY_PROMPT_SET,
+	)
+	contract_identity = daily_blog.repository_story_prompts.repository_story_prompt_identity(loaded_value)
 	outline_json, evidence_json = value.render_outline(), value.render_evidence()
 	route_runner = runner if runner is not None else daily_blog.routes.CommandRouteRunner()
 
 	writer_requests = tuple(_request(value, "4_1", "writer", str(index + 1), config.writer_route,
 		daily_blog.repository_story_prompts.render_repository_story_writer(outline_json, evidence_json,
-			"writer-" + str(index + 1), contract_value), config, contract_identity, rubric_identity,
+			"writer-" + str(index + 1), loaded_value), config, contract_identity, rubric_identity,
 		(value.outline.content_hash,)) for index in range(config.writer_count))
 	if any(len(request.prompt) > config.prompt_limits["writer_chars"] for request in writer_requests):
 		raise RuntimeError("Repository-story writer prompt exceeds its configured limit.")
@@ -326,7 +332,7 @@ def run_repository_story(
 		candidate_json = _anonymous_stories(writer_peers)
 		editor_requests = tuple(_request(value, "4_2", "editor", str(index + 1), config.editor_route,
 			daily_blog.repository_story_prompts.render_repository_story_editor(outline_json, evidence_json,
-				candidate_json, "editor-" + str(index + 1), contract_value), config, contract_identity,
+				candidate_json, "editor-" + str(index + 1), loaded_value), config, contract_identity,
 			rubric_identity, tuple(item.content_hash for item in writer_peers)) for index in range(config.editor_count))
 		if any(len(request.prompt) > config.prompt_limits["editor_chars"] for request in editor_requests):
 			raise RuntimeError("Repository-story editor prompt exceeds its configured limit.")
@@ -347,7 +353,7 @@ def run_repository_story(
 	def build_work(left: daily_blog.artifacts.EditorialArtifact, right: daily_blog.artifacts.EditorialArtifact,
 		assignment: daily_blog.replication.ReviewAssignment) -> daily_blog.replication.ReviewWork:
 		prompt = daily_blog.repository_story_prompts.render_repository_story_comparison(outline_json, evidence_json,
-			left.content, right.content, rubric_text, rubric_identity, contract_value)
+			left.content, right.content, rubric_text, rubric_identity, loaded_value)
 		if len(prompt) > config.prompt_limits["reviewer_chars"]:
 			raise RuntimeError("Repository-story comparison prompt exceeds its configured limit.")
 		request = _request(value, "4_3", "reviewer",
@@ -364,7 +370,7 @@ def run_repository_story(
 		return {"A": work.first_artifact_id, "B": work.second_artifact_id}.get(verdict["winner"], "")
 
 	def repair(work: daily_blog.replication.ReviewWork, response: str) -> daily_blog.replication.ReviewWork:
-		prompt = daily_blog.repository_story_prompts.render_repository_story_verdict_repair(response, contract_value)
+		prompt = daily_blog.repository_story_prompts.render_repository_story_verdict_repair(response, loaded_value)
 		if len(prompt) > config.prompt_limits["repair_chars"]:
 			raise RuntimeError("Repository-story repair prompt exceeds its configured limit.")
 		request = _request(value, "4_3_repair", "reviewer_repair", work.request.request_id, config.reviewer_route,

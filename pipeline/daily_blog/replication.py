@@ -17,9 +17,6 @@ STEP_OUTCOMES = frozenset({"succeeded", "degraded"})
 REVIEW_FAILURES = frozenset({
 	"timeout", "start_failure", "process_failure", "empty_response", "invalid_verdict",
 })
-GENERATOR_RUN_RE = re.compile(r"^generator_run:\s*\S+\s*$", re.MULTILINE)
-
-
 @dataclasses.dataclass(frozen=True)
 class StepReliability:
 	"""One factual bounded summary for a subjective editorial step."""
@@ -213,13 +210,6 @@ class _PromotionDecision:
 
 
 #============================================
-def editorial_artifact_id(content: str) -> str:
-	"""Return one run-independent identity for legacy complete-post bytes."""
-	canonical = GENERATOR_RUN_RE.sub("generator_run: editorial-artifact", content)
-	return "editorial-" + daily_blog.io_utils.sha256_text(canonical)[:24]
-
-
-#============================================
 def replicate(
 	requests: collections.abc.Sequence[daily_blog.agents.RouteRequest],
 	runner: object,
@@ -237,8 +227,11 @@ def replicate(
 	cache_accept: collections.abc.Callable[
 		[daily_blog.agents.RouteRequest, daily_blog.agents.AgentResult], None,
 	] | None = None,
+	cache_eligibility: collections.abc.Callable[
+		[daily_blog.artifacts.EditorialArtifact], daily_blog.artifacts.EligibilityResult,
+	] | None = None,
 ) -> ReplicationResult:
-	"""Run independent generation, accepting only parsed eligible results."""
+	"""Run independent generation and cache only explicitly grounded responses."""
 	if expected_type not in daily_blog.artifacts.ARTIFACT_TYPES or not requests:
 		raise RuntimeError("Replication requires requests and a supported exact artifact type.")
 	results = daily_blog.agents.execute_requests(
@@ -256,7 +249,10 @@ def replicate(
 			decision = eligibility(artifact)
 			if type(decision) is not daily_blog.artifacts.EligibilityResult:
 				raise RuntimeError("Replication eligibility must return EligibilityResult.")
-			if decision.eligible and not result.resumed and cache_accept is not None:
+			cache_decision = decision if cache_eligibility is None else cache_eligibility(artifact)
+			if type(cache_decision) is not daily_blog.artifacts.EligibilityResult:
+				raise RuntimeError("Replication cache eligibility must return EligibilityResult.")
+			if cache_decision.eligible and not result.resumed and cache_accept is not None:
 				cache_accept(request, result)
 			observations.append(ReplicatedCandidate(request, result, artifact, decision))
 		except daily_blog.agents.RepairableStructuredOutput:
@@ -344,7 +340,7 @@ def review(
 	votes = []
 	repairs = []
 	for item, result in zip(work, results):
-		vote = _resolve_vote(item, result, parse_winner, None, False)
+		vote = _parse_vote(item, result, parse_winner, False)
 		if vote is None and result.ok and build_repair is not None:
 			repair = build_repair(item, result.text)
 			if repair.request.repair_of != item.request.cache_input_hash:
@@ -353,25 +349,35 @@ def review(
 				item.first_artifact_id, item.second_artifact_id,
 			):
 				raise RuntimeError("Review repair must preserve its candidate pair identity.")
-			repairs.append((item, repair))
+			repairs.append((item, result, repair))
 		else:
-			resolved = vote or _failed_vote(item, "invalid_verdict", False)
+			resolved = vote or _salvage_vote(item, result, salvage_winner, False)
+			resolved = resolved or _failed_vote(item, "invalid_verdict", False)
 			if resolved.status == "succeeded" and not result.resumed and cache_accept is not None:
 				cache_accept(item.request, result)
 			votes.append(resolved)
 	if repairs:
-		if len({item.request.request_id for _source, item in repairs}) != len(repairs):
+		if len({item.request.request_id for _source, _result, item in repairs}) != len(repairs):
 			raise RuntimeError("Editorial review repairs require unique request identities.")
 		repair_results = daily_blog.agents.execute_requests(
-			[item.request for _source, item in repairs], runner,
-			repairs[0][1].request.maximum_parallel_calls, budget, cache_load,
+			[item.request for _source, _result, item in repairs], runner,
+			repairs[0][2].request.maximum_parallel_calls, budget, cache_load,
 		)
-		for (source, repair), result in zip(repairs, repair_results):
-			vote = _resolve_vote(repair, result, parse_winner, salvage_winner, True)
-			resolved = vote or _failed_vote(source, "invalid_verdict", True)
-			resolved = dataclasses.replace(resolved, review_id=source.request.request_id)
-			if resolved.status == "succeeded" and not result.resumed and cache_accept is not None:
-				cache_accept(repair.request, result)
+		for (source, source_result, repair), result in zip(repairs, repair_results):
+			vote = _parse_vote(repair, result, parse_winner, True)
+			vote = vote or _salvage_vote(repair, result, salvage_winner, True)
+			if vote is not None and vote.status == "succeeded":
+				resolved = dataclasses.replace(vote, review_id=source.request.request_id)
+				if not result.resumed and cache_accept is not None:
+					cache_accept(repair.request, result)
+			else:
+				resolved = _salvage_vote(source, source_result, salvage_winner, False)
+				if resolved is not None:
+					if not source_result.resumed and cache_accept is not None:
+						cache_accept(source.request, source_result)
+				else:
+					resolved = vote or _failed_vote(source, "invalid_verdict", True)
+					resolved = dataclasses.replace(resolved, review_id=source.request.request_id)
 			votes.append(resolved)
 	return ReviewResult(tuple(work), tuple(sorted(votes, key=lambda item: item.review_id)))
 
@@ -392,30 +398,43 @@ def _failed_vote(work: ReviewWork, failure: str, repaired: bool) -> ReviewVote:
 
 
 #============================================
-def _resolve_vote(
+def _parse_vote(
 	work: ReviewWork, result: daily_blog.agents.AgentResult,
 	parse_winner: collections.abc.Callable[[str, ReviewWork], str],
-	salvage_winner: collections.abc.Callable[[str, ReviewWork], str | None] | None,
 	repaired: bool,
 ) -> ReviewVote | None:
-	"""Strictly parse, then salvage one unambiguous allowed identity if supplied."""
+	"""Resolve only a strict structured reviewer verdict."""
 	if not result.ok:
 		return _failed_vote(work, result.failure, repaired)
 	try:
 		winner = parse_winner(result.text, work)
 	except daily_blog.agents.RepairableStructuredOutput:
 		winner = ""
-	if (
-		winner not in {work.first_artifact_id, work.second_artifact_id}
-		and salvage_winner is not None
-	):
-		winner = _validated_salvage(result.text, work, salvage_winner) or ""
 	if winner in {work.first_artifact_id, work.second_artifact_id}:
 		return ReviewVote(
 			_vote_id(work), work.first_artifact_id, work.second_artifact_id,
 			"succeeded", winner, "", repaired, result.resumed,
 		)
 	return None
+
+
+#============================================
+def _salvage_vote(
+	work: ReviewWork,
+	result: daily_blog.agents.AgentResult,
+	salvage_winner: collections.abc.Callable[[str, ReviewWork], str | None] | None,
+	repaired: bool,
+) -> ReviewVote | None:
+	"""Salvage only one mechanically proven identity from a usable response."""
+	if not result.ok or salvage_winner is None:
+		return None
+	winner = _validated_salvage(result.text, work, salvage_winner)
+	if winner is None:
+		return None
+	return ReviewVote(
+		_vote_id(work), work.first_artifact_id, work.second_artifact_id,
+		"succeeded", winner, "", repaired, result.resumed,
+	)
 
 
 #============================================

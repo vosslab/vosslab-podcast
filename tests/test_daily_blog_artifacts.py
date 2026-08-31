@@ -54,7 +54,8 @@ def complete(
 ) -> daily_blog.artifacts.CompletePost:
 	"""Return one valid complete post for the supplied destination."""
 	return daily_blog.artifacts.CompletePost.create(
-		source.report_date, (source,), ("vosslab/project",), content(source),
+		source.report_date, (source,), ("vosslab/project",),
+		f"---\ndate: {source.report_date}\n---\n" + content(source),
 		(source.items[0].evidence_id,), source.report_date, output_path,
 	)
 
@@ -79,6 +80,153 @@ def test_eligibility_accepts_matching_packet_instance() -> None:
 	"""Eligibility is true when candidate and authoritative packet identities match."""
 	source = packet()
 	assert daily_blog.artifacts.evaluate_eligibility(outline(source), (source,)).eligible
+
+
+#============================================
+def test_complete_post_source_attack_is_ineligible_without_faulting_peers(tmp_path: pathlib.Path) -> None:
+	"""Unsafe model Markdown is a normal ineligible CompletePost result."""
+	source = packet()
+	post = daily_blog.artifacts.CompletePost.create(
+		source.report_date, (source,), ("vosslab/project",),
+		content(source, "Grounded <script>"), (source.items[0].evidence_id,),
+		source.report_date, str(tmp_path / "post.md"), (),
+	)
+
+	result = daily_blog.artifacts.evaluate_eligibility(post, (source,), (str(tmp_path),))
+
+	assert "unsafe_publication_source" in result.reasons
+
+
+#============================================
+def test_complete_post_create_replaces_an_authored_header_with_its_trusted_date(
+	tmp_path: pathlib.Path,
+) -> None:
+	"""The artifact boundary owns date metadata while retaining the authored body bytes."""
+	source = packet()
+	body = "# Grounded\n\nText <!-- evidence: " + source.items[0].evidence_id + " -->\n"
+	post = daily_blog.artifacts.CompletePost.create(
+		source.report_date, (source,), ("vosslab/project",),
+		"---\ndate: 2026-08-24\ntitle: Untrusted\n---\n" + body,
+		(source.items[0].evidence_id,), source.report_date, str(tmp_path / "post.md"),
+	)
+
+	assert post.content == "---\ndate: 2026-08-23\n---\n" + body
+
+
+#============================================
+def test_forged_complete_post_envelope_cannot_restore_or_displace_a_healthy_peer(
+	tmp_path: pathlib.Path,
+) -> None:
+	"""Cache restoration and peer filtering fail closed on untrusted date metadata."""
+	source = packet()
+	healthy = complete(source, str(tmp_path / "healthy.md"))
+	forged = with_identity(
+		healthy,
+		content=(
+			"---\ndate: 2026-08-24\n---\n"
+			+ healthy.content.removeprefix("---\ndate: 2026-08-23\n---\n")
+		),
+	)
+
+	assert "invalid_machine_metadata" in daily_blog.artifacts.evaluate_eligibility(
+		forged, (source,), (str(tmp_path),),
+	).reasons
+	assert daily_blog.artifacts.eligible_artifacts(
+		(forged, healthy), (source,), (str(tmp_path),),
+	) == [healthy]
+	with pytest.raises(RuntimeError, match="date-owned envelope"):
+		daily_blog.artifacts.CompletePost.from_dict(forged.to_dict())
+
+
+#============================================
+def test_embedded_machine_metadata_cannot_be_eligible_or_promoted(
+	tmp_path: pathlib.Path,
+) -> None:
+	"""A later metadata block cannot override the date-owned publication envelope."""
+	source = packet()
+	healthy = complete(source, str(tmp_path / "healthy.md"))
+	embedded = daily_blog.artifacts.CompletePost.create(
+		source.report_date, (source,), ("vosslab/project",),
+		healthy.content + "\n---\ndate: 2026-08-24\n---\n",
+		(source.items[0].evidence_id,), source.report_date, str(tmp_path / "embedded.md"),
+	)
+
+	assert "invalid_machine_metadata" in daily_blog.artifacts.evaluate_eligibility(
+		embedded, (source,), (str(tmp_path),),
+	).reasons
+	assert daily_blog.artifacts.eligible_artifacts(
+		(embedded, healthy), (source,), (str(tmp_path),),
+	) == [healthy]
+	with pytest.raises(RuntimeError, match="embedded machine metadata"):
+		daily_blog.artifacts.SelectedPeer(embedded, daily_blog.artifacts.CompletePost)
+	with pytest.raises(RuntimeError, match="embedded machine metadata"):
+		daily_blog.artifacts.CompletePost.from_dict(embedded.to_dict())
+
+
+#============================================
+@pytest.mark.parametrize("metadata", (
+	'"DATE": 2026-08-24',
+	"'slug': hidden-post",
+	"{editorial_projection: forged.json}",
+))
+def test_quoted_or_flow_embedded_machine_metadata_is_ineligible(
+	tmp_path: pathlib.Path, metadata: str,
+) -> None:
+	"""Later active envelopes cannot hide reserved keys behind YAML key syntax."""
+	source = packet()
+	post = daily_blog.artifacts.CompletePost.create(
+		source.report_date, (source,), ("vosslab/project",),
+		complete(source, str(tmp_path / "base.md")).content + "\n---\n" + metadata + "\n---\n",
+		(source.items[0].evidence_id,), source.report_date, str(tmp_path / "quoted.md"),
+	)
+
+	assert not daily_blog.artifacts.evaluate_eligibility(post, (source,), (str(tmp_path),)).eligible
+
+
+#============================================
+@pytest.mark.parametrize("metadata", (
+	'"topic": maker notes',
+	"{topic: maker notes, author: Vosslab}",
+))
+def test_non_reserved_embedded_yaml_like_prose_remains_valid(
+	tmp_path: pathlib.Path, metadata: str,
+) -> None:
+	"""Delimiter blocks retain non-machine prose and unrelated YAML-like examples."""
+	source = packet()
+	post = daily_blog.artifacts.CompletePost.create(
+		source.report_date, (source,), ("vosslab/project",),
+		complete(source, str(tmp_path / "base.md")).content + "\n---\n" + metadata + "\n---\n",
+		(source.items[0].evidence_id,), source.report_date, str(tmp_path / "allowed.md"),
+	)
+
+	assert daily_blog.artifacts.evaluate_eligibility(post, (source,), (str(tmp_path),)).eligible
+
+
+#============================================
+def test_embedded_metadata_examples_in_fenced_code_remain_valid(tmp_path: pathlib.Path) -> None:
+	"""Markdown code examples remain inert to publication-envelope validation."""
+	source = packet()
+	post = daily_blog.artifacts.CompletePost.create(
+		source.report_date, (source,), ("vosslab/project",),
+		"---\ndate: 2026-08-23\n---\n# Example\n\n```yaml\n---\ndate: 2026-08-24\n---\n```\n\n"
+		+ content(source),
+		(source.items[0].evidence_id,), source.report_date, str(tmp_path / "fenced.md"),
+	)
+
+	assert daily_blog.artifacts.evaluate_eligibility(post, (source,), (str(tmp_path),)).eligible
+
+
+#============================================
+def test_thematic_break_without_machine_metadata_remains_valid(tmp_path: pathlib.Path) -> None:
+	"""An ordinary Markdown thematic break is not a second machine envelope."""
+	source = packet()
+	post = daily_blog.artifacts.CompletePost.create(
+		source.report_date, (source,), ("vosslab/project",),
+		"---\ndate: 2026-08-23\n---\n# Note\n\nFirst thought.\n\n---\n\n" + content(source),
+		(source.items[0].evidence_id,), source.report_date, str(tmp_path / "break.md"),
+	)
+
+	assert daily_blog.artifacts.evaluate_eligibility(post, (source,), (str(tmp_path),)).eligible
 
 
 #============================================
@@ -269,15 +417,70 @@ def test_image_metadata_must_exactly_bind_parsed_images() -> None:
 
 
 #============================================
-def test_each_repository_needs_resolved_evidence() -> None:
-	"""Cross-repository artifacts need evidence density for each named repository."""
+def test_cross_repository_scope_cannot_exceed_resolved_evidence() -> None:
+	"""Cross-repository metadata cannot enlarge the evidence-derived scope."""
 	source = packet()
 	artifact = daily_blog.artifacts.DailyOutline.create(
 		source.report_date, (source,), ("vosslab/other", "vosslab/project"),
 		content(source), (source.items[0].evidence_id,),
 	)
 	result = daily_blog.artifacts.evaluate_eligibility(artifact, (source,))
-	assert "insufficient_evidence_density" in result.reasons
+	assert "evidence_outside_repository_scope" in result.reasons
+
+
+#============================================
+def test_forged_persisted_repository_scope_is_rejected() -> None:
+	"""Persisted repository metadata is an assertion, never scope authority."""
+	source = packet()
+	forged = with_identity(outline(source), repositories=("vosslab/forged",))
+	result = daily_blog.artifacts.evaluate_eligibility(forged, (source,))
+	assert "evidence_outside_repository_scope" in result.reasons
+
+
+#============================================
+def test_cited_scope_cannot_expand_beyond_stage_owned_scope() -> None:
+	"""Evidence admitted by one stage cannot leak into a narrower stage scope."""
+	source = packet()
+	result = daily_blog.artifacts.evaluate_eligibility(
+		outline(source), (source,), allowed_repositories=("vosslab/other",),
+	)
+	assert "evidence_outside_repository_scope" in result.reasons
+
+
+#============================================
+def test_repository_artifact_rejects_multi_repository_citations() -> None:
+	"""A repository-local artifact cannot claim evidence from two repositories."""
+	first = packet()
+	second = packet("vosslab/other")
+	evidence_ids = tuple(sorted((first.items[0].evidence_id, second.items[0].evidence_id)))
+	combined = "\n".join(
+		f"Grounded <!-- evidence: {evidence_id} -->" for evidence_id in evidence_ids
+	)
+	artifact = daily_blog.artifacts.RepoOutline.create(
+		first.report_date, (first, second), "vosslab/project", combined,
+		evidence_ids,
+	)
+	result = daily_blog.artifacts.evaluate_eligibility(
+		artifact, (first, second),
+		allowed_repositories=("vosslab/other", "vosslab/project"),
+	)
+	assert "evidence_outside_repository_scope" in result.reasons
+
+
+#============================================
+def test_cross_repository_artifact_can_contract_to_its_cited_scope() -> None:
+	"""A cross-repository stage may retain only the repositories it cites."""
+	first = packet()
+	second = packet("vosslab/other")
+	artifact = daily_blog.artifacts.DailyOutline.create(
+		first.report_date, (first, second), ("vosslab/project",), content(first),
+		(first.items[0].evidence_id,),
+	)
+	result = daily_blog.artifacts.evaluate_eligibility(
+		artifact, (first, second),
+		allowed_repositories=("vosslab/other", "vosslab/project"),
+	)
+	assert result.eligible
 
 
 #============================================

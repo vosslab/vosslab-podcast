@@ -35,11 +35,15 @@ def _post(
 	"""Build one exact pre-Stage-8 post with a real evidence binding."""
 	packet = packet or _packet()
 	evidence_id = packet.items[0].evidence_id
+	post_content = content or (
+		"# Making evidence visible\n\nI kept the boundary explicit. <!-- evidence: "
+		+ evidence_id + " -->\n"
+	)
+	if not post_content.startswith("---\n"):
+		post_content = f"---\ndate: {packet.report_date}\n---\n" + post_content
 	return daily_blog.artifacts.CompletePost.create(
-		packet.report_date, (packet,), ("vosslab/project",), content or (
-			"# Making evidence visible\n\nI kept the boundary explicit. <!-- evidence: "
-			+ evidence_id + " -->\n"
-		), daily_blog.artifacts.evidence_references(content) if content else (evidence_id,),
+		packet.report_date, (packet,), ("vosslab/project",), post_content,
+		daily_blog.artifacts.evidence_references(post_content),
 		packet.report_date, str(tmp_path / (packet.report_date + ".md")),
 	)
 
@@ -72,23 +76,57 @@ def test_constructs_closed_metadata_without_changing_authored_body(tmp_path: pat
 	post = _post(tmp_path)
 	result = _validate(post, tmp_path)
 
-	assert result.reasons == ("machine_metadata_constructed",)
-	assert result.post.content.endswith(post.content)
+	assert result.reasons == ("machine_metadata_repaired",)
+	assert result.post.content.split("---\n", 2)[2].endswith(
+		post.content.split("---\n", 2)[2],
+	)
 
 
 #============================================
 def test_repairs_only_metadata_and_is_idempotent(tmp_path: pathlib.Path) -> None:
 	"""A stale known header becomes canonical without prose rewriting on rerun."""
 	post = _post(tmp_path)
-	stale = _post(
-		tmp_path, "---\ndate: 2026-08-28\nslug: stale\ngenerator_run: old\n"
-		"evidence_manifest: old.json\neditorial_projection: old.json\n---\n" + post.content,
+	body, _metadata = daily_blog.publication_validation._body_and_metadata(post.content)
+	stale = daily_blog.artifacts.CompletePost.create_publication_derivative(
+		post.report_date, (_packet(),), post.repositories, body, post.evidence_ids,
+		post.publication_id, post.output_path,
+		{
+			"date": post.report_date, "slug": "stale", "generator_run": "old",
+			"evidence_manifest": "old.json", "editorial_projection": "old.json",
+		}, post.image_paths,
 	)
 	first = _validate(stale, tmp_path)
 	second = _validate(first.post, tmp_path)
 
-	assert first.post.content.endswith(post.content)
+	assert daily_blog.publication_validation._body_and_metadata(first.post.content)[0] == body
 	assert second.reasons == () and second.post is first.post
+
+
+#============================================
+def test_metadata_repair_retains_citation_derived_repository_scope(tmp_path: pathlib.Path) -> None:
+	"""Stage 8 keeps a contracted semantic scope when packets cover more repositories."""
+	first = _packet()
+	second_item = daily_blog.schema.EvidenceItem.create(
+		"dated_changelog", "vosslab/second", "c" * 40, "docs/CHANGELOG.md", "d" * 40,
+		"A second grounded change.", "git show",
+	)
+	second = daily_blog.schema.EvidencePacket.create(
+		first.report_date, first.timezone, True, {}, [], [], [second_item],
+	)
+	packets = tuple(sorted((first, second), key=lambda item: item.packet_id))
+	evidence_id = first.items[0].evidence_id
+	post = daily_blog.artifacts.CompletePost.create(
+		first.report_date, packets, ("vosslab/project",),
+		f"---\ndate: {first.report_date}\n---\n# Scoped repair\n\nGrounded. <!-- evidence: "
+		+ evidence_id + " -->\n",
+		(evidence_id,), first.report_date, str(tmp_path / "scoped.md"),
+	)
+	result = daily_blog.publication_validation.validate_and_repair_complete_post(
+		post, report_date=first.report_date, packets=packets,
+		approved_output_root=str(tmp_path), generator_run="run-20260829",
+	)
+
+	assert result.repaired and result.post.repositories == ("vosslab/project",)
 
 
 #============================================
@@ -147,5 +185,5 @@ def test_rejects_unconfined_path_and_ambiguous_metadata(tmp_path: pathlib.Path) 
 
 	with pytest.raises(RuntimeError, match="output_path_outside_root"):
 		_validate(outside, tmp_path)
-	with pytest.raises(RuntimeError, match="malformed or ambiguous"):
+	with pytest.raises(RuntimeError, match="input artifact is malformed"):
 		_validate(ambiguous, tmp_path)

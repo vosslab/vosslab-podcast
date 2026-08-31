@@ -119,7 +119,7 @@ daily_blog:
     outline_writer_count: 3
     reviewer_count: 2
     maximum_parallel_calls: 6
-    max_route_calls: 84
+    max_route_calls: 90
     route_retry_attempts: 1
     routes:
       ranking:

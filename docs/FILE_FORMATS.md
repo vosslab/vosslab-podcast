@@ -58,8 +58,14 @@ particular repository or signal must appear in the post.
 
 An eligible whole-post artifact has schema `vosslab.daily-blog.editorial-artifact.v1`. It binds an
 artifact type, report date, packet identities, repositories, evidence references, content, and a
-canonical `artifact_id`. Eligibility validation verifies the evidence references, report identity,
-and any embedded asset provenance before an artifact can become the selected post.
+canonical `artifact_id`. Stage-local eligibility derives scope from cited evidence that resolves
+against authoritative packets under the stage-owned repository ceiling; a model-provided scope marker
+must equal that derived scope and cannot grant authority. Final `CompletePost` admission is separate:
+it uses the frozen `PublicationSurface` made from the exact Stage-6 survivor packet union, its matching
+aggregate packet and projection, and only its required assets. Final citations demonstrate grounding
+inside that surface; they cannot reduce its required coverage. The full repository roster remains
+sealed provenance context, not extra final-post scope. Validation also verifies report identity and
+embedded-asset provenance before an artifact can become the selected post.
 
 Author, referee, and repair work may produce several private artifacts. Only the selected eligible
 `CompletePost` crosses the publication boundary; candidates, reviewer comparisons, and route labels do
@@ -102,6 +108,13 @@ expired only through the validated summary and descriptor-owned retention path.
 Phase cache data is resumability support, not a durable exchange protocol. The producer revalidates
 cached response bytes and identities before reuse.
 
+### Recovery fault digest
+
+An exhausted editorial recovery writes a bounded `recovery_fault.json` with schema
+`vosslab.daily-blog.recovery.v5`. Its canonical digest identifies the report date, stage, safe route
+observations, eligible recovery provenance, prompt and rubric identities, and the typed fault
+category. It is a run-owned diagnostic receipt, not a publication format or a substitute post.
+
 ## Publication handoff
 
 The producer writes one date-owned publication directory containing:
@@ -119,9 +132,16 @@ All declared files are sealed before handoff. The importer reads the manifest an
 through held no-follow descriptors, applies size limits, rejects missing, extra, symbolic, or
 non-regular files, and validates content hashes before staging an import.
 
-### Bundle v7 manifest
+Before import, the producer sends the same exact sealed transfer to the sibling's no-write validation
+operation. A successful `vosslab.daily-blog.import-validation.v1` receipt contains exactly
+`schema_version`, `status: valid`, `report_date`, `bundle_sha256`, and `best_artifact_id`; each value
+must bind the transfer. Validation checks the complete bundle admission contract but creates no archive,
+post, release, record, or `site` mutation. The importing operation revalidates those same bytes before
+staging, so preflight is an integration check rather than a publication shortcut.
 
-`bundle.json` uses `vosslab.daily-blog.bundle.v7`. It is the producer-to-publisher integrity
+### Bundle v8 manifest
+
+`bundle.json` uses `vosslab.daily-blog.bundle.v8`. It is the producer-to-publisher integrity
 boundary, so its exact top-level fields are part of the protocol:
 
 ```text
@@ -146,27 +166,60 @@ editorial_prompt_contract
 names only `post.md`, binds its SHA-256 and `artifact_id`, and must agree with `best_artifact_id`.
 The evidence, roster, and projection entries bind their sealed filenames, identities, and hashes.
 `assets` is the complete allowlist of declared asset paths and identities. `generator`, `contracts`,
-maker activation, and editorial prompt-contract values preserve validated producer provenance.
+maker activation, and editorial prompt-contract values preserve validated producer provenance. The
+`contracts.publication_source_safety` value identifies the deterministic source-safety policy by
+version and executable-vector SHA-256; the active identity is
+`publication_source_safety.v1` with a 35-case executable corpus and SHA-256
+`d50166736d79be7f7715cc0f7585fac71dfb2aecc1c631b10e01aeca2fb63c6b`. It makes the exact policy
+applied to the post verifiable without treating the prose as a prompt contract.
 
 The bundle carries one validated selected post and its grounded inputs. It never carries candidate
 posts, referee results, anonymous rankings, or route-to-candidate mappings.
 
-### Publisher receipt v4
+Before a whole-post artifact is eligible, the producer applies that source-safety policy. Reader
+links may target only GitHub HTTPS URLs or exact declared screenshot paths; active raw HTML,
+unapproved comments, Markdown attribute lists, and ambiguous or disguised links are ineligible.
+Code examples remain inert source text. The publisher independently applies the same identified
+policy while importing, so an unsafe candidate cannot become publishable through bundle reuse or a
+cross-repository handoff.
 
-The sibling `vosslab-daily-blog` repository owns the current receipt at:
+### Publisher record v5 and import receipt v2
+
+The sibling `vosslab-daily-blog` repository owns the current date-keyed record at:
 
 ```text
 data/publications/YYYY-MM-DD.json
 ```
 
-It uses `vosslab.daily-blog.publication.v4`. The receipt is exact and date-keyed; it binds the
+It uses `vosslab.daily-blog.publication.v5`. The record is exact and date-keyed; it binds the
 report date, timezone, bundle digest, selected artifact identity, generator run and revision,
-verified evidence and projection archive paths, the public post path, and import timestamp.
+verified evidence and projection archive paths, the public post path, import timestamp, and
+`article_body_sha256`. That digest is calculated from the canonical visible reader-body projection
+of the installed Markdown post using the publisher's configured MkDocs Markdown extensions.
+
+The producer returns `vosslab.daily-blog.import-receipt.v2` only after its one
+`CommittedPublication` validation reads the held archive snapshot, date-keyed record, and installed
+post together. The receipt repeats the bundle, post, selected-artifact, and reader-body digests and
+names the verified rendered page. Page verification requires the complete ordered source body to
+appear in the one Material article surface; matching title and date alone are insufficient.
 
 The publisher owns the sealed date archive at
 `data/publication_bundles/YYYY-MM-DD/` and the public post at
 `docs/blog/posts/YYYY-MM-DD.md`. Reimporting a matching bundle is idempotent; a confirmed replacement
 updates the same date-owned publication rather than creating a versioned variant.
+
+Automated publisher failures are one bounded, text-free canonical JSON envelope with schema
+`vosslab.daily-blog.import-failure.v1`, exactly `category` and `phase` alongside its schema version.
+The allowed categories are `snapshot_rejected`, `publication_conflict`, `staged_build_failed`,
+`commit_failed`, and `publisher_implementation_defect`; allowed phases are `receive`, `validate`,
+`preflight`, `stage`, and `commit`. The protocol carries no exception text, paths, prompts, post bytes,
+or raw stderr. A malformed protocol response, timeout, or failed publisher start is classified by the
+producer as its own typed boundary fault rather than being treated as a publisher diagnostic.
+
+`--replace-existing` is authorization, not an assertion that a record exists. A missing date imports
+whether or not authorization is present; matching bytes are idempotent; different bytes on an occupied
+date fail without authorization and replace atomically with authorization. These outcomes retain the
+same date-owned identity and do not create versions.
 
 ## Identity relationships
 
@@ -175,12 +228,25 @@ repository_roster.json -- roster_id --> evidence.json -- packet_id --> editorial
                                                          |                     |
                                                          |                     projection_id
                                                          v                     v
-selected CompletePost -- artifact_id --> bundle.json -- bundle_sha256 --> publication v4 receipt
+selected CompletePost -- artifact_id --> bundle.json -- bundle_sha256 --> publication v5 record
+                                                                      |
+                                                                      v
+                                                   import-receipt v2 / article_body_sha256
 ```
 
 The manifest ties all sealed input hashes and the selected post to the one `report_date`. The
-publisher repeats the bundle digest and selected artifact identity in its date-keyed receipt, making
-provenance and publication integrity independently verifiable on both sides of the handoff.
+publisher repeats the bundle digest and selected artifact identity in its date-keyed record and
+binds the reader-visible body digest in its receipt, making provenance and publication integrity
+independently verifiable on both sides of the handoff.
+
+### Compatibility and reuse
+
+Bundle-v7 remains historical evidence only. The active writer and importer create and accept v8;
+the producer refuses to reuse a cached bundle when its schema, source-safety policy identity, or
+sealed contents do not match the current run. A publisher `publication.v3` record is an exact,
+read-only historical record shape used only for the retained 2026-08-26 date while it remains
+unrepublished. New imports and new receipts use publication v5 and the current bundle contract. The
+v3 reader is removed when that date is republished with v8/v5 or explicitly migrated.
 
 ## Maintenance rules
 

@@ -11,14 +11,16 @@ import daily_blog.artifacts
 import daily_blog.config
 import daily_blog.editorial_stage_config
 import daily_blog.final_synthesis_config
-import daily_blog.contracts
 import daily_blog.editorial
 import daily_blog.final_synthesis_prompts
 import daily_blog.io_utils
+import daily_blog.prompt_registry.definitions
+import daily_blog.prompt_registry.loader
 import daily_blog.replication
 import daily_blog.routes
 import daily_blog.schema
 import daily_blog.stage6
+import daily_blog.publication_admission
 
 
 MAX_STAGE7_REVIEW_FACTS_CHARS = 30000
@@ -67,6 +69,9 @@ class Stage7Input:
 				daily_blog.schema.model_cache_packet_identity(item)
 				for item in self.stage6_input.packets
 			),
+			"model_context_id": self.stage6_input.evidence_context.model_context_id,
+			"publication_surface_packet_id": self.stage6_input.publication_surface.packet.packet_id,
+			"publication_surface_projection_id": self.stage6_input.publication_surface.projection.projection_id,
 			"output_root": self.stage6_input.output_root,
 			"output_path": self.stage6_input.output_path,
 			"incumbent_id": self.incumbent.content_hash,
@@ -78,6 +83,8 @@ class Stage7Input:
 		value = self.identity_dict()
 		value.pop("output_root")
 		value.pop("output_path")
+		value.pop("publication_surface_packet_id")
+		value.pop("publication_surface_projection_id")
 		return value
 
 	@property
@@ -181,8 +188,10 @@ class Stage7Result:
 #============================================
 def _eligible(value: Stage7Input, item: daily_blog.artifacts.EditorialArtifact) -> daily_blog.artifacts.EligibilityResult:
 	"""Use the trusted Stage 6 publication target for every peer."""
-	return daily_blog.artifacts.evaluate_eligibility(
-		item, value.stage6_input.packets, (value.stage6_input.output_root,),
+	if type(item) is not daily_blog.artifacts.CompletePost:
+		return daily_blog.artifacts.EligibilityResult(False, ("invalid_machine_metadata",))
+	return daily_blog.publication_admission.complete_post_eligibility(
+		item, value.stage6_input.publication_surface, value.stage6_input.output_root,
 	)
 
 
@@ -232,7 +241,8 @@ def _matches_stage6_target(value: Stage7Input, item: object) -> bool:
 	return (
 		item.report_date == stage6.report_date
 		and item.packet_ids == tuple(packet.packet_id for packet in stage6.packets)
-		and item.repositories == stage6.daily_outline.repositories
+		and bool(item.repositories)
+		and set(item.repositories).issubset(stage6.daily_outline.repositories)
 		and item.publication_id == stage6.report_date
 		and item.output_path == stage6.output_path
 		and _eligible(value, item).eligible
@@ -334,23 +344,31 @@ def _model_post(item: daily_blog.artifacts.CompletePost) -> dict[str, object]:
 
 #============================================
 def _prompt_data(value: Stage7Input, alternatives: tuple[daily_blog.artifacts.CompletePost, ...],
-	templates: dict[str, str], identity: dict[str, object], limits: dict[str, int]) -> tuple[str, dict[str, object]]:
+	templates: dict[str, str], identity: dict[str, object], limits: dict[str, int],
+	prompt_set: daily_blog.prompt_registry.loader.LoadedPromptSet,
+) -> tuple[str, dict[str, object]]:
 	"""Construct the frozen bounded synthesis prompt and its provenance identity."""
 	incumbent = _canonical(_model_post(value.incumbent), limits["incumbent_chars"], "incumbent")
 	alternative_json = _canonical([_model_post(item) for item in alternatives],
 		limits["alternatives_chars"], "alternatives")
-	evidence = _canonical([daily_blog.schema.model_cache_packet_content(item) for item in sorted(value.stage6_input.packets, key=daily_blog.schema.model_cache_packet_identity)],
-		limits["evidence_chars"], "evidence")
+	if limits["evidence_chars"] < value.stage6_input.evidence_context.context_chars:
+		raise RuntimeError("Stage 7 evidence budget cannot retain the Stage 6 bounded context.")
+	evidence = value.stage6_input.evidence_context.render_context(
+		value.stage6_input.evidence_context.context_chars,
+	)
 	rubric = _canonical({"version": identity["rubric_version"], "text": templates["rubric"]},
 		limits["rubric_chars"], "rubric")
 	provenance = _canonical({"stage6_input": value.model_identity_dict(), "stage6_input_identity": daily_blog.io_utils.hash_value(value.model_identity_dict()),
-		"prompt": identity, "alternative_ids": [item.content_hash for item in alternatives]},
+		"prompt": identity, "model_context_id": value.stage6_input.evidence_context.model_context_id,
+		"alternative_ids": [item.content_hash for item in alternatives]},
 		limits["provenance_chars"], "provenance")
 	review_facts = _review_facts(value, limits["review_facts_chars"])
 	return daily_blog.final_synthesis_prompts.render_final_synthesis_prompt(
 		value.report_date, incumbent, alternative_json, review_facts, rubric, evidence, provenance,
+		prompt_set,
 	), {"alternatives": [item.content_hash for item in alternatives], "review_facts": review_facts,
-		"prompt": identity, "rubric_version": identity["rubric_version"]}
+		"prompt": identity, "rubric_version": identity["rubric_version"],
+		"model_context_id": value.stage6_input.evidence_context.model_context_id}
 
 
 #============================================
@@ -363,6 +381,7 @@ def _request(value: Stage7Input, run_id: str, step: str, role: str, ordinal: str
 	assignment_data = {} if assignment is None else dataclasses.asdict(assignment)
 	logical_input = {"report_date": value.report_date,
 		"stage6_input": daily_blog.io_utils.hash_value(value.model_identity_dict()),
+		"model_context_id": value.stage6_input.evidence_context.model_context_id,
 		"incumbent_id": value.incumbent.content_hash,
 		"input_ids": list(input_ids), "synthesis": synthesis_identity, "step": step,
 		"role": role, "ordinal": ordinal,
@@ -444,8 +463,8 @@ def _result(value: Stage7Input, synthesis: daily_blog.replication.ReplicationRes
 #============================================
 def run_stage7(value: Stage7Input, run_id: str, config: daily_blog.config.DailyBlogConfig,
 	budget: daily_blog.agents.RouteBudget, runner: object | None = None,
-	contract: daily_blog.contracts.EditorialContract | None = None,
-	selection: daily_blog.contracts.ExampleSelection | None = None,
+	contract: daily_blog.prompt_registry.definitions.EditorialContract | None = None,
+	selection: daily_blog.prompt_registry.definitions.ExampleSelection | None = None,
 	snapshot: daily_blog.editorial.PromptContractSnapshot | None = None,
 	cache_load: collections.abc.Callable[[daily_blog.agents.RouteRequest], daily_blog.agents.AgentResult | None] | None = None,
 	cache_accept: collections.abc.Callable[[daily_blog.agents.RouteRequest, daily_blog.agents.AgentResult], None] | None = None,
@@ -459,8 +478,11 @@ def run_stage7(value: Stage7Input, run_id: str, config: daily_blog.config.DailyB
 		raise RuntimeError("Stage 7 requires the coordinator-owned RouteBudget.")
 	resolved = daily_blog.editorial.resolve_snapshot(contract, selection, snapshot)
 	templates = daily_blog.editorial.validate_prompt_templates(snapshot=resolved)
-	prompt_contract = daily_blog.final_synthesis_prompts.load_final_synthesis_prompt_contract()
-	prompt_identity = daily_blog.final_synthesis_prompts.final_synthesis_prompt_identity(prompt_contract)
+	prompt_set = daily_blog.prompt_registry.loader.resolve_loaded_prompt_set(
+		daily_blog.prompt_registry.loader.load_prompt_set(daily_blog.prompt_registry.definitions.FINAL_SYNTHESIS_PROMPT_SET),
+		daily_blog.prompt_registry.definitions.FINAL_SYNTHESIS_PROMPT_SET,
+	)
+	prompt_identity = daily_blog.final_synthesis_prompts.final_synthesis_prompt_identity(prompt_set)
 	identity = {**prompt_identity, "rubric_version": resolved.contract.prompt_version,
 		"rubric_sha256": daily_blog.io_utils.sha256_text(templates["rubric"]),
 		"v4_contract": resolved.contract.prompt_version}
@@ -474,7 +496,7 @@ def run_stage7(value: Stage7Input, run_id: str, config: daily_blog.config.DailyB
 		"provenance_chars": min(stage.prompt_limits["provenance_chars"], daily_blog.final_synthesis_prompts.MAX_PROVENANCE_CHARS),
 	}
 	alternatives = _alternatives(value)
-	prompt, synthesis_identity = _prompt_data(value, alternatives, templates, identity, limits)
+	prompt, synthesis_identity = _prompt_data(value, alternatives, templates, identity, limits, prompt_set)
 	if len(prompt) > min(stage.prompt_limits["rendered_prompt_chars"], daily_blog.final_synthesis_prompts.MAX_RENDERED_PROMPT_CHARS):
 		raise RuntimeError("Stage 7 synthesis prompt exceeds its configured limit.")
 	route_runner = runner if runner is not None else daily_blog.routes.CommandRouteRunner()

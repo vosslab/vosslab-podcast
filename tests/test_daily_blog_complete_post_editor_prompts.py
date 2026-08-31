@@ -1,29 +1,27 @@
-"""Offline behavior tests for the Stage 6 whole-post editor prompt."""
-
-# Standard Library
-import dataclasses
-
-# PIP3 modules
-import pytest
+"""Offline behavior tests for the registry-owned Stage 6 editor prompt."""
 
 # local repo modules
 import daily_blog.complete_post_editor_prompts
+import daily_blog.prompt_registry.definitions
+import daily_blog.prompt_registry.loader
 
 
 #============================================
-def _contract() -> daily_blog.complete_post_editor_prompts.CompletePostEditorPromptContract:
-	"""Load the real pinned asset for each focused assertion."""
-	contract = daily_blog.complete_post_editor_prompts.load_complete_post_editor_prompt_contract()
-	return contract
+def _editor_prompt_set() -> daily_blog.prompt_registry.loader.LoadedPromptSet:
+	"""Load the canonical Stage 6 prompt through the central registry."""
+	return daily_blog.prompt_registry.loader.load_prompt_set(
+		daily_blog.prompt_registry.definitions.COMPLETE_POST_EDITOR_PROMPT_SET,
+	)
 
 
 #============================================
-def test_complete_post_editor_prompt_rejects_forged_asset() -> None:
-	"""A changed asset cannot masquerade as this pinned version."""
-	contract = _contract()
-	tampered = dataclasses.replace(contract, template=contract.template + "\nExtra.")
-	with pytest.raises(RuntimeError, match="text and bytes conflict"):
-		daily_blog.complete_post_editor_prompts.complete_post_editor_prompt_identity(tampered)
+def test_complete_post_editor_prompt_uses_issued_canonical_set() -> None:
+	"""Rendering preserves supplied typed values through the registered resource."""
+	rendered = daily_blog.complete_post_editor_prompts.render_complete_post_editor_prompt(
+		'{"daily_outline":{}}', '{"candidates":[]}', "editor-1", _editor_prompt_set(),
+	)
+	assert '{"daily_outline":{}}' in rendered
+	assert '{"candidates":[]}' in rendered
 
 
 #============================================

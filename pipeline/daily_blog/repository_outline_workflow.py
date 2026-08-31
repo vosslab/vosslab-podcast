@@ -13,6 +13,8 @@ import daily_blog.artifacts
 import daily_blog.config
 import daily_blog.editorial_stage_config
 import daily_blog.io_utils
+import daily_blog.prompt_registry.definitions
+import daily_blog.prompt_registry.loader
 import daily_blog.replication
 import daily_blog.repository_outline_prompts
 import daily_blog.routes
@@ -55,6 +57,12 @@ class RepositoryOutlineInput:
 	def report_date(self) -> str:
 		"""Expose the sole report identity carried by the authoritative packet."""
 		return self.packet.report_date
+
+	#============================================
+	@property
+	def allowed_repositories(self) -> tuple[str, ...]:
+		"""Expose the coordinator-owned singleton evidence ceiling for Stage 3."""
+		return (self.repository,)
 
 	#============================================
 	def render_evidence(self) -> str:
@@ -174,7 +182,9 @@ def _eligible(
 	item: daily_blog.artifacts.EditorialArtifact,
 ) -> daily_blog.artifacts.EligibilityResult:
 	"""Apply the shared mechanical gate to the one repository scope."""
-	return daily_blog.artifacts.evaluate_eligibility(item, (value.packet,))
+	return daily_blog.artifacts.evaluate_eligibility(
+		item, (value.packet,), allowed_repositories=value.allowed_repositories,
+	)
 
 
 #============================================
@@ -285,7 +295,7 @@ def run_repository_outline(
 	config: daily_blog.editorial_stage_config.RepositoryOutlineConfig,
 	budget: daily_blog.agents.RouteBudget,
 	runner: object | None = None,
-	contract: daily_blog.repository_outline_prompts.RepositoryOutlinePromptContract | None = None,
+	loaded_prompts: daily_blog.prompt_registry.loader.LoadedPromptSet | None = None,
 	cache_load: collections.abc.Callable[
 		[daily_blog.agents.RouteRequest], daily_blog.agents.AgentResult | None,
 	] | None = None,
@@ -303,17 +313,17 @@ def run_repository_outline(
 		raise RuntimeError("Repository-outline workflow requires the run-owned RouteBudget.")
 	if incumbent is not None and type(incumbent) is not daily_blog.artifacts.RepoOutline:
 		raise RuntimeError("Repository-outline incumbent must be an exact RepoOutline.")
-	contract_value = contract or daily_blog.repository_outline_prompts.load_repository_outline_prompt_contract()
-	if type(contract_value) is not daily_blog.repository_outline_prompts.RepositoryOutlinePromptContract:
-		raise RuntimeError("Repository-outline workflow prompt contract is invalid.")
-	contract_identity = daily_blog.repository_outline_prompts.repository_outline_prompt_identity(contract_value)
+	loaded_value = daily_blog.prompt_registry.loader.resolve_loaded_prompt_set(
+		loaded_prompts, daily_blog.prompt_registry.definitions.REPOSITORY_OUTLINE_PROMPT_SET,
+	)
+	contract_identity = daily_blog.repository_outline_prompts.repository_outline_prompt_identity(loaded_value)
 	evidence_json = value.render_evidence()
 	route_runner = runner if runner is not None else daily_blog.routes.CommandRouteRunner()
 
 	generator_requests = tuple(
 		_request(value, "3_1", "generator", str(index + 1), config.generator_route,
 			daily_blog.repository_outline_prompts.render_repository_outline_generator(
-				evidence_json, "generator-" + str(index + 1), contract_value,
+				evidence_json, "generator-" + str(index + 1), loaded_value,
 			), config, contract_identity)
 		for index in range(config.generator_count)
 	)
@@ -330,7 +340,7 @@ def run_repository_outline(
 		merger_requests = tuple(
 			_request(value, "3_2", "merger", str(index + 1), config.merger_route,
 				daily_blog.repository_outline_prompts.render_repository_outline_merger(
-					evidence_json, candidate_json, "merger-" + str(index + 1), contract_value,
+					evidence_json, candidate_json, "merger-" + str(index + 1), loaded_value,
 				), config, contract_identity,
 				tuple(item.content_hash for item in generator_peers))
 			for index in range(config.merger_count)
@@ -368,7 +378,7 @@ def run_repository_outline(
 		assignment: daily_blog.replication.ReviewAssignment,
 	) -> daily_blog.replication.ReviewWork:
 		prompt = daily_blog.repository_outline_prompts.render_repository_outline_comparison(
-			evidence_json, left.content, right.content, contract_value,
+			evidence_json, left.content, right.content, loaded_value,
 		)
 		if len(prompt) > config.prompt_limits["reviewer_chars"]:
 			raise RuntimeError("Repository-outline comparison prompt exceeds its configured limit.")
@@ -387,7 +397,7 @@ def run_repository_outline(
 
 	def repair(work: daily_blog.replication.ReviewWork, response: str) -> daily_blog.replication.ReviewWork:
 		prompt = daily_blog.repository_outline_prompts.render_repository_outline_verdict_repair(
-			response, contract_value,
+			response, loaded_value,
 		)
 		if len(prompt) > config.prompt_limits["repair_chars"]:
 			raise RuntimeError("Repository-outline repair prompt exceeds its configured limit.")

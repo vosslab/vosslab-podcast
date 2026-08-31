@@ -12,6 +12,7 @@ import pytest
 import daily_blog.agents
 import daily_blog.artifacts
 import daily_blog.config
+import daily_blog.daily_outline_workflow
 import daily_blog.editorial_stage_config
 import daily_blog.final_synthesis_config
 import daily_blog.orchestrator
@@ -19,8 +20,67 @@ import daily_blog.publication_workflow
 import daily_blog.replication
 import daily_blog.run_contracts
 import daily_blog.schema
+import daily_blog.repository_contracts
 import daily_blog.stage6
 import daily_blog.stage7
+import daily_blog.io_utils
+
+
+_CONTEXT_LIMITS = {
+	"commit_subject_chars": 120,
+	"context_chars": 60000,
+	"excerpt_chars": 1000,
+}
+
+
+def _valid_post_body(
+	packets: tuple[object, ...], evidence_ids: tuple[str, ...], title: str = "A day of connected work",
+) -> str:
+	"""Return one V4-valid body using the exact Stage 7 evidence scope."""
+	repositories = [
+		(activity.repository, activity.repository_url)
+		for packet in packets for activity in packet.activity
+	]
+	links = ", ".join("[" + repository + "](" + url + ")" for repository, url in repositories)
+	evidence = "<!-- evidence: " + ", ".join(evidence_ids) + " -->"
+	narrative = (
+		"I kept the small changes connected to their source material, checked how they fit the work "
+		"already underway, and wrote down the practical consequence before moving to the next thread. "
+	) * 12
+	coverage = ", ".join(repository for repository, _url in repositories)
+	return (
+		"# " + title + "\n\nI followed one grounded thread through the work, keeping the useful "
+		"detail visible while leaving room for the next decision. " + evidence
+		+ "\n\n<!-- more -->\n\n## Grounded notes\n\nToday I returned to " + links + ". "
+		+ narrative + evidence + "\n\n## Project coverage\n\nI tracked active work in " + coverage + ".\n"
+	)
+
+
+def _recovery_sources(
+	story: daily_blog.artifacts.RepoStory,
+	packet: daily_blog.schema.EvidencePacket,
+) -> daily_blog.stage6.Stage6RecoverySources:
+	"""Return reviewed lower-rung sources for the shared Stage 6 boundary."""
+	evidence_id = packet.items[0].evidence_id
+	repository_outline = daily_blog.artifacts.RepoOutline.create(
+		packet.report_date, (packet,), story.repositories[0],
+		"Outline <!-- evidence: " + evidence_id + " -->", (evidence_id,),
+	)
+	ranking_hash = "a" * 64
+	payload = {
+		"candidate_id": "ranking-1", "accepted_review_ids": ["review-1"],
+		"ranking_content_sha256": ranking_hash,
+	}
+	promoted = daily_blog.daily_outline_workflow.PromotedRanking(
+		"ranking-promotion-" + daily_blog.io_utils.sha256_text(
+			json.dumps(payload, sort_keys=True, separators=(",", ":")),
+		)[:24],
+		"ranking-1", ranking_hash, (story.content_hash,), ((story.content_hash, 100),),
+		"Grounded ranking rationale.", ("review-1",),
+	)
+	return daily_blog.stage6.Stage6RecoverySources(
+		(story,), (repository_outline,), (packet,), promoted, story.artifact_id,
+	)
 
 
 def _source(tmp_path: pathlib.Path) -> tuple[
@@ -33,16 +93,30 @@ def _source(tmp_path: pathlib.Path) -> tuple[
 	"""Build one exact Stage-6 incumbent eligible for the Stage-7 boundary."""
 	item = daily_blog.schema.EvidenceItem.create("dated_changelog", "owner/repository", "a" * 40,
 		"CHANGELOG.md", "b" * 40, "Grounded change.", "git show")
-	packet = daily_blog.schema.EvidencePacket.create("2026-08-29", "America/Chicago", True, {}, [], [], [item])
+	activity = daily_blog.schema.RepositoryActivity(
+		"owner/repository", "https://github.com/owner/repository", "/fixture/repository",
+		"a" * 40, (), (), (), False,
+		(daily_blog.repository_contracts.RepositoryLifecycleEvent(
+			"repository_created", "2020-01-01T00:00:00Z", False, "fixture",
+		),),
+	)
+	packet = daily_blog.schema.EvidencePacket.create(
+		"2026-08-29", "America/Chicago", True, {}, [], [activity], [item],
+	)
 	output_path = str(tmp_path / "owner" / "daily_blog" / packet.report_date / "post.md")
 	story = daily_blog.artifacts.RepoStory.create(packet.report_date, (packet,), "owner/repository",
 		"Story <!-- evidence: " + item.evidence_id + " -->", (item.evidence_id,))
 	outline = daily_blog.artifacts.DailyOutline.create(packet.report_date, (packet,), ("owner/repository",),
 		"Outline <!-- evidence: " + item.evidence_id + " -->", (item.evidence_id,))
-	value = daily_blog.stage6.Stage6Input(outline, (story,), (packet,), str(tmp_path), output_path)
+	value = daily_blog.stage6.Stage6Input(
+		outline, (story,), (packet,), str(tmp_path), output_path,
+		_recovery_sources(story, packet), daily_blog.stage6.build_stage6_evidence_context(
+			outline, (story,), (packet,), _CONTEXT_LIMITS,
+		),
+	)
 	def post(title: str) -> daily_blog.artifacts.CompletePost:
 		return daily_blog.artifacts.CompletePost.create(packet.report_date, (packet,), ("owner/repository",),
-			"# " + title + "\n\nGrounded. <!-- evidence: " + item.evidence_id + " -->\n",
+			_valid_post_body((packet,), (item.evidence_id,), title),
 			(item.evidence_id,), packet.report_date, output_path)
 	incumbent, alternative = post("INCUMBENT"), post("ALTERNATIVE")
 	route = daily_blog.editorial_stage_config.RoleRoute("fixture", ("fixture",))
@@ -137,8 +211,9 @@ def test_stage7_win_attests_and_advances_only_final_promotion_step(tmp_path: pat
 	"""A direct peer win records the explicit Stage-7 replacement attestation."""
 	coordinator, packet, value, stage6_result, incumbent = _source(tmp_path)
 	challenger = daily_blog.artifacts.CompletePost.create(value.report_date, value.packets,
-		value.daily_outline.repositories, "# CHALLENGER\n\nGrounded. <!-- evidence: "
-		+ value.daily_outline.evidence_ids[0] + " -->\n", value.daily_outline.evidence_ids,
+		value.daily_outline.repositories, _valid_post_body(
+			value.packets, value.daily_outline.evidence_ids, "CHALLENGER",
+		), value.daily_outline.evidence_ids,
 		value.report_date, value.output_path)
 
 	class Runner:

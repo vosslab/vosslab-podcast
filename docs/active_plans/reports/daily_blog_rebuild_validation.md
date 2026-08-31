@@ -88,7 +88,7 @@ is claimed for them.
 ## Publication and state
 
 `source source_me.sh && python3 tests/e2e/e2e_daily_publication.py` is the
-sole permanent controlled E2E. It passed at fixed date 2026-08-23 with a local
+retained durable controlled E2E. It passed at fixed date 2026-08-23 with a local
 offline runner. Initial publication selected
 `artifact-ae39e0fb496316cd00f46c2e`, bundle
 `3f6c4422656488bbbed6fdd1499d9a8e6f92ae8a2d1855bab3d927ef6ccb6008`, and
@@ -99,6 +99,31 @@ Forced page verification returned public status 2, recorded a typed fault, and
 preserved the prior post, bundle, and publication record. Its temporary roots
 were deliberately removed; no summary ID or disk measurement is invented.
 See `/tmp/vosslab_m14_permanent_e2e_evidence.md`.
+
+## 2026-08-30 stabilization follow-up
+
+A real route for 2026-08-28 completed editorial stages and sealed a bundle,
+then failed at site import. This report classifies that outcome as a pipeline
+fault, not editorial degradation: the final producer admission did not enforce
+the sibling publisher's repository-coverage and narrative-citation policy.
+The sealed bundle is retained diagnostic evidence; it is not a publication
+receipt and no installed post or rendered page is claimed.
+
+The active hardening plan freezes the exact Stage-6 eligible survivor
+`EvidencePacket` union as the publication surface before candidate generation.
+Its matching projection and required assets follow the same exact scope.
+Citations prove grounding within that scope and cannot shrink coverage. H1 adds
+Stage-6/7 final-policy admission and makes Stage 8 an invariant check. H2 adds
+a validate-only preflight for the exact sealed transfer, bounded text-free typed
+publisher failures, and replacement-as-authorization transitions. H1 and H2
+are in progress and await focused offline tests and review.
+
+H3 retains the fixed, offline durable controlled E2E and adds focused permanent
+tests for the new public behavior. Only after those checks will one unattended
+2026-08-28 public rerun verify a terminal summary, import receipt, sealed
+bundle, installed post, and rendered page. That rerun is one-time integration
+corroboration, never pytest or a permanent gate; `--yes` and `--yesterday`
+remain unattended paths.
 
 A separate retained full publication completed/degraded at 2026-08-23 with
 summary `450016868d190ebd1723f53c1144a84afd3c2da2bfc965715c9f1205bb5c1723`.
@@ -170,8 +195,9 @@ full pytest suite only once after the coordinated migration.
 | `tests/e2e/e2e_daily_blog_stage_recovery.py`; `tests/e2e/e2e_daily_blog_production_recovery.py`; `tests/e2e/e2e_daily_blog_stage7_synthesis.py` | One-time forced fault, recovery, and synthesis scenarios. **Delete.** Durable category behavior remains in offline pytest and E1. |
 | `automation/capture_daily_blog_experiment_fixture.py`; `automation/run_daily_blog_fixture_capture.py`; `automation/run_daily_blog_fixture_calibration.py` | Superseded private experiment tooling after consumer migration. **Delete.** It is not an M14 publication dependency. |
 | `tests/e2e/e2e_daily_publication_schedule.py`; `tests/e2e/e2e_publication_crash_recovery.py` | Legacy retired/unavailable. **Delete.** The former lacks a local fixture input; the latter expects removed `EXPECTED_ROUTE`. Do not recreate compatibility or a human handoff to revive either. |
-| `tests/e2e/e2e_daily_publication.py` | Permanent, controlled public publication E2E. **Retain.** |
-| `tests/e2e/e2e_daily_blog_evidence_git.py`; `tests/e2e/e2e_daily_blog_new_repository.py`; `tests/e2e/e2e_daily_blog_contract.py`; `tests/e2e/e2e_daily_blog_mirror_refresh.py` | Outside the temporary editorial removal set. **Retain pending separate scope decision; do not delete by implication.** |
+| `tests/e2e/e2e_daily_publication.py` | Fixed, offline durable controlled public publication E2E. **Retain.** |
+| `tests/e2e/e2e_daily_blog_contract.py` | Outside the temporary editorial removal set at M14. **Deleted in M15.** Its later absence is recorded here rather than treated as a reason to recreate it. |
+| `tests/e2e/e2e_daily_blog_evidence_git.py`; `tests/e2e/e2e_daily_blog_new_repository.py`; `tests/e2e/e2e_daily_blog_mirror_refresh.py` | Outside the temporary editorial removal set. **Retain pending separate scope decision; do not delete by implication.** |
 
 Permanent tests remain offline, deterministic, behavior-focused, self-contained
 pytest coverage. One-time evidence is the listed direct E2E and automation

@@ -58,6 +58,12 @@ failures, uses bounded review and verdict repair, and promotes an eligible whole
 mechanically joins prose. Stage 7 preserves the already-grounded Stage-6 incumbent unless an
 eligible synthesis wins its direct comparison.
 
+Stage 6 is a bounded editorial subflow: replicated authors create whole-post candidates; eligible
+grounded work survives partial route loss; editors return bounded feedback for those candidates; and
+promotion selects only an eligible whole post. If its normal author/editor path exhausts, its two
+recovery rungs request a whole post from the retained daily outline and then from retained repository
+stories. The retained strongest story remains provenance only and is never assembled into a post.
+
 The user-facing terminal meanings are:
 
 | Outcome | Meaning | Command result |
@@ -73,10 +79,18 @@ route exhaustion, no eligible generation, unavailable evidence, invalid configur
 integrity/path state, and unexpected implementation defects. The public CLI emits a structured
 `pipeline_fault` record and exits 2 for a diagnosed pipeline fault.
 
-If a stage cannot produce its own artifact type, the recovery ladder asks an additional editorial
-writer to work from the strongest prior promoted material. It moves from final synthesis to the
-Stage-6 post, complete writer work, daily-outline expansion, repository-story merge, and finally the
-strongest usable repository material. Exhausting the ladder is a pipeline fault, not degradation.
+An exact-transfer preflight rejection is a typed producer/publisher integration fault before publisher
+state changes. A publisher staged-build or commit failure leaves the sealed post or bundle available as
+incomplete operational work and preserves the prior verified publication. Publisher protocol, start,
+and timeout failures are typed boundary faults; terminal state records only an allowlisted category and
+phase, never raw publisher stderr or diagnostics.
+
+If a stage cannot produce its own artifact type, the recovery ladder takes another editorial path.
+Stage 7 first preserves its exact Stage-6 incumbent when no challenger wins. For an exhausted Stage
+6, the existing V4 author writes one whole Markdown post from the promoted daily outline, then one
+whole Markdown post from the retained repository-story set. These lower rungs never mechanically
+assemble prose. The strongest `RepoStory` is retained only as terminal provenance when both paths
+fail; it is not a publishable fallback. Exhausting the ladder is a pipeline fault, not degradation.
 
 ## Durable state and recovery
 
@@ -95,13 +109,18 @@ credentials, and raw external diagnostics.
 Run state uses `vosslab.daily-blog.run.v11`. Each editorial summary carries an exact typed incumbent
 transition: observe, establish, editorial replacement, or publication repair. Replay validates the
 transition chain and `best_artifact_id`; stage names are observability labels, never authority to
-replace a post. A resumed run reopens only compatible durable state and resolves a pending
-transition once.
+replace a post. Each production retry creates a new auditable run and reuses only compatible
+phase and route-cache work. `RunStore.reopen()` is reconciliation-only: it can resolve a pending
+transition in an existing run once, but it does not make that run the retry target.
 
 Hash-verified phase-cache entries reuse matching activity, evidence, projections, and successful
 route results. Failed route calls remain retryable, and compatible ordinal calls can be reused when
 the configured replication count changes. Cache reuse saves work; it cannot relax evidence,
 eligibility, identity, or publication validation.
+
+Complete-post candidates reused from cache are admitted again against the current frozen
+`PublicationSurface` and final-post policy. A cached candidate that no longer meets that admission is
+an ineligible editorial peer, not a reason to bypass survivor scope or manufacture a fallback.
 
 For a failed or incomplete run, inspect the terminal summary first, then the bounded events and run
 state. Correct the external condition and run the same date again. The new attempt can reuse valid
@@ -115,15 +134,57 @@ The producer writes one selected-post handoff at:
 out/<owner>/daily_blog/YYYY-MM-DD/publication/
 ```
 
-Its manifest is `vosslab.daily-blog.bundle.v7`. It binds the report date, selected
+Its manifest is `vosslab.daily-blog.bundle.v8`. It binds the report date, selected
 `best_artifact_id`, evidence packet, repository roster, editorial projection, declared assets,
-activation and prompt-contract identities, generator revision, and hashes. Candidate and referee
+activation and prompt-contract identities, generator revision, source-safety policy identity, and
+hashes. Candidate and referee
 topology remains producer-side diagnostic state; it is not publisher input.
 
-The publisher accepts only the bounded, manifest-declared snapshot through held descriptors. It
-rejects symlinks, nonregular or undeclared artifacts, missing artifacts, identity mismatch, and
-digest mismatch. Its per-date receipt is `vosslab.daily-blog.publication.v4`; it binds the bundle,
-selected artifact, installed post, archive, release, and verified page to the same report date.
+The producer sends that validated snapshot through one bounded hash-bound standard-input envelope;
+the publisher never reopens a producer bundle path. It first invokes the publisher's no-write
+`--validate-bundle-stdin` endpoint and accepts its identity-bound
+`vosslab.daily-blog.import-validation.v1` receipt only when it matches the exact sealed transfer.
+That preflight validates the same semantic contract but creates no publisher record, archive, post,
+release, or `site` change. The importing endpoint then revalidates and accepts only the bounded,
+manifest-declared snapshot through held descriptors. It rejects symlinks, nonregular or undeclared
+artifacts, missing artifacts, identity mismatch, and digest mismatch. Its per-date
+`vosslab.daily-blog.publication.v5` record binds the bundle, selected artifact, installed post,
+archive, release, and canonical `article_body_sha256` to the same report date. The producer returns
+`vosslab.daily-blog.import-receipt.v2` only after shared committed-publication validation confirms
+the archive, record, and installed post together. Separate page verification requires the complete
+ordered reader body in the dated article surface, while allowing normal site chrome.
+
+The source-safety identity records the version and digest of the policy applied to the selected
+Markdown. The active `publication_source_safety.v1` policy has an executable 35-case corpus and
+SHA-256 `d50166736d79be7f7715cc0f7585fac71dfb2aecc1c631b10e01aeca2fb63c6b`. It admits only sealed
+screenshot paths and GitHub HTTPS links as reader-visible targets; raw HTML and ambiguous,
+disguised, or otherwise unapproved active markup make a candidate editorially ineligible. The
+publisher independently rechecks the same policy at import. A cached bundle is reused only when
+its current v8 schema, safety identity, and sealed artifacts validate; otherwise the producer
+rebuilds it. Exact legacy `publication.v3` records remain read-only support for inspecting or
+replacing the retained 2026-08-26 historical date, never a new-import format. The producer and
+publisher remove that finite compatibility reader once the date is republished with v8/v5 or explicitly
+migrated.
+
+The importer reports actual prior-state results under its date lock:
+
+| Prior date state and authorization | Result |
+| --- | --- |
+| No record, with or without replacement authorization | `imported` |
+| Matching installed bundle | `idempotent` |
+| Different installed bundle without authorization | `publication_conflict`, no mutation |
+| Different installed bundle with authorization | `replaced` atomically |
+
+`--yes` and the scheduled `--yesterday` path supply replacement authorization. Authorization permits
+replacement when a different installed publication exists; it does not require one to exist.
+
+Automated failures use only the bounded text-free
+`vosslab.daily-blog.import-failure.v1` envelope. Its categories are `snapshot_rejected`,
+`publication_conflict`, `staged_build_failed`, `commit_failed`, and
+`publisher_implementation_defect`; phases are `receive`, `validate`, `preflight`, `stage`, and
+`commit`. A malformed envelope, publisher start failure, or timeout is a producer-side typed boundary
+fault. Operators use the terminal category and phase to correct the owning boundary, without relying
+on raw publisher output.
 
 ## Configuration and model routes
 
@@ -188,6 +249,9 @@ systemctl --user enable --now vosslab-daily-publication.timer
 The timer invokes `./make_blog.py --yesterday` at 04:00 America/Chicago. Systemd owns schedule and
 service lifecycle; Hermes owns only configured route execution inside one run. The per-date lock and
 automatic replacement make a repeated scheduled invocation safe for the same completed date.
+
+`automation/preflight_daily_blog_producer.py` is an optional operator diagnostic for producer
+configuration. The scheduled service does not invoke it as a separate gate.
 
 The service supplies the Hermes home while keeping provider/account selection outside project
 configuration. The publisher static service remains independently owned by the sibling repository.

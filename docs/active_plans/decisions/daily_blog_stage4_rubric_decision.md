@@ -76,9 +76,11 @@ After regeneration, a new independent reviewer must rescore the blinded input wi
 the expected-order mapping. Recompute all capture hashes, then repeat this decision comparison;
 do not reuse the earlier score record as a score for changed candidate or rubric bytes.
 
-The offline validator is `tests/e2e/e2e_stage4_rubric_decision.py`; it checks the sealed capture
-chain, expected-order and order-balanced selections, decision bindings, and absence of a production
-narrow rubric.
+The one-time validation evidence is the capture chain above, rooted at
+`output_blog_capture/m8_stage4_rubric_decision`, with its Stage 4 route and step evidence recorded
+in [daily_blog_rebuild_validation.md](../reports/daily_blog_rebuild_validation.md). M15 removed
+`tests/e2e/e2e_stage4_rubric_decision.py` after that evidence was recorded; do not recreate the
+historical validator as a permanent or compatibility path.
 
 ## Limits of this decision
 

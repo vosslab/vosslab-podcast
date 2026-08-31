@@ -162,6 +162,26 @@ def test_input_rejects_mixed_repository_packet() -> None:
 
 
 #============================================
+def test_cross_repository_citation_is_filtered_while_grounded_peer_promotes() -> None:
+	"""A cited foreign repository cannot enter Stage 4 promotion by declaration."""
+	source = value()
+	foreign = daily_blog.schema.EvidenceItem.create("dated_changelog", "vosslab/other", "c" * 40,
+		"CHANGELOG.md", "d" * 40, "Other project change.", "git show")
+	foreign_story = "# Foreign\n\nOther work. <!-- evidence: " + foreign.evidence_id + " -->\n"
+	runner = Runner({
+		"repository_story_writer": [foreign_story, story(source, "grounded peer")],
+		"repository_story_editor": [daily_blog.routes.EditorialRouteProcessError("editor unavailable")] * 2,
+		"repository_story_reviewer": [daily_blog.routes.EditorialRouteProcessError("review unavailable")] * 2,
+	})
+
+	result = run(source, runner)
+
+	assert isinstance(result.promotion, daily_blog.artifacts.DegradedPromotion)
+	assert result.artifact is not None
+	assert result.artifact.repositories == (source.repository,)
+
+
+#============================================
 def test_partial_writer_editor_and_reviewer_loss_degrades_without_assembly() -> None:
 	"""Ordinary route loss preserves eligible whole peer work on the same rung."""
 	source = value()

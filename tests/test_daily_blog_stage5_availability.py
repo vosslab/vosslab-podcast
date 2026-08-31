@@ -13,7 +13,30 @@ import daily_blog.agents
 import daily_blog.artifacts
 import daily_blog.editorial_stage_config
 import daily_blog.daily_outline_workflow
+import daily_blog.projection
+import daily_blog.repository_contracts
 import daily_blog.schema
+
+
+def _activity(repository: str, marker: str) -> daily_blog.schema.RepositoryActivity:
+	"""Return the minimal active repository shape required by evidence projection."""
+	commit = daily_blog.schema.CommitActivity(
+		marker * 40, (), "Maker", "maker@example.com", "2026-08-29T12:00:00Z",
+		"2026-08-29T12:00:00Z", "Grounded work.",
+	)
+	return daily_blog.schema.RepositoryActivity(
+		repository, "https://github.com/" + repository, "/cache/" + marker, marker * 40,
+		(commit,), (daily_blog.schema.RevisionRange("", marker * 40),), (marker * 40,), False,
+		(daily_blog.repository_contracts.RepositoryLifecycleEvent(
+			"repository_created", "2020-01-01T00:00:00Z", False, "github_owner_roster",
+		),),
+	)
+
+
+def _context(packets: tuple[daily_blog.schema.EvidencePacket, ...]) -> daily_blog.schema.BoundedEvidenceContext:
+	"""Build the same survivor-only Stage 5 evidence frame used in production."""
+	limits = {"context_chars": 60000, "excerpt_chars": 600, "commit_subject_chars": 120}
+	return daily_blog.projection.build_bounded_evidence_context(packets, limits, limits["context_chars"])
 def _input(tmp_path: object) -> daily_blog.daily_outline_workflow.DailyOutlineInput:
 	"""Build complete inline artifact and evidence provenance."""
 	packets = []
@@ -22,7 +45,7 @@ def _input(tmp_path: object) -> daily_blog.daily_outline_workflow.DailyOutlineIn
 			chr(97 + index) * 40, "CHANGELOG.md", chr(99 + index) * 40,
 			repository + " changed.", "git show")
 		packets.append(daily_blog.schema.EvidencePacket.create(
-			"2026-08-29", "America/Chicago", True, {}, [], [], [item]))
+			"2026-08-29", "America/Chicago", True, {}, [], [_activity(repository, chr(97 + index))], [item]))
 	packet_tuple = tuple(packets)
 	stories = tuple(daily_blog.artifacts.RepoStory.create("2026-08-29", (packet,),
 		packet.items[0].repository, "# Story\n<!-- evidence: " + packet.items[0].evidence_id + " -->\n",
@@ -30,7 +53,9 @@ def _input(tmp_path: object) -> daily_blog.daily_outline_workflow.DailyOutlineIn
 	outlines = tuple(daily_blog.artifacts.RepoOutline.create("2026-08-29", (packet,),
 		packet.items[0].repository, "# Outline\n<!-- evidence: " + packet.items[0].evidence_id + " -->\n",
 		(packet.items[0].evidence_id,)) for packet in packet_tuple)
-	return daily_blog.daily_outline_workflow.DailyOutlineInput(stories, outlines, packet_tuple, str(tmp_path))
+	return daily_blog.daily_outline_workflow.DailyOutlineInput(
+		stories, outlines, packet_tuple, _context(packet_tuple), str(tmp_path),
+	)
 
 
 def _config() -> daily_blog.editorial_stage_config.DailyOutlineConfig:
@@ -41,7 +66,7 @@ def _config() -> daily_blog.editorial_stage_config.DailyOutlineConfig:
 
 def _ranking(source: daily_blog.daily_outline_workflow.DailyOutlineInput) -> str:
 	"""Return one valid complete ranking with a deliberately low final story."""
-	ids = [item.content_hash for item in source.repo_stories]
+	ids = list(source.story_ranking_aliases.aliases)
 	low_ranked_id = ids[0]
 	ranked_ids = [item for item in ids if item != low_ranked_id] + [low_ranked_id]
 	scores = {item: 90 for item in ranked_ids}
@@ -83,15 +108,23 @@ def test_input_rejects_later_story_or_outline_with_incomplete_packet_provenance(
 	"""Each repository artifact must bind its own matching local evidence packet."""
 	source = _input(tmp_path)
 	story = source.repo_stories[1]
-	outline = source.repo_outlines[1]
+	outline = next(item for item in source.repo_outlines if item.repositories == story.repositories)
 	wrong_packet = next(packet for packet in source.packets if packet.packet_id not in story.packet_ids)
 	broken_story = dataclasses.replace(story, packet_ids=(wrong_packet.packet_id,))
 	broken_outline = dataclasses.replace(outline, packet_ids=(wrong_packet.packet_id,))
+	broken_stories = tuple(
+		broken_story if item.artifact_id == story.artifact_id else item
+		for item in source.repo_stories
+	)
+	broken_outlines = tuple(
+		broken_outline if item.artifact_id == outline.artifact_id else item
+		for item in source.repo_outlines
+	)
 
 	with pytest.raises(RuntimeError, match="provenance"):
-		daily_blog.daily_outline_workflow.DailyOutlineInput((source.repo_stories[0], broken_story), source.repo_outlines, source.packets, source.working_directory)
+		daily_blog.daily_outline_workflow.DailyOutlineInput(broken_stories, source.repo_outlines, source.packets, source.evidence_context, source.working_directory)
 	with pytest.raises(RuntimeError, match="provenance"):
-		daily_blog.daily_outline_workflow.DailyOutlineInput(source.repo_stories, (source.repo_outlines[0], broken_outline), source.packets, source.working_directory)
+		daily_blog.daily_outline_workflow.DailyOutlineInput(source.repo_stories, broken_outlines, source.packets, source.evidence_context, source.working_directory)
 
 
 def test_explicit_narrower_scope_preserves_sources_and_selects_only_declared_repositories(tmp_path: object) -> None:
@@ -126,12 +159,12 @@ def test_invalid_scope_is_ineligible_while_a_valid_peer_survives(tmp_path: objec
 	assert result.artifact.repositories == valid
 
 
-def test_evidence_disagreeing_scope_is_ineligible_while_a_valid_peer_survives(tmp_path: object) -> None:
-	"""A declared repository set must agree with cited repository evidence."""
+def test_scope_marker_mismatch_loses_to_evidence_derived_peer(tmp_path: object) -> None:
+	"""The model marker is an assertion, while cited evidence owns candidate scope."""
 	source = _input(tmp_path)
 	valid = (source.repositories[0],)
-	wrong_evidence = next(packet.items[0].evidence_id for packet in source.packets if packet.items[0].repository != valid[0])
-	invalid = "<!-- daily-outline-scope: [\"" + valid[0] + "\"] -->\n# Invalid\n\n<!-- evidence: " + wrong_evidence + " -->\n"
+	evidence = next(packet.items[0].evidence_id for packet in source.packets if packet.items[0].repository == valid[0])
+	invalid = "<!-- daily-outline-scope: " + json.dumps(list(source.repositories)) + " -->\n# Invalid\n\n<!-- evidence: " + evidence + " -->\n"
 	runner = _Runner({
 		"daily_outline_ranking": [_ranking(source), _ranking(source)],
 		"daily_outline_writer": [invalid, _outline(source, valid)],

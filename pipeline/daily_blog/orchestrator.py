@@ -11,11 +11,11 @@ import daily_blog.acquisition_workflow
 import daily_blog.activation
 import daily_blog.activity
 import daily_blog.config
-import daily_blog.contracts
 import daily_blog.editorial
 import daily_blog.io_utils
 import daily_blog.locks
-import daily_blog.prompt_registry
+import daily_blog.prompt_registry.definitions
+import daily_blog.prompt_registry.editorial_contracts
 import daily_blog.publication_contract
 import daily_blog.publication_finalization
 import daily_blog.publication_workflow
@@ -41,16 +41,18 @@ def new_run_id() -> str:
 def invoke_publisher(
 	publisher_function: collections.abc.Callable,
 	daily_blog_repository: str,
-	bundle_path: str,
+	transfer: daily_blog.publication_contract.SealedBundleTransfer,
 	*,
 	replace_existing: bool,
 ) -> dict:
 	"""Invoke the publisher through the explicit replacement-intent boundary."""
 	if type(replace_existing) is not bool:
 		raise RuntimeError("Replace-existing state must be Boolean.")
+	if type(transfer) is not daily_blog.publication_contract.SealedBundleTransfer:
+		raise RuntimeError("Daily-blog publisher requires one sealed bundle transfer.")
 	result = publisher_function(
 		daily_blog_repository,
-		bundle_path,
+		transfer,
 		replace_existing=replace_existing,
 	)
 	if not isinstance(result, collections.abc.Mapping):
@@ -61,29 +63,29 @@ def invoke_publisher(
 
 #============================================
 def _resolve_active_publication_snapshot(
-	contract: daily_blog.contracts.EditorialContract | None,
+	contract: daily_blog.prompt_registry.definitions.EditorialContract | None,
 	snapshot: daily_blog.editorial.PromptContractSnapshot | None,
 ) -> daily_blog.editorial.PromptContractSnapshot:
 	"""Accept the one active, factory-issued prompt snapshot for publication."""
 	resolved_contract = None
 	if contract is not None:
-		resolved_contract = daily_blog.prompt_registry.resolve_contract(contract)
+		resolved_contract = daily_blog.prompt_registry.editorial_contracts.resolve_contract(contract)
 	if snapshot is not None:
 		resolved_snapshot = daily_blog.editorial.validate_snapshot(snapshot)
 	else:
 		resolved_snapshot = None
 	if (
 		resolved_contract is not None
-		and not daily_blog.prompt_registry.is_production_contract(resolved_contract)
+		and not daily_blog.prompt_registry.editorial_contracts.is_production_contract(resolved_contract)
 	) or (
 		resolved_snapshot is not None
-		and not daily_blog.prompt_registry.is_production_contract(resolved_snapshot.contract)
+		and not daily_blog.prompt_registry.editorial_contracts.is_production_contract(resolved_snapshot.contract)
 	):
-		raise RuntimeError("Non-production editorial contracts require the prompt experiment runner.")
+		raise RuntimeError("Production publication requires the active editorial contract.")
 	activation = daily_blog.activation.load_maker_activation()
 	resolved = daily_blog.editorial.resolve_run_snapshot(contract, snapshot)
-	if not daily_blog.prompt_registry.is_production_contract(resolved.contract):
-		raise RuntimeError("Non-production editorial contracts require the prompt experiment runner.")
+	if not daily_blog.prompt_registry.editorial_contracts.is_production_contract(resolved.contract):
+		raise RuntimeError("Production publication requires the active editorial contract.")
 	if (
 		activation.contract is not resolved.contract
 		or activation.receipt["editorial_prompt_contract"]
@@ -97,11 +99,11 @@ def _resolve_active_publication_snapshot(
 def _publication_identity(
 	repository_root: str,
 	settings_path: str | None,
-	contract: daily_blog.contracts.EditorialContract,
+	contract: daily_blog.prompt_registry.definitions.EditorialContract,
 	snapshot: daily_blog.editorial.PromptContractSnapshot,
 ) -> daily_blog.publication_contract.PublicationIdentity:
 	"""Resolve validated prompt and activation state before publication sealing."""
-	policy = daily_blog.prompt_registry.policy_for_contract(contract)
+	policy = daily_blog.prompt_registry.editorial_contracts.policy_for_contract(contract)
 	activation = daily_blog.activation.load_maker_activation()
 	prompt_contract = daily_blog.editorial.prompt_contract_identity(snapshot=snapshot)
 	if activation.contract is not contract or activation.receipt["editorial_prompt_contract"] != prompt_contract:
@@ -109,7 +111,7 @@ def _publication_identity(
 	identity = daily_blog.publication_contract.publication_identity(
 		repository_root,
 		settings_path,
-		prompt_paths=daily_blog.prompt_registry.prompt_paths(contract),
+		prompt_paths=daily_blog.prompt_registry.editorial_contracts.prompt_paths(contract),
 		contracts={
 			"evidence_schema": daily_blog.schema.EVIDENCE_SCHEMA_VERSION,
 			"editorial_projection_schema": daily_blog.schema.PROJECTION_SCHEMA_VERSION,
@@ -168,7 +170,7 @@ class DailyPublicationOrchestrator:
 			[str, str], daily_blog.repository_contracts.RepositoryRoster
 		] | None = None,
 		refresh_mirrors: bool = True,
-		contract: daily_blog.contracts.EditorialContract | None = None,
+		contract: daily_blog.prompt_registry.definitions.EditorialContract | None = None,
 		snapshot: daily_blog.editorial.PromptContractSnapshot | None = None,
 		force_regeneration: bool = False,
 		command_started_at: str | None = None,
@@ -184,6 +186,9 @@ class DailyPublicationOrchestrator:
 		self.route_runner = self.runtime.route_runner or route_runner
 		self.publisher_function = (
 			self.runtime.publisher_function or publisher_function or daily_blog.publisher.import_bundle
+		)
+		self.publisher_validator = (
+			self.runtime.publisher_validator or daily_blog.publisher.validate_bundle_transfer
 		)
 		self.page_verifier = (
 			self.runtime.page_verifier or page_verifier or daily_blog.publisher.verify_published_page
@@ -283,22 +288,30 @@ class DailyPublicationOrchestrator:
 			stage7_result = daily_blog.publication_workflow.run_typed_stage7(
 				self, stage6_input, stage6_result,
 			)
+			surface = stage6_input.publication_surface
 			validated = daily_blog.publication_workflow.validate_selected_post(
-				self, stage6_input.packets, stage7_result.artifact,
+				self, surface.source_packets, stage7_result.artifact, surface,
 			)
 			if validated.source_post is not stage7_result.artifact:
 				raise RuntimeError("Publication validation must retain the exact Stage 7 selected source post.")
-			daily_blog.publication_workflow.write_selected_post(self, validated.post)
+			def write_post() -> None:
+				"""Materialize the admitted post only after publisher preflight."""
+				daily_blog.publication_workflow.write_selected_post(self, validated.post)
+
 			finalized = daily_blog.publication_finalization.PublicationFinalizationCoordinator(
 				daily_blog.publication_finalization.SealedPublicationInput(
 					self.report_date, self.run_id, self.config.output_root, self.config.output_owner,
 					self.config.daily_blog_repository, self.generator_identity,
-					self.force_regeneration, acquisition.roster, acquisition.packet,
-					acquisition.projection, acquisition.assets, validated.post,
+					self.force_regeneration, acquisition.roster, surface.packet,
+					surface.projection,
+					daily_blog.publication_admission.survivor_assets(
+						surface, acquisition.assets,
+					), validated.post,
 				),
 				self.cache, self.store, self.record, self._start, self._complete,
-				invoke_publisher, self.publisher_function, self.page_verifier,
-			).finalize()
+				invoke_publisher, self.publisher_function, self.publisher_validator,
+				self.page_verifier,
+			).finalize(write_post)
 			self.record.complete()
 			self.store.save(self.record)
 			self.store.append_event(
@@ -317,7 +330,7 @@ class DailyPublicationOrchestrator:
 			if self.record.state == "failed":
 				try:
 					self.store.finalize_summary(self.record)
-				except Exception:
+				except (OSError, RuntimeError):
 					pass
 			raise
 		self.store.finalize_summary(self.record)
@@ -348,7 +361,7 @@ def run_daily_publication_locked(
 		[str, str], daily_blog.repository_contracts.RepositoryRoster
 	] | None = None,
 	refresh_mirrors: bool = True,
-	contract: daily_blog.contracts.EditorialContract | None = None,
+	contract: daily_blog.prompt_registry.definitions.EditorialContract | None = None,
 	snapshot: daily_blog.editorial.PromptContractSnapshot | None = None,
 	force_regeneration: bool = False,
 	runtime: daily_blog.publication_workflow.PublicationRuntime | None = None,
@@ -364,7 +377,7 @@ def run_daily_publication_locked(
 	orchestrator = DailyPublicationOrchestrator(
 		config, report_date, route_runner=route_runner, publisher_function=publisher_function,
 		repository_loader=repository_loader, refresh_mirrors=refresh_mirrors,
-		contract=daily_blog.prompt_registry.active_contract(), snapshot=prompt_snapshot,
+		contract=daily_blog.prompt_registry.editorial_contracts.active_contract(), snapshot=prompt_snapshot,
 		force_regeneration=force_regeneration, runtime=runtime,
 		command_started_at=command_started_at,
 	)
@@ -382,7 +395,7 @@ def run_daily_publication(
 		[str, str], daily_blog.repository_contracts.RepositoryRoster
 	] | None = None,
 	refresh_mirrors: bool = True,
-	contract: daily_blog.contracts.EditorialContract | None = None,
+	contract: daily_blog.prompt_registry.definitions.EditorialContract | None = None,
 	snapshot: daily_blog.editorial.PromptContractSnapshot | None = None,
 	force_regeneration: bool = False,
 	runtime: daily_blog.publication_workflow.PublicationRuntime | None = None,

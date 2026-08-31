@@ -9,8 +9,9 @@ import yaml  # type: ignore[import-untyped]
 
 # local repo modules
 import daily_blog.schema
-import daily_blog.contracts
-import daily_blog.prompt_registry
+import daily_blog.publication_source_safety
+import daily_blog.prompt_registry.definitions
+import daily_blog.prompt_registry.editorial_contracts
 
 
 FRONT_MATTER_RE = re.compile(r"\A---\s*\n(.*?)\n---\s*\n", re.DOTALL)
@@ -130,7 +131,7 @@ def _legacy_source_word_count(text: str) -> int:
 #============================================
 def _policy_word_count(
 	text: str,
-	policy: daily_blog.contracts.CandidateValidationPolicy,
+	policy: daily_blog.prompt_registry.definitions.CandidateValidationPolicy,
 ) -> int:
 	"""Count one declared validation-policy budget without identity-based behavior."""
 	if policy.word_count_mode == "legacy_source":
@@ -320,7 +321,7 @@ def _first_repository_appearance_is_direct_link(
 def _validate_narrative_repository_links(
 	body: str,
 	projection: daily_blog.schema.EditorialProjection,
-	policy: daily_blog.contracts.CandidateValidationPolicy,
+	policy: daily_blog.prompt_registry.definitions.CandidateValidationPolicy,
 ) -> list[str]:
 	"""Require exact first-use links for repositories selected in narrative prose."""
 	issues = []
@@ -357,7 +358,7 @@ def _validate_final_house_style(
 	body: str,
 	packet: daily_blog.schema.EvidencePacket,
 	projection: daily_blog.schema.EditorialProjection,
-	policy: daily_blog.contracts.CandidateValidationPolicy,
+	policy: daily_blog.prompt_registry.definitions.CandidateValidationPolicy,
 ) -> list[str]:
 	"""Validate the objective publication shape shared by final editorial candidates."""
 	issues = []
@@ -474,15 +475,46 @@ def _generic_work_log_title(title: str, report_date: str) -> bool:
 
 
 #============================================
+def validate_complete_post_body(
+	post: str,
+	packet: daily_blog.schema.EvidencePacket,
+	projection: daily_blog.schema.EditorialProjection,
+	policy: daily_blog.prompt_registry.definitions.CandidateValidationPolicy | None = None,
+) -> list[str]:
+	"""Validate authored final-post prose without trusting machine metadata.
+
+	Stage 6 and 7 use this before promotion; Stage 8 repeats the invariant after
+	it constructs canonical metadata.  A synthetic closed metadata envelope keeps
+	the body policy in one deterministic implementation.
+	"""
+	try:
+		_front_matter, body = parse_front_matter(post)
+	except RuntimeError:
+		body = post
+	titles = re.findall(r"^#\s+(.+?)\s*$", body, flags=re.MULTILINE)
+	if len(titles) != 1:
+		return ["Post body must contain exactly one H1."]
+	metadata = (
+		"---\n"
+		+ "date: " + packet.report_date + "\n"
+		+ "slug: " + slug_from_title(titles[0]) + "\n"
+		+ "generator_run: stage-admission\n"
+		+ "evidence_manifest: evidence.json\n"
+		+ "editorial_projection: editorial_projection.json\n---\n"
+	)
+	return validate_candidate(metadata + body, packet, projection, "stage-admission", policy)
+
+
+#============================================
 def validate_candidate(
 	post: str,
 	packet: daily_blog.schema.EvidencePacket,
 	projection: daily_blog.schema.EditorialProjection,
 	run_id: str,
-	policy: daily_blog.contracts.CandidateValidationPolicy | None = None,
+	policy: daily_blog.prompt_registry.definitions.CandidateValidationPolicy | None = None,
 ) -> list[str]:
 	"""Return deterministic structural and evidence-provenance issues."""
-	policy = daily_blog.prompt_registry.resolve_validation_policy(policy)
+	policy = daily_blog.prompt_registry.editorial_contracts.resolve_validation_policy(policy)
 	issues = []
 	if projection.packet_id != packet.packet_id:
 		return ["Editorial projection does not match the authoritative evidence packet."]
@@ -499,6 +531,8 @@ def validate_candidate(
 		"evidence_manifest",
 		"editorial_projection",
 	)
+	if set(front_matter) != set(required):
+		issues.append("Front matter must contain only the publication metadata fields.")
 	for key in required:
 		if key not in front_matter:
 			issues.append(f"Front matter is missing {key}.")
@@ -580,6 +614,11 @@ def validate_candidate(
 		for item in packet.items
 		if item.kind == "screenshot" and item.evidence_id in projected_ids
 	]
+	approved_screenshot_paths = tuple(
+		item.publish_path for item in image_items if type(item.publish_path) is str
+	)
+	if daily_blog.publication_source_safety.validate_post_source(post, approved_screenshot_paths):
+		issues.append("Post source contains an unsafe publication construct.")
 	for path in re.findall(r"!\[[^\]]*\]\(([^)]+)\)", body):
 		if path not in {item.publish_path for item in image_items}:
 			issues.append(f"Post embeds an image path outside projected evidence: {path}")

@@ -39,19 +39,36 @@ the separately governed editorial material described in
 
 ## Sealed handoff
 
-The producer-to-publisher interface is
-`vosslab.daily-blog.bundle.v7`. Its manifest binds the report date, timezone,
-generator identity, evidence packet, editorial projection, repository roster,
-activation receipt, prompt-contract identity, selected `best_artifact_id`,
-post bytes, assets, and bundle digest. The bundle is stored and reopened
-through the producer's descriptor-owned publication storage.
+The producer-to-publisher interface is `vosslab.daily-blog.bundle.v8`. Its
+manifest binds the report date, timezone, generator identity, evidence packet,
+editorial projection, repository roster, activation receipt, prompt-contract
+identity, selected `best_artifact_id`, post bytes, assets, source-safety policy
+identity, and bundle digest.
+After producer-side descriptor validation, the producer serializes exactly that
+snapshot into one bounded, hash-bound standard-input transfer. It does not give
+the publisher a producer filesystem path.
 
-The publisher validates the manifest and declared contents before staging. Its
-date-owned `vosslab.daily-blog.publication.v4` record binds the bundle digest,
+The publisher validates the manifest and every declared file before staging. Its
+date-owned `vosslab.daily-blog.publication.v5` record binds the bundle digest,
 selected artifact identity, generator run and revision, evidence and projection
-archives, installed post, timezone, and import time. The importer receipt then
-binds that publication record, installed post, and rendered page. A rejected
-bundle leaves the prior published release intact.
+archives, installed post, timezone, import time, and canonical
+`article_body_sha256`. The producer issues `import-receipt.v2` only after one
+shared committed-publication validator confirms the archive, record, and
+installed post as one coherent snapshot. Page verification requires the full
+ordered reader body, not merely the expected title and date. A rejected bundle
+leaves the prior published release intact.
+
+The producer rejects a whole-post candidate with unsafe reader-visible Markdown
+as editorially ineligible. The portable policy permits only GitHub HTTPS links
+and declared screenshot paths, keeping code inert while rejecting active raw
+HTML and disguised or ambiguous link forms. Its version and digest are sealed in
+the bundle: the active `publication_source_safety.v1` identity has an executable
+35-case corpus and SHA-256
+`d50166736d79be7f7715cc0f7585fac71dfb2aecc1c631b10e01aeca2fb63c6b`. The publisher performs
+its own check before it stages a site. Cache reuse fails closed across this v8 policy boundary.
+Publication-v3 remains a
+strict historical reader only: it can identify an occupied legacy date for
+inspection or replacement, but cannot originate a new import.
 
 ## Operational boundary
 

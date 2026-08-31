@@ -55,7 +55,7 @@ DEFAULT_DAILY_OUTLINE_RELIABILITY = {
 	"outline_writer_count": 3,
 	"reviewer_count": 2,
 	"maximum_parallel_calls": 6,
-	"max_route_calls": 84,
+	"max_route_calls": 90,
 	"route_retry_attempts": 1,
 }
 DEFAULT_DAILY_OUTLINE_PROMPT_LIMITS = {
@@ -490,7 +490,7 @@ class DailyOutlineConfig:
 	@property
 	def route_source_count(self) -> int:
 		"""Return all Stage 5 requests before retry multiplication."""
-		return self.ranker_count + self.outline_writer_count + self.repair_source_count + self.ranking_review_source_count + self.outline_review_source_count
+		return (2 * self.ranker_count) + self.outline_writer_count + self.repair_source_count + self.ranking_review_source_count + self.outline_review_source_count
 
 	#============================================
 	@property

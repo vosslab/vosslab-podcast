@@ -111,8 +111,9 @@ path. Its capture, calibration, and attestation runners are retired and are not 
 commands or ownership boundaries. Production validates the active immutable prompt registry and
 sealed maker activation without reopening the historical procedure.
 
-**Owner.** `daily_blog_maker_activation.json` and
-`pipeline/daily_blog/prompt_registry.py`; historical evidence remains recorded in
+**Owner.** `daily_blog_maker_activation.json`,
+`pipeline/daily_blog/prompt_registry/editorial_contracts.py`, and
+`pipeline/daily_blog/prompt_registry/loader.py`; historical evidence remains recorded in
 `docs/active_plans/reports/`.
 
 ### Experimental examples bind identity
@@ -130,10 +131,15 @@ turning a scorecard into prose instructions.
 `v4-three-examples-corpus-v2`. Active v4-maker policy v3 uses immutable validation-policy digest
 `3a4b7148579e509b6c32fa19b31d107dc4278eb5f721b2a01353a1a9a51264ee` with
 `projected_repositories` and `reader_visible_markdown`. Policy versions 1 and 2 fail closed. The
-producer seals the snapshot, generator identity, and selected artifact in the bundle-v7 boundary;
-the sibling publisher independently validates that boundary and records a publication-v4 receipt.
+producer seals the snapshot, generator identity, selected artifact, and source-safety policy identity
+in the active bundle-v8 boundary. The active `publication_source_safety.v1` identity has an
+executable 35-case corpus and SHA-256
+`d50166736d79be7f7715cc0f7585fac71dfb2aecc1c631b10e01aeca2fb63c6b`; the historical bundle-v7
+boundary remains recorded evidence. The sibling publisher independently validates the active boundary and records a
+`vosslab.daily-blog.publication.v5` receipt, including the canonical reader-body digest.
 
-**Owner.** `pipeline/daily_blog/prompt_registry.py`, `pipeline/daily_blog/editorial.py`,
+**Owner.** `pipeline/daily_blog/prompt_registry/definitions.py`,
+`pipeline/daily_blog/prompt_registry/editorial_contracts.py`, `pipeline/daily_blog/editorial.py`,
 `daily_blog_maker_activation.json`, `pipeline/daily_blog/publication_contract.py`, and
 `pipeline/daily_blog/publication_storage.py`.
 

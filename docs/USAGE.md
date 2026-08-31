@@ -59,10 +59,24 @@ corroboration, not a test prerequisite or a claim about synthetic prose quality.
   `out/<owner>/daily_blog/<report_date>/`, including `runs/<run_id>/run_state.json`,
   `summary.jsonl`, `post.md`, and `publication/bundle.json`.
 - The sealed bundle contains the validated selected post, its artifact identity, evidence,
-  repository roster, editorial projection, prompt-contract binding, and activation receipt.
-  Candidate and referee deliberation remains producer-owned run history.
+  repository roster, editorial projection, prompt-contract binding, activation receipt, and the
+  versioned source-safety policy identity.
+  Candidate and referee deliberation remains producer-owned run history. After descriptor
+  validation, the producer sends the immutable bundle snapshot to the sibling importer on standard
+  input; the importer does not consume a producer filesystem path.
 - The local publisher records the imported date in
-  `data/publications/<report_date>.json` and retains its sealed bundle archive.
+  `data/publications/<report_date>.json` as `vosslab.daily-blog.publication.v5`, retains its sealed
+  bundle archive, and records the canonical reader-body digest. The producer's
+  `import-receipt.v2` binds that record, installed post, and verified dated page.
+
+The current handoff is `vosslab.daily-blog.bundle.v8`. A candidate with unsafe reader-visible
+Markdown is ineligible before publication: links are limited to GitHub HTTPS targets or declared
+screenshots, while active raw HTML and ambiguous or disguised active constructs are rejected. The
+sealed identity is `publication_source_safety.v1` with an executable 35-case corpus and SHA-256
+`d50166736d79be7f7715cc0f7585fac71dfb2aecc1c631b10e01aeca2fb63c6b`. The publisher repeats this
+policy check using that identity. A cached bundle from a prior schema or policy is rebuilt; it is
+not upgraded in place. A historical publication-v3 record can only be inspected or replaced as an
+occupied date, not created by this command.
 
 ## Terminal results
 

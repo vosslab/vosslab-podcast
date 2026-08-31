@@ -9,7 +9,6 @@ import yaml
 
 # local repo modules
 import daily_blog.config
-import daily_blog.editorial_stage_config
 
 
 #============================================
@@ -24,27 +23,6 @@ def write_settings(tmp_path: pathlib.Path, repository_story: dict[str, object]) 
 		encoding="utf-8",
 	)
 	return settings_path
-
-
-#============================================
-@pytest.mark.parametrize(
-	("changes", "match"),
-	(
-		({"writer_count": True}, "writer_count"),
-		({"editor_count": False}, "editor_count"),
-		({"reviewer_count": True}, "reviewer_count"),
-		({"maximum_parallel_calls": True}, "maximum_parallel_calls"),
-		({"route_retry_attempts": True}, "route_retry_attempts"),
-		({"prompt_limits": {"writer_chars": 1}}, "missing"),
-	),
-)
-def test_repository_story_config_rejects_invalid_types_or_incomplete_policy(
-	changes: dict[str, object],
-	match: str,
-) -> None:
-	"""Invalid scalar types and incomplete prompt policy cannot reach routes."""
-	with pytest.raises(RuntimeError, match=match):
-		daily_blog.editorial_stage_config.RepositoryStoryConfig(**changes)
 
 
 #============================================

@@ -12,10 +12,10 @@ import daily_blog.editorial_stage_config
 import daily_blog.schema
 import daily_blog.routes
 import daily_blog.candidates
-import daily_blog.contracts
-import daily_blog.prompt_registry
+import daily_blog.prompt_registry.definitions
+import daily_blog.prompt_registry.editorial_contracts
+import daily_blog.prompt_registry.loader
 import daily_blog.io_utils
-import daily_blog.prompt_resources
 import podlib.prompt_loader
 
 
@@ -23,9 +23,6 @@ MAX_FAILURE_CHARS = 1000
 MAX_REFEREE_RESPONSE_CHARS = 4000
 MAX_REFEREE_REASON_CHARS = 500
 GENERATOR_RUN_RE = re.compile(r"^generator_run:\s*(\S+)\s*$", re.MULTILINE)
-EDITORIAL_TEMPLATE_NAMES = daily_blog.prompt_registry.contract_template_names()
-
-
 class EditorialBlockedError(RuntimeError):
 	"""Editorial approval did not produce one final publishable candidate."""
 
@@ -231,38 +228,6 @@ def materialize_decision(
 	return dataclasses.replace(decision, post=post)
 
 
-#============================================
-def load_prompt(name: str) -> str:
-	"""Read one complete versioned prompt or rubric."""
-	text = daily_blog.prompt_resources.load_allowlisted_instruction_prompt(
-		name,
-		EDITORIAL_TEMPLATE_NAMES,
-		"editorial contract",
-	)
-	return text
-
-
-#============================================
-def load_plain_prompt_resource(name: str) -> tuple[str, bytes]:
-	"""Read an approved exemplar resource without applying instruction validation."""
-	resource_names = {
-		resource.filename for resource in daily_blog.prompt_registry.example_resources()
-	}
-	if name not in resource_names:
-		raise RuntimeError("Plain prompt resource name is not allowlisted for editorial examples.")
-	path = daily_blog.prompt_resources.prompt_resource_path(name)
-	with open(path, "rb") as handle:
-		contents = handle.read()
-	if not contents.strip():
-		raise RuntimeError(f"Prompt resource is empty: {name}")
-	try:
-		text = contents.decode("utf-8")
-	except UnicodeDecodeError as error:
-		raise RuntimeError(f"Prompt resource must be UTF-8 text: {name}") from error
-	# ASVS 2.2.1: approved resource text is bounded by the later complete-prompt limit.
-	return text, contents
-
-
 EXAMPLE_MARKER_RE = re.compile(
 	r"(?m)^<!-- editorial-example: ([a-z0-9][a-z0-9_-]{0,63}) -->\n"
 	r"(.*?)^<!-- /editorial-example -->$",
@@ -277,7 +242,7 @@ UNSAFE_EXAMPLE_CONTENT_RE = re.compile(
 
 #============================================
 def _example_resource_blocks(
-	resource: daily_blog.contracts.ExampleResource,
+	resource: daily_blog.prompt_registry.definitions.ExampleResource,
 	text: str,
 ) -> dict[str, str]:
 	"""Parse one fixed example resource without treating its content as instructions."""
@@ -299,7 +264,7 @@ def _example_resource_blocks(
 		if block_id in blocks:
 			raise RuntimeError("Editorial example resource block IDs must be unique.")
 		blocks[block_id] = body
-	daily_blog.prompt_registry.validate_example_resource_blocks(resource, blocks)
+	daily_blog.prompt_registry.editorial_contracts.validate_example_resource_blocks(resource, blocks)
 	return blocks
 
 
@@ -310,8 +275,8 @@ _SNAPSHOT_TOKEN = object()
 class PromptContractSnapshot:
 	"""One immutable read of all prompts and selected examples for an editorial run."""
 
-	contract: daily_blog.contracts.EditorialContract
-	selection: daily_blog.contracts.ExampleSelection | None
+	contract: daily_blog.prompt_registry.definitions.EditorialContract
+	selection: daily_blog.prompt_registry.definitions.ExampleSelection | None
 	template_names: tuple[tuple[str, str], ...]
 	templates: tuple[tuple[str, str], ...]
 	example_resource_bytes: bytes
@@ -321,6 +286,9 @@ class PromptContractSnapshot:
 	validation_policy_sha256: str = ""
 	integrity_sha256: str = ""
 	_origin: object = dataclasses.field(repr=False, compare=False, default=None)
+	prompt_set: daily_blog.prompt_registry.loader.LoadedPromptSet | None = dataclasses.field(
+		repr=False, compare=False, default=None,
+	)
 
 	#============================================
 	def template_dict(self) -> dict[str, str]:
@@ -336,23 +304,28 @@ _SNAPSHOT_REGISTRY: weakref.WeakValueDictionary[
 
 #============================================
 def _selected_examples(
-	contract: daily_blog.contracts.EditorialContract,
-	selection: daily_blog.contracts.ExampleSelection | None,
-) -> tuple[str, bytes, bytes, daily_blog.contracts.ExampleSelection | None]:
+	contract: daily_blog.prompt_registry.definitions.EditorialContract,
+	selection: daily_blog.prompt_registry.definitions.ExampleSelection | None,
+	loaded_prompt_set: daily_blog.prompt_registry.loader.LoadedPromptSet,
+) -> tuple[str, bytes, bytes, daily_blog.prompt_registry.definitions.ExampleSelection | None]:
 	"""Read and select exact trusted example blocks once in registered order."""
-	resolved_selection = daily_blog.prompt_registry.resolve_selection(contract, selection)
+	resolved_selection = daily_blog.prompt_registry.editorial_contracts.resolve_selection(contract, selection)
 	if resolved_selection is None:
 		return "", b"", b"", resolved_selection
 	if resolved_selection.resource_name is None:
 		raise RuntimeError("Editorial selection resource is unavailable.")
-	resource = daily_blog.prompt_registry.resolve_example_resource(
+	resource = daily_blog.prompt_registry.editorial_contracts.resolve_example_resource(
 		resolved_selection.resource_name,
 	)
-	text, contents = load_plain_prompt_resource(resource.filename)
+	resource_ref = daily_blog.prompt_registry.definitions.editorial_contract_resources(contract)["examples"]
+	if resource.filename != resource_ref.name:
+		raise RuntimeError("Editorial example resource does not match the registered prompt set.")
+	text = loaded_prompt_set.text(resource_ref)
+	contents = loaded_prompt_set.contents(resource_ref)
 	blocks = _example_resource_blocks(resource, text)
 	selected_text = "\n\n".join(blocks[block_id] for block_id in resolved_selection.block_ids)
 	selected_bytes = selected_text.encode("utf-8")
-	if len(selected_text) > daily_blog.contracts.MAX_EXAMPLE_CHARS:
+	if len(selected_text) > daily_blog.prompt_registry.definitions.MAX_EXAMPLE_CHARS:
 		raise RuntimeError("Selected editorial examples exceed their character limit.")
 	# ASVS 1.5.2: only allowlisted example blocks are parsed from trusted plain text.
 	return selected_text, selected_bytes, contents, resolved_selection
@@ -360,20 +333,26 @@ def _selected_examples(
 
 #============================================
 def load_prompt_contract_snapshot(
-	contract: daily_blog.contracts.EditorialContract | None = None,
-	selection: daily_blog.contracts.ExampleSelection | None = None,
+	contract: daily_blog.prompt_registry.definitions.EditorialContract | None = None,
+	selection: daily_blog.prompt_registry.definitions.ExampleSelection | None = None,
+	prompt_set: daily_blog.prompt_registry.loader.LoadedPromptSet | None = None,
 ) -> PromptContractSnapshot:
 	"""Load one immutable contract snapshot for identity and all prompt renderings."""
-	resolved = daily_blog.prompt_registry.resolve_contract(contract)
+	resolved = daily_blog.prompt_registry.editorial_contracts.resolve_contract(contract)
+	registered_prompt_set = daily_blog.prompt_registry.definitions.prompt_set_for_editorial_contract(resolved)
+	loaded_prompt_set = daily_blog.prompt_registry.loader.resolve_loaded_prompt_set(
+		prompt_set, registered_prompt_set,
+	)
+	resources = daily_blog.prompt_registry.definitions.editorial_contract_resources(resolved)
 	templates = {
-		"author": load_prompt(resolved.author_template),
-		"referee": load_prompt(resolved.referee_template),
-		"repair": load_prompt(resolved.repair_template),
-		"rubric": load_prompt(resolved.rubric),
+		name: loaded_prompt_set.text(resource)
+		for name, resource in resources.items()
+		if name != "examples"
 	}
 	examples, example_bytes, resource_bytes, resolved_selection = _selected_examples(
 		resolved,
 		selection,
+		loaded_prompt_set,
 	)
 	templates["examples"] = examples
 	template_names = tuple(sorted({
@@ -390,7 +369,7 @@ def load_prompt_contract_snapshot(
 		frozen_templates,
 		bytes(resource_bytes),
 		bytes(example_bytes),
-		daily_blog.prompt_registry.policy_for_contract(resolved),
+		daily_blog.prompt_registry.editorial_contracts.policy_for_contract(resolved),
 	)
 	snapshot = PromptContractSnapshot(
 		resolved,
@@ -399,11 +378,12 @@ def load_prompt_contract_snapshot(
 		frozen_templates,
 		bytes(resource_bytes),
 		bytes(example_bytes),
-		daily_blog.prompt_registry.policy_for_contract(resolved).name,
-		daily_blog.prompt_registry.policy_for_contract(resolved).version,
-		daily_blog.prompt_registry.policy_for_contract(resolved).sha256(),
+		daily_blog.prompt_registry.editorial_contracts.policy_for_contract(resolved).name,
+		daily_blog.prompt_registry.editorial_contracts.policy_for_contract(resolved).version,
+		daily_blog.prompt_registry.editorial_contracts.policy_for_contract(resolved).sha256(),
 		integrity,
 		_SNAPSHOT_TOKEN,
+		loaded_prompt_set,
 	)
 	_SNAPSHOT_REGISTRY[id(snapshot)] = snapshot
 	validate_snapshot(snapshot)
@@ -413,13 +393,13 @@ def load_prompt_contract_snapshot(
 
 #============================================
 def _snapshot_integrity(
-	contract: daily_blog.contracts.EditorialContract,
-	selection: daily_blog.contracts.ExampleSelection | None,
+	contract: daily_blog.prompt_registry.definitions.EditorialContract,
+	selection: daily_blog.prompt_registry.definitions.ExampleSelection | None,
 	template_names: tuple[tuple[str, str], ...],
 	templates: tuple[tuple[str, str], ...],
 	resource_bytes: bytes,
 	example_bytes: bytes,
-	policy: daily_blog.contracts.CandidateValidationPolicy,
+	policy: daily_blog.prompt_registry.definitions.CandidateValidationPolicy,
 ) -> str:
 	"""Return a canonical tamper-evident binding for every snapshot payload field."""
 	selection_value = None
@@ -454,13 +434,18 @@ def validate_snapshot(snapshot: PromptContractSnapshot) -> PromptContractSnapsho
 		raise RuntimeError("Editorial prompt snapshot is not trusted.")
 	if _SNAPSHOT_REGISTRY.get(id(snapshot)) is not snapshot:
 		raise RuntimeError("Editorial prompt snapshot was not issued by the trusted factory.")
-	contract = daily_blog.prompt_registry.resolve_contract(snapshot.contract)
+	contract = daily_blog.prompt_registry.editorial_contracts.resolve_contract(snapshot.contract)
 	if contract is not snapshot.contract:
 		raise RuntimeError("Editorial prompt snapshot contract is not the registered object.")
-	selection = daily_blog.prompt_registry.resolve_selection(contract, snapshot.selection)
+	selection = daily_blog.prompt_registry.editorial_contracts.resolve_selection(contract, snapshot.selection)
 	if selection is not snapshot.selection:
 		raise RuntimeError("Editorial prompt snapshot selection is not the registered object.")
-	policy = daily_blog.prompt_registry.policy_for_contract(contract)
+	policy = daily_blog.prompt_registry.editorial_contracts.policy_for_contract(contract)
+	registered_prompt_set = daily_blog.prompt_registry.definitions.prompt_set_for_editorial_contract(contract)
+	loaded_prompt_set = daily_blog.prompt_registry.loader.resolve_loaded_prompt_set(
+		snapshot.prompt_set, registered_prompt_set,
+	)
+	resources = daily_blog.prompt_registry.definitions.editorial_contract_resources(contract)
 	if (
 		snapshot.validation_policy_name != policy.name
 		or snapshot.validation_policy_version != policy.version
@@ -478,15 +463,22 @@ def validate_snapshot(snapshot: PromptContractSnapshot) -> PromptContractSnapsho
 	templates = snapshot.template_dict()
 	if set(templates) != {"author", "referee", "repair", "rubric", "examples"}:
 		raise RuntimeError("Editorial prompt snapshot template mapping is incoherent.")
+	for name in ("author", "referee", "repair", "rubric"):
+		if templates[name] != loaded_prompt_set.text(resources[name]):
+			raise RuntimeError("Editorial prompt snapshot template bytes do not match the registry.")
 	if selection is None:
 		if snapshot.example_resource_bytes or snapshot.example_bytes or templates["examples"]:
 			raise RuntimeError("The v3 prompt snapshot contains unexpected examples.")
 	else:
 		if selection.resource_name is None:
 			raise RuntimeError("Editorial prompt snapshot example resource is unavailable.")
-		resource = daily_blog.prompt_registry.resolve_example_resource(
+		resource = daily_blog.prompt_registry.editorial_contracts.resolve_example_resource(
 			selection.resource_name,
 		)
+		if resource.filename != resources["examples"].name:
+			raise RuntimeError("Editorial prompt snapshot example resource is incoherent.")
+		if snapshot.example_resource_bytes != loaded_prompt_set.contents(resources["examples"]):
+			raise RuntimeError("Editorial prompt snapshot example resource bytes do not match the registry.")
 		try:
 			resource_text = snapshot.example_resource_bytes.decode("utf-8")
 		except UnicodeDecodeError as error:
@@ -515,8 +507,8 @@ def validate_snapshot(snapshot: PromptContractSnapshot) -> PromptContractSnapsho
 
 #============================================
 def resolve_snapshot(
-	contract: daily_blog.contracts.EditorialContract | None,
-	selection: daily_blog.contracts.ExampleSelection | None,
+	contract: daily_blog.prompt_registry.definitions.EditorialContract | None,
+	selection: daily_blog.prompt_registry.definitions.ExampleSelection | None,
 	snapshot: PromptContractSnapshot | None,
 ) -> PromptContractSnapshot:
 	"""Load or bind one snapshot without accepting conflicting loose selectors."""
@@ -533,7 +525,7 @@ def resolve_snapshot(
 
 #============================================
 def resolve_run_snapshot(
-	contract: daily_blog.contracts.EditorialContract | None,
+	contract: daily_blog.prompt_registry.definitions.EditorialContract | None,
 	snapshot: PromptContractSnapshot | None,
 ) -> PromptContractSnapshot:
 	"""Resolve one run snapshot while preserving the named-run mismatch boundary."""
@@ -542,7 +534,7 @@ def resolve_run_snapshot(
 	else:
 		resolved = validate_snapshot(snapshot)
 		if contract is not None:
-			selected_contract = daily_blog.prompt_registry.resolve_contract(contract)
+			selected_contract = daily_blog.prompt_registry.editorial_contracts.resolve_contract(contract)
 			if resolved.contract is not selected_contract:
 				raise RuntimeError("Editorial contract does not match the supplied prompt snapshot.")
 	return resolved
@@ -550,8 +542,8 @@ def resolve_run_snapshot(
 
 #============================================
 def validate_prompt_templates(
-	contract: daily_blog.contracts.EditorialContract | None = None,
-	selection: daily_blog.contracts.ExampleSelection | None = None,
+	contract: daily_blog.prompt_registry.definitions.EditorialContract | None = None,
+	selection: daily_blog.prompt_registry.definitions.ExampleSelection | None = None,
 	snapshot: PromptContractSnapshot | None = None,
 ) -> dict[str, str]:
 	"""Validate positive phrasing and explicit output contracts before any LLM call."""
@@ -580,8 +572,8 @@ def validate_prompt_templates(
 
 #============================================
 def prompt_contract_identity(
-	contract: daily_blog.contracts.EditorialContract | None = None,
-	selection: daily_blog.contracts.ExampleSelection | None = None,
+	contract: daily_blog.prompt_registry.definitions.EditorialContract | None = None,
+	selection: daily_blog.prompt_registry.definitions.ExampleSelection | None = None,
 	snapshot: PromptContractSnapshot | None = None,
 ) -> dict[str, object]:
 	"""Return the exact content identity that owns editorial cache reuse."""
@@ -618,8 +610,8 @@ def render_author_prompt(
 	projection: daily_blog.schema.EditorialProjection,
 	run_id: str,
 	limit: int,
-	contract: daily_blog.contracts.EditorialContract | None = None,
-	selection: daily_blog.contracts.ExampleSelection | None = None,
+	contract: daily_blog.prompt_registry.definitions.EditorialContract | None = None,
+	selection: daily_blog.prompt_registry.definitions.ExampleSelection | None = None,
 	snapshot: PromptContractSnapshot | None = None,
 ) -> str:
 	"""Render one identical author prompt for both isolated roles."""
@@ -660,8 +652,8 @@ def generate_candidates(
 	run_id: str,
 	config: daily_blog.config.DailyBlogConfig,
 	runner: object | None = None,
-	contract: daily_blog.contracts.EditorialContract | None = None,
-	selection: daily_blog.contracts.ExampleSelection | None = None,
+	contract: daily_blog.prompt_registry.definitions.EditorialContract | None = None,
+	selection: daily_blog.prompt_registry.definitions.ExampleSelection | None = None,
 	snapshot: PromptContractSnapshot | None = None,
 ) -> list[dict]:
 	"""Run two isolated author roles over the exact same evidence prompt."""
@@ -671,10 +663,10 @@ def generate_candidates(
 		raise EditorialBlockedError("Editorial projection does not match the evidence packet.")
 	if snapshot is not None:
 		resolved_snapshot = resolve_snapshot(contract, selection, snapshot)
-		resolved_policy = daily_blog.prompt_registry.policy_for_contract(resolved_snapshot.contract)
+		resolved_policy = daily_blog.prompt_registry.editorial_contracts.policy_for_contract(resolved_snapshot.contract)
 	else:
-		resolved_contract = daily_blog.prompt_registry.resolve_contract(contract)
-		resolved_policy = daily_blog.prompt_registry.policy_for_contract(resolved_contract)
+		resolved_contract = daily_blog.prompt_registry.editorial_contracts.resolve_contract(contract)
+		resolved_policy = daily_blog.prompt_registry.editorial_contracts.policy_for_contract(resolved_contract)
 	route_runner = runner if runner is not None else daily_blog.routes.CommandRouteRunner()
 	try:
 		prompt = render_author_prompt(
@@ -718,25 +710,25 @@ def validate_candidates(
 	packet: daily_blog.schema.EvidencePacket,
 	projection: daily_blog.schema.EditorialProjection,
 	run_id: str,
-	contract: daily_blog.contracts.EditorialContract | None = None,
+	contract: daily_blog.prompt_registry.definitions.EditorialContract | None = None,
 	snapshot: PromptContractSnapshot | None = None,
-	policy: daily_blog.contracts.CandidateValidationPolicy | None = None,
+	policy: daily_blog.prompt_registry.definitions.CandidateValidationPolicy | None = None,
 ) -> list[CandidateResult]:
 	"""Apply deterministic structure and provenance validation to each author result."""
 	if snapshot is not None:
 		resolved_snapshot = validate_snapshot(snapshot)
 		if contract is not None and contract is not resolved_snapshot.contract:
 			raise RuntimeError("Candidate validation contract conflicts with prompt snapshot.")
-		resolved_policy = daily_blog.prompt_registry.policy_for_contract(resolved_snapshot.contract)
+		resolved_policy = daily_blog.prompt_registry.editorial_contracts.policy_for_contract(resolved_snapshot.contract)
 		if policy is not None and policy is not resolved_policy:
 			raise RuntimeError("Candidate validation policy conflicts with prompt snapshot.")
 	elif contract is not None:
-		resolved_contract = daily_blog.prompt_registry.resolve_contract(contract)
-		resolved_policy = daily_blog.prompt_registry.policy_for_contract(resolved_contract)
+		resolved_contract = daily_blog.prompt_registry.editorial_contracts.resolve_contract(contract)
+		resolved_policy = daily_blog.prompt_registry.editorial_contracts.policy_for_contract(resolved_contract)
 		if policy is not None and policy is not resolved_policy:
 			raise RuntimeError("Candidate validation policy conflicts with editorial contract.")
 	else:
-		resolved_policy = daily_blog.prompt_registry.resolve_validation_policy(policy)
+		resolved_policy = daily_blog.prompt_registry.editorial_contracts.resolve_validation_policy(policy)
 	results = []
 	for candidate in raw_candidates:
 		issues = daily_blog.candidates.validate_candidate(
@@ -842,8 +834,8 @@ def _referee_verdict(
 	mapping: dict[str, int],
 	config: daily_blog.config.DailyBlogConfig,
 	runner: object,
-	contract: daily_blog.contracts.EditorialContract | None = None,
-	selection: daily_blog.contracts.ExampleSelection | None = None,
+	contract: daily_blog.prompt_registry.definitions.EditorialContract | None = None,
+	selection: daily_blog.prompt_registry.definitions.ExampleSelection | None = None,
 	snapshot: PromptContractSnapshot | None = None,
 ) -> dict:
 	"""Run the separately configured referee, including one structured repair pass."""
@@ -908,8 +900,8 @@ def select_candidate(
 	candidates: list[CandidateResult],
 	config: daily_blog.config.DailyBlogConfig,
 	runner: object | None = None,
-	contract: daily_blog.contracts.EditorialContract | None = None,
-	selection: daily_blog.contracts.ExampleSelection | None = None,
+	contract: daily_blog.prompt_registry.definitions.EditorialContract | None = None,
+	selection: daily_blog.prompt_registry.definitions.ExampleSelection | None = None,
 	snapshot: PromptContractSnapshot | None = None,
 ) -> EditorialDecision:
 	"""Anonymize valid candidates and publish exactly the referee-approved result."""

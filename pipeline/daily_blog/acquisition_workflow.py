@@ -174,6 +174,8 @@ class AcquisitionCoordinator:
 		config = self.dependencies.config
 		activity_value = [activity.to_dict() for activity in activities]
 		phase_input = {
+			"report_date": self.dependencies.report_date,
+			"timezone": config.report_timezone,
 			"activity": activity_value,
 			"collection_limits": config.collection_limits,
 			"schema": daily_blog.schema.EVIDENCE_SCHEMA_VERSION,
@@ -187,15 +189,34 @@ class AcquisitionCoordinator:
 				self.dependencies.runtime, self.dependencies.report_date, config.report_timezone,
 				config.collection_limits, mirror_entries, activities,
 			)
+			# The companion assets are complete before the packet makes this cache entry reusable.
+			_cache_assets(self.dependencies.cache, "evidence_assembly", input_hash, packet, assets)
 			self.dependencies.cache.store_json(
 				"evidence_assembly", input_hash, "evidence.json", packet.to_dict(),
 			)
-			_cache_assets(self.dependencies.cache, "evidence_assembly", input_hash, assets)
 		else:
 			packet = daily_blog.schema.EvidencePacket.from_dict(dict(cached))
-			assets = _load_cached_assets(
-				self.dependencies.cache, "evidence_assembly", input_hash, packet,
-			)
+			if (
+				packet.report_date != self.dependencies.report_date
+				or packet.timezone != config.report_timezone
+			):
+				raise RuntimeError("Cached evidence packet date or timezone does not match the request.")
+			try:
+				assets = _load_cached_assets(
+					self.dependencies.cache, "evidence_assembly", input_hash, packet,
+				)
+			except RuntimeError:
+				# A packet is not reusable without its verified companion assets. Rebuild the
+				# whole entry instead of treating a partial cache write as authoritative.
+				packet, assets = daily_blog.publication_workflow.assemble_evidence(
+					self.dependencies.runtime, self.dependencies.report_date, config.report_timezone,
+					config.collection_limits, mirror_entries, activities,
+				)
+				_cache_assets(self.dependencies.cache, "evidence_assembly", input_hash, packet, assets)
+				self.dependencies.cache.store_json(
+					"evidence_assembly", input_hash, "evidence.json", packet.to_dict(),
+				)
+				reused = False
 		if not packet.complete:
 			raise RuntimeError("Evidence assembly is incomplete.")
 		self.dependencies.store.write_artifact("evidence.json", packet.to_dict())
@@ -266,6 +287,7 @@ def _cache_assets(
 	cache: daily_blog.locks.PhaseCache,
 	phase: str,
 	input_hash: str,
+	packet: daily_blog.schema.EvidencePacket,
 	assets: dict[str, bytes],
 ) -> None:
 	"""Persist selected evidence assets with a hash-verified manifest."""
@@ -275,7 +297,10 @@ def _cache_assets(
 		destination = os.path.join(asset_dir, os.path.basename(asset_path))
 		daily_blog.io_utils.atomic_write_bytes(destination, contents)
 		manifest[asset_path] = daily_blog.io_utils.sha256_bytes(contents)
-	cache.store_json(phase, input_hash, "assets.json", manifest)
+	cache.store_json(phase, input_hash, "assets.json", {
+		"packet_id": packet.packet_id,
+		"assets": manifest,
+	})
 
 
 #============================================
@@ -288,9 +313,14 @@ def _load_cached_assets(
 	"""Load and verify all and only the declared evidence assets for one packet."""
 	assets = {}
 	asset_dir = cache.asset_dir(phase, input_hash)
-	manifest = cache.load_json(phase, input_hash, "assets.json")
-	if not isinstance(manifest, dict):
+	manifest_value = cache.load_json(phase, input_hash, "assets.json")
+	if type(manifest_value) is not dict:
 		raise RuntimeError("Cached evidence asset manifest is missing.")
+	if manifest_value.get("packet_id") != packet.packet_id:
+		raise RuntimeError("Cached evidence asset manifest does not match its packet.")
+	manifest = manifest_value.get("assets")
+	if type(manifest) is not dict:
+		raise RuntimeError("Cached evidence asset manifest is invalid.")
 	for item in packet.items:
 		if not item.asset_path:
 			continue
