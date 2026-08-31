@@ -36,6 +36,19 @@
 
 ### Fixes and Maintenance
 
+- Stabilized the real daily-blog publication boundary after live-route design
+  discoveries: recovery now distinguishes policy-only ineligibility from forged
+  lineage, Stage 6 retains mechanically grounded drafts for editorial repair,
+  and rendered-page verification binds `report_date` through semantic
+  `<time datetime>` data rather than requiring an ISO spelling in visible prose.
+- Completed the unattended real `2026-08-28` publication run
+  `20260831T023101Z-00f0b92468` with degraded editorial outcome, authorized
+  same-date replacement, and verified rendered page. It promoted
+  `artifact-55ac6377bb909fb95ebbcfa1`; the sealed bundle SHA-256 is
+  `38a796c05c4b12f91860dc5322f0b7c051e6b7ba43b7540f2bf2fb6384b68798` and the
+  rendered-page SHA-256 is
+  `c443aa25614504ca7ff508b7a397769404933869c420e41a8efebbcd1e4457a0`.
+
 - Removed retired experiment, calibration, attestation, shadow, and fixture-runner
   paths after their replacement boundaries were verified.
 - Archived nine superseded plan and procedure records and reconciled the active
@@ -66,6 +79,7 @@
   archive validator used for importer receipts. Reader-page verification now
   checks the full ordered source-body projection inside the dated Material
   article, rather than accepting matching title and date chrome alone.
+- Synchronized shared style guides, tests, and repository support files from the starter template.
 
 ### Decisions and Failures
 
@@ -77,6 +91,13 @@
   exact `y`; scheduled `--yesterday` remains unattended.
 
 ### Developer Tests and Notes
+
+- Permanent offline verification passed: 3,676 producer tests, 1,453 sibling
+  publisher tests, and the retained controlled publication E2E. The real run
+  above is one-time operational evidence, not a pytest case or a claim that
+  stochastic model output is deterministic. No prompt prose changed, and
+  `docs/BLOG_CONTRACT.md` remained SHA-256
+  `306674359d086e28a1b952da5b5774a23524eb2e424208dec8683da5d5378a00`.
 
 - Final focused integration coverage passed 346 tests. Focused hygiene, source
   size, typing, lint, security, and Markdown-link checks passed 1,550 tests.

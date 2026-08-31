@@ -626,8 +626,6 @@ def _load_repo_hygiene_filters() -> dict:
 	# Load by file path under a private module name so the load never touches
 	# or trusts sys.modules["conftest"]; do not insert it into sys.modules.
 	spec = importlib.util.spec_from_file_location("_repo_hygiene_conftest", conftest_path)
-	if spec is None or spec.loader is None:
-		return {}
 	module = importlib.util.module_from_spec(spec)
 	spec.loader.exec_module(module)
 	registry = getattr(module, "REPO_HYGIENE_FILTERS", {})

@@ -100,14 +100,16 @@ preserved the prior post, bundle, and publication record. Its temporary roots
 were deliberately removed; no summary ID or disk measurement is invented.
 See `/tmp/vosslab_m14_permanent_e2e_evidence.md`.
 
-## 2026-08-30 stabilization follow-up
+## 2026-08-30--31 stabilization follow-up
 
-A real route for 2026-08-28 completed editorial stages and sealed a bundle,
-then failed at site import. This report classifies that outcome as a pipeline
-fault, not editorial degradation: the final producer admission did not enforce
-the sibling publisher's repository-coverage and narrative-citation policy.
-The sealed bundle is retained diagnostic evidence; it is not a publication
-receipt and no installed post or rendered page is claimed.
+A first real route for 2026-08-28 completed editorial stages and sealed a
+bundle, then failed at site import. That earlier outcome was a pipeline fault,
+not editorial degradation: final producer admission did not yet enforce the
+sibling publisher's repository-coverage and narrative-citation policy. Later
+routes also revealed two boundary defects: recovery confused a policy-only
+rejection with forged lineage, and page verification demanded an ISO date in
+visible prose rather than using semantic `<time datetime>` data. These are
+design discoveries retained for diagnosis, not acceptance evidence.
 
 The active hardening plan freezes the exact Stage-6 eligible survivor
 `EvidencePacket` union as the publication surface before candidate generation.
@@ -115,15 +117,28 @@ Its matching projection and required assets follow the same exact scope.
 Citations prove grounding within that scope and cannot shrink coverage. H1 adds
 Stage-6/7 final-policy admission and makes Stage 8 an invariant check. H2 adds
 a validate-only preflight for the exact sealed transfer, bounded text-free typed
-publisher failures, and replacement-as-authorization transitions. H1 and H2
-are in progress and await focused offline tests and review.
+publisher failures, and replacement-as-authorization transitions. The settled
+implementation passed its focused permanent checks.
 
 H3 retains the fixed, offline durable controlled E2E and adds focused permanent
-tests for the new public behavior. Only after those checks will one unattended
-2026-08-28 public rerun verify a terminal summary, import receipt, sealed
-bundle, installed post, and rendered page. That rerun is one-time integration
-corroboration, never pytest or a permanent gate; `--yes` and `--yesterday`
-remain unattended paths.
+tests for the new public behavior. The unattended `2026-08-28` rerun
+`20260831T023101Z-00f0b92468` then completed with outcome `degraded`: the
+daily-outline recovery rung exhausted, while repository-story recovery
+survived partial writer, editor, and reviewer failure and promoted
+`artifact-55ac6377bb909fb95ebbcfa1`; Stage 7 preserved that incumbent. The
+authorized sibling import replaced the date-owned page. Its sealed bundle
+SHA-256 is `38a796c05c4b12f91860dc5322f0b7c051e6b7ba43b7540f2bf2fb6384b68798`;
+the verified rendered-page SHA-256 is
+`c443aa25614504ca7ff508b7a397769404933869c420e41a8efebbcd1e4457a0`.
+
+That public run is one-time operational corroboration, never pytest or a
+permanent gate. Permanent checks are the offline producer suite (3,676
+passing), sibling-publisher suite (1,453 passing), and retained controlled E2E
+(passing). The semantic date verifier change and the real run make no
+deterministic claim about future model prose. `--yes` and `--yesterday` remain
+unattended paths; prompt prose did not change and `docs/BLOG_CONTRACT.md`
+remained SHA-256
+`306674359d086e28a1b952da5b5774a23524eb2e424208dec8683da5d5378a00`.
 
 A separate retained full publication completed/degraded at 2026-08-23 with
 summary `450016868d190ebd1723f53c1144a84afd3c2da2bfc965715c9f1205bb5c1723`.

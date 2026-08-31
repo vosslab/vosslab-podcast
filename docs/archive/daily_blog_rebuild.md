@@ -3,9 +3,9 @@
 ## Purpose and authority
 
 This tracker records execution of
-[`LAYERED_PODCAST_IMPROVE_PLAN.md`](../../archive/LAYERED_PODCAST_IMPROVE_PLAN.md).
+[`LAYERED_PODCAST_IMPROVE_PLAN.md`](LAYERED_PODCAST_IMPROVE_PLAN.md).
 The plan remains authoritative for scope, wording, dependencies, and acceptance evidence. The
-human-owned [docs/BLOG_CONTRACT.md](../../BLOG_CONTRACT.md) remains unchanged.
+human-owned [docs/BLOG_CONTRACT.md](../BLOG_CONTRACT.md) remains unchanged.
 
 The target is a readable, evidence-grounded post for each requested `report_date` with obtainable
 evidence. Reliability belongs inside every editorial stage: independent candidates, partial-failure
@@ -14,12 +14,13 @@ checks retain evidence grounding and publication integrity; they do not assemble
 
 ## Current decision state
 
-Status: M1 through M16 remain accepted historical rebuild evidence. A forward
-hardening track, H1 through H3, is open after the real 2026-08-28 run sealed a
-bundle but did not complete site import. This is a stabilization track, not a
-revision of the accepted milestones.
+Status: M1 through M16 remain accepted historical rebuild evidence. The H1--H3
+stabilization track completed its real 2026-08-28 public run on 2026-08-31:
+the completed, degraded run imported and verified a readable grounded page.
+This is a stabilization record, not a revision of the accepted milestones.
+Final repository hygiene and fresh-review closure are complete.
 M14's accepted durable record is
-[`daily_blog_rebuild_validation.md`](../reports/daily_blog_rebuild_validation.md).
+[`daily_blog_rebuild_validation.md`](../active_plans/reports/daily_blog_rebuild_validation.md).
 
 The accepted route foundation now provides strict `AgentResult` invariants, five typed route failure
 classes, bounded retry, a shared process-wide `RouteBudget`, one repair admission per logical
@@ -42,7 +43,7 @@ and the coordinator records `publication_validation`, `post_write`, `site_import
 preservation after a forced `page_verification` failure. Scheduled `--yesterday` automatically
 replaces an occupied date; an occupied interactive `--date` asks `Overwrite YYYY-MM-DD? [N/y]:`
 and requires exact `y`; `--yes` is the unattended explicit-date replacement path. This later
-[HUMAN_GUIDANCE.md](../../HUMAN_GUIDANCE.md) decision supersedes the older unconditional-interactive
+[HUMAN_GUIDANCE.md](../HUMAN_GUIDANCE.md) decision supersedes the older unconditional-interactive
 wording while retaining `report_date` as the sole publication identity with no versioning. The
 producer's final reviewer reported 205 focused tests passing; the sibling publisher's v6/v4 review
 accepted its matching contract. This acceptance does not establish new prompt wording or M6's
@@ -126,15 +127,17 @@ paths were split into owned workflow modules, temporary harnesses were removed, 
 documentation and publication contracts were reconciled. This is completed rebuild work, not a
 hidden exception to the repository limit.
 
-## 2026-08-30 hardening track
+## 2026-08-30--31 hardening track
 
-The real 2026-08-28 route completed editorial work and sealed a bundle, but site
-import rejected that bundle. The observed failure is a pipeline fault, not an
-editorial degradation: the producer admitted a final post whose repository
-coverage and narrative citation policy did not satisfy the sibling publisher's
-publication policy. The track below stabilizes that boundary before another
-live route. It preserves all historical M1--M16 acceptance records and leaves
-prompt prose and the human-owned contract unchanged.
+Earlier real 2026-08-28 routes exposed design discoveries: Stage 6 treated an
+honest policy rejection as forged recovery lineage, editors could not see a
+mechanically grounded draft that needed policy repair, and the rendered-page
+verifier required a literal ISO date although the page correctly exposed a
+semantic `<time datetime>` value and human-readable date. Those were pipeline
+faults, not editorial degradations or acceptance evidence. The hardening track
+corrected those boundaries before the final live route. It preserves all
+historical M1--M16 acceptance records and leaves prompt prose and the
+human-owned contract unchanged.
 
 The scope rule is fixed before candidate generation: `PublicationSurface` is
 the exact union of Stage-6 eligible survivor `EvidencePacket` sources, with a
@@ -145,15 +148,36 @@ post-publication scope expansion.
 
 | Track | Scope and completion evidence | Status |
 | --- | --- | --- |
-| H1 | Build one frozen survivor `PublicationSurface`; apply final-policy admission to Stage 6 and Stage 7 candidates, with Stage 8 as an invariant check. Verify that policy-invalid peers degrade while an eligible peer can survive, and that the sealed publication uses the same surface. | In progress; implementation awaits focused offline tests and review. |
-| H2 | Add sibling validate-only preflight for the exact sealed transfer; use bounded, text-free, typed publisher failures; and treat replacement as authorization rather than a claim that an installed record exists. Verify all four prior-state transitions and that validation writes nothing. | In progress; implementation awaits focused offline tests and review. |
-| H3 | Retain focused offline permanent tests and the fixed, offline retained durable controlled E2E. Then run one unattended real 2026-08-28 public rerun and verify its terminal summary, import receipt, sealed bundle, installed post, and rendered page. | Pending H1 and H2. |
+| H1 | Build one frozen survivor `PublicationSurface`; apply final-policy admission to Stage 6 and Stage 7 candidates, with Stage 8 as an invariant check. Verify that policy-invalid peers degrade while an eligible peer can survive, and that the sealed publication uses the same surface. | Completed. The final route retained grounded work across partial model failure, promoted `artifact-55ac6377bb909fb95ebbcfa1`, and sealed the verified survivor surface. |
+| H2 | Add sibling validate-only preflight for the exact sealed transfer; use bounded, text-free, typed publisher failures; and treat replacement as authorization rather than a claim that an installed record exists. Verify all four prior-state transitions and that validation writes nothing. | Completed. The route passed preflight and performed authorized same-date replacement; the final receipt binds the transferred bundle and rendered page. |
+| H3 | Retain focused offline permanent tests and the fixed, offline retained durable controlled E2E. Then run one unattended real 2026-08-28 public rerun and verify its terminal summary, import receipt, sealed bundle, installed post, and rendered page. | Completed as one-time operational corroboration. Run `20260831T023101Z-00f0b92468` completed with outcome `degraded`, imported and verified the real page, and retained bounded recovery facts. |
 
 `--yes` and `--yesterday` remain unattended paths; H1--H3 contain no human
 approval or interactive milestone. The real rerun is one-time corroboration,
 never a pytest case or permanent acceptance gate. It confirms integration and
 publication behavior only; it does not convert live model output into a
 repeatable prose-quality test.
+
+### Final H3 operational record
+
+The unattended public run for `report_date=2026-08-28`,
+`20260831T023101Z-00f0b92468`, completed with editorial outcome `degraded`.
+The daily-outline recovery rung exhausted, while repository-story recovery
+survived partial writer, editor, and reviewer failure and promoted grounded
+`artifact-55ac6377bb909fb95ebbcfa1`. Stage 7 preserved that incumbent. The
+sibling import replaced the date-owned page; the sealed bundle SHA-256 is
+`38a796c05c4b12f91860dc5322f0b7c051e6b7ba43b7540f2bf2fb6384b68798` and the
+verified rendered-page SHA-256 is
+`c443aa25614504ca7ff508b7a397769404933869c420e41a8efebbcd1e4457a0`.
+
+The page verifier now binds the requested date to semantic `<time datetime>`
+data rather than demanding an ISO spelling in reader-visible prose. This
+operational record is intentionally one-time evidence, not a pytest fixture or
+a deterministic claim about model prose. Permanent verification separately
+recorded 3,676 producer tests, 1,453 sibling-publisher tests, and the retained
+controlled E2E passing. `docs/BLOG_CONTRACT.md` remained at SHA-256
+`306674359d086e28a1b952da5b5774a23524eb2e424208dec8683da5d5378a00`; no prompt
+prose changed.
 
 ## Gate rejections and blockers
 
@@ -180,7 +204,7 @@ repeatable prose-quality test.
 | M14 final mechanical-record gate | Accepted | The durable report records five self-generated fixed-date no-egress cases (quiet, busy, single-repository, screenshot-bearing, and degraded-dependency), each with sealed provenance-to-page evidence and ladder depth. Matrix and RunStore source, security, and test-policy reviews accepted the bounded descriptor/observability boundary and the degradation-versus-typed-fault distinction. Retention remains `null` because no supported positive-day capacity value exists. The report records temporary harness deletion obligations; local historical material and live external `--yesterday` are excluded/non-gating. | M15 may begin its coordinated consumer migration and removal sweep. It must delete the recorded temporary harnesses before aggregate E2E, preserve prompt text and the protected contract, and resolve the source-size follow-on. M16 retains the Aug. 28 public-entrypoint demonstration. |
 
 These rejections are corrective gates, not completed milestones. The archived pre-implementation
-review, [`DAILY_BLOG_PLAN_REVIEW.md`](../../archive/DAILY_BLOG_PLAN_REVIEW.md), explains the same architectural
+review, [`DAILY_BLOG_PLAN_REVIEW.md`](DAILY_BLOG_PLAN_REVIEW.md), explains the same architectural
 gaps: preserve the incumbent, use typed stage outcomes, avoid positional review fallback, retain one
 durable state owner, and resolve the publisher ownership boundary.
 

@@ -3031,3 +3031,38 @@ Next actions
 1. The implementation work in this rebuild-plan slice is closed.
 2. Ordinary operational monitoring and live-provider observation remain optional,
    non-gating corroboration.
+
+---
+Session Update: 2026-08-30 (real Aug. 28 publication; UTC completion Aug. 31)
+
+Change
+- Completed unattended real run `20260831T023101Z-00f0b92468` for
+  `report_date=2026-08-28`. It completed with outcome `degraded`: the
+  daily-outline recovery rung exhausted, while repository-story recovery
+  survived partial writer, editor, and reviewer failure and promoted grounded
+  `artifact-55ac6377bb909fb95ebbcfa1`; Stage 7 preserved that incumbent.
+- The sibling publisher performed authorized same-date replacement. The sealed
+  bundle SHA-256 is
+  `38a796c05c4b12f91860dc5322f0b7c051e6b7ba43b7540f2bf2fb6384b68798`; the
+  verified rendered-page SHA-256 is
+  `c443aa25614504ca7ff508b7a397769404933869c420e41a8efebbcd1e4457a0`.
+- Corrected three live-route design discoveries without changing prompt prose:
+  policy-only ineligibility is not forged recovery lineage; mechanically
+  grounded drafts may reach editorial repair; and page verification uses
+  semantic `<time datetime>` data instead of demanding an ISO spelling in
+  reader-visible text.
+
+Tests
+- Permanent offline verification passed: producer 3,676 tests, sibling
+  publisher 1,453 tests, and the retained controlled publication E2E.
+- The completed real run is one-time operational evidence, not a pytest case
+  and not a deterministic claim about stochastic model prose.
+- `docs/BLOG_CONTRACT.md` remained byte-identical at SHA-256
+  `306674359d086e28a1b952da5b5774a23524eb2e424208dec8683da5d5378a00`; no
+  prompt prose changed.
+
+Next actions
+1. No required rebuild, audit, documentation, hygiene, or publication blocker
+   remains.
+2. Ordinary reliability monitoring and future editorial-parameter tuning are
+   optional follow-on work, not acceptance gates.

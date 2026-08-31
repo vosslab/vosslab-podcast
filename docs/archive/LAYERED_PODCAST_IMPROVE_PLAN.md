@@ -836,7 +836,7 @@ Ordered by impact on correctness, validation, and delivery.
 
 ## Documentation close-out requirements
 
-- Active plan / progress tracker: `docs/active_plans/active/daily_blog_rebuild.md`;
+- Closed plan / progress record: `docs/archive/daily_blog_rebuild.md`;
   `docs/active_plans/reports/daily_blog_rebuild_validation.md` holds M14 evidence; superseded plans
   move to `docs/archive/` with `git mv`.
 - `docs/CHANGELOG.md` entry: dated sections for additions, behavior changes, and removals, plus a

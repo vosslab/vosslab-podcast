@@ -2,7 +2,7 @@
 
 This roadmap records the completed daily-blog rebuild and its ongoing maintenance. It is a guide
 to priorities, not a release schedule. The authoritative execution record is
-[daily_blog_rebuild.md](active_plans/active/daily_blog_rebuild.md).
+[daily_blog_rebuild.md](archive/daily_blog_rebuild.md).
 
 ## Current baseline
 
