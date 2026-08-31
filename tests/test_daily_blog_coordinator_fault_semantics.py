@@ -74,11 +74,8 @@ def _surface(
 		packet.report_date, (packet,), (repository,),
 		"Grounded outline. <!-- evidence: " + evidence_id + " -->", (evidence_id,),
 	)
-	context = daily_blog.projection.build_bounded_evidence_context(
-		(packet,), _LIMITS, _LIMITS["context_chars"],
-	)
 	return daily_blog.publication_admission.build_surface(
-		(packet,), (repository,), context, (outline, story),
+		(packet,), (repository,), _LIMITS, (outline, story),
 	)
 
 

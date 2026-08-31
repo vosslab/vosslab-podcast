@@ -110,9 +110,8 @@ def _surface(
 		"Outline <!-- evidence: " + ", ".join(evidence_ids) + " -->", evidence_ids,
 	)
 	limits = {"context_chars": 8000, "excerpt_chars": 1000, "commit_subject_chars": 120}
-	context = daily_blog.projection.build_bounded_evidence_context((survivor,), limits, 8000)
 	return daily_blog.publication_admission.build_surface(
-		(survivor,), (repository,), context, (outline, story),
+		(survivor,), (repository,), limits, (outline, story),
 	)
 
 
@@ -786,11 +785,9 @@ def test_orchestrator_records_publisher_preflight_as_an_operational_fault(
 		packet.report_date, (packet,), ("vosslab/example",),
 		"Grounded outline. <!-- evidence: " + item.evidence_id + " -->", (item.evidence_id,),
 	)
-	context = daily_blog.projection.build_bounded_evidence_context(
-		(packet,), {"context_chars": 8000, "excerpt_chars": 1000, "commit_subject_chars": 120}, 8000,
-	)
+	limits = {"context_chars": 8000, "excerpt_chars": 1000, "commit_subject_chars": 120}
 	surface = daily_blog.publication_admission.build_surface(
-		(packet,), ("vosslab/example",), context, (outline, story),
+		(packet,), ("vosslab/example",), limits, (outline, story),
 	)
 	post = daily_blog.artifacts.CompletePost.create(
 		packet.report_date, (packet,), ("vosslab/example",),
@@ -819,7 +816,6 @@ def test_orchestrator_records_publisher_preflight_as_an_operational_fault(
 		"""Return a sealed fixture after advancing actual acquisition phases."""
 		for phase in (
 			"repository_discovery", "mirror_refresh", "activity_location", "evidence_assembly",
-			"editorial_projection",
 		):
 			complete(orchestrator, phase)
 		return types.SimpleNamespace(roster=roster, packet=packet, assets={})

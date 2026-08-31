@@ -26,7 +26,6 @@ import daily_blog.publication_admission
 import daily_blog.stage6_recovery
 
 
-MAX_STAGE6_CONTEXT_CHARS = 60000
 #============================================
 @dataclasses.dataclass(frozen=True)
 class Stage6RecoverySources:
@@ -204,6 +203,11 @@ class Stage6Input:
 		return self.publication_surface.evidence_context
 
 	@property
+	def prompt_context(self) -> daily_blog.stage6_context.Stage6PromptContext:
+		"""Return the one bounded artifact-and-evidence view owned by the surface."""
+		return self.publication_surface.stage6_prompt_context
+
+	@property
 	def context_packets(self) -> tuple[daily_blog.schema.EvidencePacket, ...]:
 		"""Return the same survivor packets used by prompt context and admission."""
 		return self.packets
@@ -247,18 +251,8 @@ class Stage6Input:
 			raise RuntimeError("Stage 6 output path is outside its trusted root.")
 
 	def render_context(self) -> str:
-		"""Render full editorial state plus an exact bounded evidence projection."""
-		value = daily_blog.stage6_context.stage6_frame(self.daily_outline, self.repo_stories, {})
-		available = MAX_STAGE6_CONTEXT_CHARS - len(daily_blog.stage6_context.canonical_context(value)) + 2
-		if self.evidence_context.context_chars > available:
-			raise RuntimeError("Stage 6 bounded evidence cap exceeds its complete frame.")
-		value["evidence"] = json.loads(
-			self.evidence_context.render_context(self.evidence_context.context_chars),
-		)
-		context = daily_blog.stage6_context.canonical_context(value)
-		if len(context) > MAX_STAGE6_CONTEXT_CHARS:
-			raise RuntimeError("Stage 6 typed evidence context exceeds its bounded limit.")
-		return context
+		"""Render the one surface-owned bounded artifact-and-evidence view."""
+		return self.prompt_context.render_context()
 
 
 #============================================
@@ -274,13 +268,10 @@ def build_stage6_publication_surface(
 		packet for packet in packets
 		if {item.repository for item in packet.items}.issubset(scope)
 	), key=lambda item: item.packet_id))
-	context = daily_blog.stage6_context.build_stage6_evidence_context(
-		daily_outline, repo_stories, survivor_packets, projection_limits,
-	)
 	# ASVS 2.2.1 and 2.3.1: one validated value controls both the model frame
 	# and every later admission decision; the original packet union cannot leak in.
 	return daily_blog.publication_admission.build_surface(
-		survivor_packets, daily_outline.repositories, context,
+		survivor_packets, daily_outline.repositories, projection_limits,
 		(daily_outline,) + repo_stories,
 	)
 
@@ -354,15 +345,8 @@ class CompletePostRecoveryInput:
 		)
 
 	def render_context(self) -> str:
-		"""Render one scoped source frame plus exact bounded source slices."""
-		value = daily_blog.stage6_context.recovery_frame(self.rung, self.source_artifacts, {})
-		value["evidence"] = json.loads(
-			self.evidence_context.render_context(self.evidence_context.context_chars),
-		)
-		context = daily_blog.stage6_context.canonical_context(value)
-		if len(context) > MAX_STAGE6_CONTEXT_CHARS:
-			raise RuntimeError("Stage 6 recovery evidence context exceeds its bounded limit.")
-		return context
+		"""Render one lower path from the surface-owned bounded source authority."""
+		return self.stage6_input.prompt_context.render_recovery_context(self.rung)
 #============================================
 @dataclasses.dataclass(frozen=True, kw_only=True)
 class Stage6Result:
@@ -525,7 +509,7 @@ def _request(value: Stage6Input, run_id: str, step: str, role: str, ordinal: str
 	logical_input = {"report_date": value.report_date,
 		"context": value.render_context(), "output_path": value.output_path, "step": step, "role": role,
 		"ordinal": ordinal, "input_ids": list(input_ids), "editor_prompt": editor_identity,
-		"model_context_id": value.evidence_context.model_context_id,
+		"stage6_prompt_context": value.prompt_context.cache_identity(),
 		"v4_contract": contract_version, "assignment": assignment_data}
 	logical_input.pop("output_path")
 	cache_input_hash = daily_blog.io_utils.hash_value(logical_input)
@@ -639,7 +623,7 @@ def _recovery_request(
 		"report_date": value.report_date,
 		"rung": value.rung.value,
 		"context": value.render_context(),
-		"model_context_id": value.evidence_context.model_context_id,
+		"stage6_prompt_context": value.stage6_input.prompt_context.cache_identity(),
 		"source_ids": list(source_ids),
 		"repositories": list(value.repositories),
 		"prompt_contract": prompt_identity,

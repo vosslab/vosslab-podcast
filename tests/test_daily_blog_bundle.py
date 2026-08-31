@@ -158,9 +158,8 @@ def publication_surface(
 		"Outline <!-- evidence: " + ", ".join(evidence_ids) + " -->", evidence_ids,
 	)
 	limits = {"context_chars": 8000, "excerpt_chars": 1000, "commit_subject_chars": 120}
-	context = daily_blog.projection.build_bounded_evidence_context((survivor,), limits, 8000)
 	return daily_blog.publication_admission.build_surface(
-		(survivor,), (repository,), context, (outline, story),
+		(survivor,), (repository,), limits, (outline, story),
 	)
 
 

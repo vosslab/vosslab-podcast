@@ -188,16 +188,26 @@ class RepositoryEditorialCoordinator:
 			"packet_ids": list(evidence_context.packet_ids),
 		}
 		dependencies.write_artifact("stage5_evidence_context.json", evidence_context.to_dict())
-		dependencies.write_artifact("repository_editorial.json", artifact)
 		value = daily_blog.daily_outline_workflow.DailyOutlineInput(
 			joined.repo_stories, joined.repo_outlines, joined.packets, evidence_context,
 			os.path.abspath(dependencies.config.output_root),
 		)
+		artifact["stage5_repository_context"] = {
+			"context_id": value.repository_context.context_id,
+			"model_context_id": value.repository_context.model_context_id,
+			"projection_version": value.repository_context.story_context.projection_version,
+		}
+		dependencies.write_artifact(
+			"stage5_repository_context.json", value.repository_context.to_dict(),
+		)
+		dependencies.write_artifact("repository_editorial.json", artifact)
 		dependencies.complete("repository_editorial", {
 			"repositories": list(value.repositories),
 			"packet_ids": [item.packet_id for item in value.packets],
 			"stage5_evidence_context_id": evidence_context.context_id,
 			"stage5_evidence_context_model_id": evidence_context.model_context_id,
+			"stage5_repository_context_id": value.repository_context.context_id,
+			"stage5_repository_context_model_id": value.repository_context.model_context_id,
 		}, False)
 		return RepositoryEditorialResult(value, capacity, budget)
 

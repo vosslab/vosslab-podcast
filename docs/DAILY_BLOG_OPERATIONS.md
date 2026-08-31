@@ -66,6 +66,12 @@ selects only an eligible whole post. If its normal author/editor path exhausts, 
 recovery rungs request a whole post from the retained daily outline and then from retained repository
 stories. The retained strongest story remains provenance only and is never assembled into a post.
 
+Stage 5 first projects every retained repository story and outline into fair bounded frames. Direct
+outline reviews use pair-specific story, outline, and evidence projections. Stage 6 then seals one
+prompt context from the winning outline, retained stories, and survivor evidence; its full primary
+and recovery frames each fit within 60,000 characters. Inspect `stage5_repository_context.json` and
+`stage6_prompt_context.json` for the source and semantic cache identities used by those requests.
+
 The user-facing terminal meanings are:
 
 | Outcome | Meaning | Command result |
@@ -108,12 +114,17 @@ bounded lifecycle and bundle facts, and `summary.jsonl` for the terminal outcome
 terminal run-record digest, and verified-page digest. These records intentionally omit prompts, model
 responses, credentials, and raw external diagnostics.
 
-Run state uses `vosslab.daily-blog.run.v11`. Each editorial summary carries an exact typed incumbent
+Run state uses `vosslab.daily-blog.run.v12`. Each editorial summary carries an exact typed incumbent
 transition: observe, establish, editorial replacement, or publication repair. Replay validates the
 transition chain and `best_artifact_id`; stage names are observability labels, never authority to
 replace a post. Each production retry creates a new auditable run and reuses only compatible
 phase and route-cache work. `RunStore.reopen()` is reconciliation-only: it can resolve a pending
 transition in an existing run once, but it does not make that run the retry target.
+
+Run v12 proceeds from evidence assembly to repository editorial; the survivor-scoped surface now
+owns editorial projection. The reader narrowly migrates compatible retained v11 records with the
+retired `editorial_projection` phase, and terminal-summary replay preserves failure receipts that
+name that historical phase. New records and receipts use the current phase set.
 
 Hash-verified phase-cache entries reuse matching activity, evidence, projections, and successful
 route results. Failed route calls remain retryable, and compatible ordinal calls can be reused when

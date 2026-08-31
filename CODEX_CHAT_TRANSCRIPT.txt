@@ -3161,3 +3161,108 @@ Tests
 Next actions
 1. No required next action remains. Optional live-route corroboration is
    non-gating.
+
+---
+Session Update: 2026-08-31 (Aug. 27 high-volume publication closure)
+
+Change
+- Traced the Aug. 27 failure series to deterministic context and persistence
+  seams rather than model quality: a pre-survivor projection gate, unbounded
+  Stage-5 and Stage-6 frames, an evidence archive limit mismatch, image-order
+  drift, and a retired phase name that blocked terminal-summary replay.
+- Advanced run state to v12 and moved projection authority after survivor
+  selection. Stage 5 now retains fair repository contexts and pair-specific
+  comparison frames. The survivor-owned `PublicationSurface` now seals one
+  complete bounded Stage-6 prompt context for primary and recovery routes.
+- Aligned producer archive reads with the 128-MiB evidence contract and made
+  terminal-summary validation preserve the one valid retired projection phase
+  while rejecting unknown phases. Moved generic bounded-artifact projection
+  into a stage-neutral owner and made promoted source artifacts select images;
+  aggregate evidence remains complete without requiring unrelated screenshots.
+  Approved prompt assets and
+  `docs/BLOG_CONTRACT.md` remained unchanged.
+
+Tests
+- Focused terminal receipt and run-state verification passed 38 tests. The
+  permanent suites passed 3,727 producer tests and 1,462 publisher tests; a
+  strict Python-3.13 MkDocs build also passed.
+- The controlled publication E2E passed producer preflight, publisher import,
+  same-date replacement, build, page verification, and post-import failure
+  recovery while proving an unselected aggregate screenshot stays outside the
+  archived and installed survivor assets.
+- Live run `20260831T183847Z-be18800c63` completed publication for 2026-08-27
+  with a degraded editorial outcome and selected
+  `artifact-40395302184ece87f7f98201`. The 10,474-byte Markdown post, bundle,
+  installed image, publication record, built page, and terminal receipt are
+  present. Bundle SHA-256 is
+  `323a04478108a4a9fd068ea06e7f99716e24295de196d16436ae30494e74cff6`;
+  page SHA-256 is
+  `1fe83125aed76a1ff77460d0e4d9982a6bbb4e8776a4e9cd58db0b9f876a7b0d`.
+
+Next actions
+1. No required publication, test, documentation, or recovery action remains.
+
+---
+Session Update: 2026-08-31 (neutral prompt-context integrity closeout)
+
+Change
+- Moved the minimum all-survivor evidence frame into the stage-neutral
+  projection owner, so Stage 5 and Stage 6 no longer depend on one another for
+  evidence budgeting.
+- Strengthened bounded-artifact validation to compare every model-visible
+  packet identity with the semantic identity of its canonical survivor packet,
+  rather than accepting equal cardinality. The existing Stage-6 behavior test
+  now exercises actual shared-scale trimming and a hash-recomputed forged
+  packet alias.
+- Refreshed Graphify after the ownership change. The resulting affected map
+  shows both Stage 5 and Stage 6 consuming the neutral bounded-artifact owner.
+
+Tests
+- Focused prompt-context and recovery verification passed 74 tests; the
+  oversized Stage-6 trimming case completes in 0.08 seconds. The retained
+  controlled cross-repository E2E passed initial import, same-date replacement,
+  page build/verification, and the post-import failure-retention path.
+- The final permanent producer suite passed 3,727 tests in 34.09 seconds.
+  Pyflakes and producer/publisher `git diff --check` passed. The prior final
+  publisher suite remains 1,462 passing because no sibling code changed during
+  this closeout.
+- The Aug. 27 post, sealed bundle, selected image asset, publisher record,
+  rendered page, and retired pending terminal summary were reverified directly.
+  Protected `docs/BLOG_CONTRACT.md` remains unchanged at SHA-256
+  `306674359d086e28a1b952da5b5774a23524eb2e424208dec8683da5d5378a00`.
+
+Next actions
+1. No required pipeline, publication, audit, documentation, or test action
+   remains.
+
+---
+Session Update: 2026-08-31 (permanent-test disposition audit)
+
+Change
+- Re-read the repository, Python, Markdown, pytest, development, test-layout,
+  devel-tool, human-guidance, and changelog rules before auditing every changed
+  test.
+- Removed an assertion about an obsolete internal artifact path, replaced a
+  JSON-key inventory with shared Stage-6 authority identities, isolated the
+  semantic packet-forgery property, and made the oversized evidence test prove
+  content round-trip rather than byte count.
+- Retained v11-to-v12 run-state migration coverage as durable resumability
+  behavior and made it prove that a completed acquisition can resume at the
+  first survivor-scoped editorial phase.
+
+Tests
+- Permanent pytest changes use inline deterministic inputs, write only beneath
+  `tmp_path`, make no external network, model, or subprocess calls, and finish
+  below one second per changed behavior test. No fixture file or fixture
+  directory was added. The fixed no-egress controlled publication E2E remains
+  in `tests/e2e/`, outside the pytest fast lane.
+- The live Aug. 27 publication, cached-candidate replay, standalone strict site
+  build, Graphify inspection, protected-asset hashes, and screenshot review are
+  one-time acceptance evidence rather than permanent test gates.
+- The focused disposition set passed 942 checks. The complete permanent
+  producer suite passed 3,728 tests in 33.64 seconds; the slowest changed
+  behavior test completed in 0.69 seconds.
+
+Next actions
+1. No required test-policy cleanup remains; no additional test family is
+   planned.

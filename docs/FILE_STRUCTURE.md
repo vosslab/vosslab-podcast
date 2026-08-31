@@ -23,6 +23,7 @@ pipeline/daily_blog/
   activity.py                       report-day Git activity location
   agents.py                         bounded parallel editorial route execution
   artifacts.py                      typed editorial artifact identities
+  bounded_artifact_context.py       stage-neutral bounded artifact prompt projections
   candidates.py                     complete-post eligibility validation
   complete_post_editor_prompts.py   Stage-6 editor prompt rendering
   config.py                         settings and role-route configuration
@@ -66,11 +67,11 @@ pipeline/daily_blog/
   roster_snapshots.py               immutable verified roster storage
   route_cache.py                    route-result cache serialization
   routes.py                         isolated stdin command execution for editorial routes
-  run_contracts.py                  v11 run record and incumbent transitions
+  run_contracts.py                  v12 run record and compatible-v11 reader
   run_state.py                      RunStore persistence and recovery
   schema.py                         evidence, projection, and bounded-context types
   stage6.py                         Stage-6 author/editor path and typed input boundary
-  stage6_context.py                 bounded Stage-6 and recovery evidence frames
+  stage6_context.py                 bounded Stage-6 artifact and evidence frames
   stage6_recovery.py                lower-rung whole-post author, editor, and review work
   stage7.py                         Stage-7 incumbent-preserving synthesis
   stage_recovery_coordinator.py     serial typed recovery-state coordination

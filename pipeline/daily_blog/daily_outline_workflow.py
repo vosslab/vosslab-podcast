@@ -11,6 +11,7 @@ import daily_blog.agents
 import daily_blog.artifacts
 import daily_blog.editorial_stage_config
 import daily_blog.daily_outline_prompts
+import daily_blog.daily_outline_context
 import daily_blog.io_utils
 import daily_blog.prompt_registry.definitions
 import daily_blog.prompt_registry.loader
@@ -162,6 +163,7 @@ class DailyOutlineInput:
 	packets: tuple[daily_blog.schema.EvidencePacket, ...]
 	evidence_context: daily_blog.schema.BoundedEvidenceContext
 	working_directory: str
+	repository_context: daily_blog.daily_outline_context.BoundedRepositoryEditorialContext | None = None
 
 	def __post_init__(self) -> None:
 		if (
@@ -169,6 +171,11 @@ class DailyOutlineInput:
 			or type(self.repo_outlines) is not tuple
 			or type(self.packets) is not tuple
 			or type(self.evidence_context) is not daily_blog.schema.BoundedEvidenceContext
+			or (
+				self.repository_context is not None
+				and type(self.repository_context)
+				is not daily_blog.daily_outline_context.BoundedRepositoryEditorialContext
+			)
 		):
 			raise RuntimeError("Daily-outline input requires tuples.")
 		if not self.repo_stories or len(self.repo_stories) != len(self.repo_outlines) or not self.packets:
@@ -185,6 +192,15 @@ class DailyOutlineInput:
 		object.__setattr__(self, "packets", packets)
 		object.__setattr__(self, "repo_stories", stories)
 		object.__setattr__(self, "repo_outlines", outlines)
+		expected_context = daily_blog.daily_outline_context.BoundedRepositoryEditorialContext.create(
+			stories, outlines, packets,
+			daily_blog.daily_outline_prompts.MAX_STORIES_CONTEXT_CHARS,
+			daily_blog.daily_outline_prompts.MAX_REPOSITORY_OUTLINES_CONTEXT_CHARS,
+		)
+		context = self.repository_context or expected_context
+		if context.to_dict() != expected_context.to_dict():
+			raise RuntimeError("Daily-outline repository context identity conflicts with its content.")
+		object.__setattr__(self, "repository_context", context)
 		date = stories[0].report_date
 		try:
 			datetime.date.fromisoformat(date)
@@ -239,29 +255,11 @@ class DailyOutlineInput:
 		"""Return the model-only alias boundary for this canonical story set."""
 		return StoryRankingAliasMap.from_stories(self.repo_stories)
 
-	def _render(self, value: object, maximum: int, label: str) -> str:
-		rendered = json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
-		if len(rendered) > maximum:
-			raise RuntimeError(f"Daily-outline {label} context exceeds its bounded limit.")
-		return rendered
-
 	def render_stories(self) -> str:
-		aliases = self.story_ranking_aliases
-		stories = []
-		for item in sorted(self.repo_stories, key=lambda item: (item.repositories, item.content_hash)):
-			projected = daily_blog.schema.model_cache_artifact(item.to_dict())
-			projected.pop("content_hash", None)
-			projected["artifact_id"] = aliases.alias_for(item.content_hash)
-			stories.append(projected)
-		return self._render({"stories": stories}, daily_blog.daily_outline_prompts.MAX_STORIES_CONTEXT_CHARS, "stories")
+		return self.repository_context.story_context.render_context()
 
 	def render_outlines(self) -> str:
-		outlines = []
-		for item in sorted(self.repo_outlines, key=lambda item: (item.repositories, item.content_hash)):
-			projected = daily_blog.schema.model_cache_artifact(item.to_dict())
-			projected.pop("content_hash", None)
-			outlines.append(projected)
-		return self._render({"outlines": outlines}, daily_blog.daily_outline_prompts.MAX_REPOSITORY_OUTLINES_CONTEXT_CHARS, "repository outlines")
+		return self.repository_context.outline_context.render_context()
 
 	def render_evidence(self) -> str:
 		return self.evidence_context.render_context(self.evidence_context.context_chars)
@@ -412,11 +410,54 @@ class DailyOutlineResult:
 		return () if self.artifact is None else tuple(item for item in self.source_stories if item.repositories[0] in self.artifact.repositories)
 
 
-def _request(value: DailyOutlineInput, step: str, role: str, ordinal: str, route: daily_blog.editorial_stage_config.RoleRoute, prompt: str, config: daily_blog.editorial_stage_config.DailyOutlineConfig, contract_identity: dict[str, object], input_ids: tuple[str, ...] = (), assignment: daily_blog.replication.ReviewAssignment | None = None, repair_of: str = "") -> daily_blog.agents.RouteRequest:
-	assignment_value = {} if assignment is None else {"pair_index": assignment.pair_index, "reviewer_index": assignment.reviewer_index, "display_order": assignment.display_order}
-	identity = {"report_date": value.report_date, "repositories": list(value.repositories), "packet_ids": sorted(daily_blog.schema.model_cache_packet_identity(item) for item in value.packets), "evidence_context_model_id": value.evidence_context.model_context_id, "story_ranking_alias_map": value.story_ranking_aliases.cache_identity(), "story_ids": sorted(item.content_hash for item in value.repo_stories), "outline_ids": sorted(item.content_hash for item in value.repo_outlines), "step": step, "role": role, "ordinal": ordinal, "input_ids": sorted(input_ids), "prompt_identity": contract_identity, "assignment": assignment_value}
+def _request(
+	value: DailyOutlineInput, step: str, role: str, ordinal: str,
+	route: daily_blog.editorial_stage_config.RoleRoute, prompt: str,
+	config: daily_blog.editorial_stage_config.DailyOutlineConfig,
+	contract_identity: dict[str, object],
+	input_ids: tuple[str, ...] = (),
+	assignment: daily_blog.replication.ReviewAssignment | None = None,
+	repair_of: str = "",
+	role_context: daily_blog.daily_outline_context.DailyOutlineComparisonContext | None = None,
+) -> daily_blog.agents.RouteRequest:
+	assignment_value = {} if assignment is None else {
+		"pair_index": assignment.pair_index,
+		"reviewer_index": assignment.reviewer_index,
+		"display_order": assignment.display_order,
+	}
+	identity = {
+		"report_date": value.report_date,
+		"repositories": list(value.repositories),
+		"packet_ids": sorted(
+			daily_blog.schema.model_cache_packet_identity(item) for item in value.packets
+		),
+		"evidence_context_model_id": value.evidence_context.model_context_id,
+		"repository_context_model_id": value.repository_context.model_context_id,
+		"repository_context_projection_version": value.repository_context.story_context.projection_version,
+		"comparison_context": None if role_context is None else role_context.cache_identity(),
+		"story_ranking_alias_map": value.story_ranking_aliases.cache_identity(),
+		"story_ids": sorted(item.content_hash for item in value.repo_stories),
+		"outline_ids": sorted(item.content_hash for item in value.repo_outlines),
+		"step": step,
+		"role": role,
+		"ordinal": ordinal,
+		"input_ids": sorted(input_ids),
+		"prompt_identity": contract_identity,
+		"assignment": assignment_value,
+	}
 	input_hash = daily_blog.io_utils.hash_value(identity)
-	return daily_blog.agents.RouteRequest(f"stage5_{step}_{role}_{ordinal}_{input_hash[:12]}", f"daily_outline_{step}", route, prompt, value.working_directory, role, config.route_retry_attempts, config.maximum_parallel_calls, repair_of, input_hash=input_hash, contract_version=daily_blog.prompt_registry.definitions.DAILY_OUTLINE_PROMPT_SET.version + ":" + STORY_RANKING_ALIAS_MAP_VERSION + ":" + value.story_ranking_aliases.identity_sha256 + ":" + str(contract_identity["integrity_sha256"]), cache_input_hash=input_hash)
+	contract_version = ":".join((
+		daily_blog.prompt_registry.definitions.DAILY_OUTLINE_PROMPT_SET.version,
+		STORY_RANKING_ALIAS_MAP_VERSION,
+		value.story_ranking_aliases.identity_sha256,
+		str(contract_identity["integrity_sha256"]),
+	))
+	return daily_blog.agents.RouteRequest(
+		f"stage5_{step}_{role}_{ordinal}_{input_hash[:12]}",
+		f"daily_outline_{step}", route, prompt, value.working_directory, role,
+		config.route_retry_attempts, config.maximum_parallel_calls, repair_of,
+		input_hash=input_hash, contract_version=contract_version, cache_input_hash=input_hash,
+	)
 
 
 def _parse_model_ranking(
@@ -505,7 +546,14 @@ def _outline(value: DailyOutlineInput, result: daily_blog.agents.AgentResult) ->
 		raise daily_blog.agents.RepairableStructuredOutput(
 			"Daily outline scope marker conflicts with cited evidence."
 		)
-	return daily_blog.artifacts.DailyOutline.create(value.report_date, value.packets, repositories, content, evidence_ids, daily_blog.artifacts.referenced_image_paths(content))
+	selected_packets = tuple(
+		packet for packet in value.packets
+		if {item.repository for item in packet.items}.issubset(repositories)
+	)
+	return daily_blog.artifacts.DailyOutline.create(
+		value.report_date, selected_packets, repositories, content, evidence_ids,
+		daily_blog.artifacts.referenced_image_paths(content),
+	)
 
 
 def _generation_reliability(step: str, generation: daily_blog.replication.ReplicationResult, reasons: tuple[str, ...] = ()) -> daily_blog.replication.StepReliability:
@@ -802,20 +850,34 @@ def _review_outlines(
 	cache_accept: collections.abc.Callable[[daily_blog.agents.RouteRequest, daily_blog.agents.AgentResult], None] | None,
 ) -> daily_blog.replication.ReviewResult:
 	"""Compare the eligible peer artifacts with balanced reviewer geometry."""
+	contexts: dict[tuple[str, str], daily_blog.daily_outline_context.DailyOutlineComparisonContext] = {}
+
 	def work(
 		left: daily_blog.artifacts.EditorialArtifact,
 		right: daily_blog.artifacts.EditorialArtifact,
 		assignment: daily_blog.replication.ReviewAssignment,
 	) -> daily_blog.replication.ReviewWork:
+		key = tuple(sorted((left.content_hash, right.content_hash)))
+		context = contexts.get(key)
+		if context is None:
+			first, second = sorted((left.content, right.content))
+			context = daily_blog.daily_outline_context.DailyOutlineComparisonContext.create(
+				value.repo_stories, value.repo_outlines, value.packets,
+				value.evidence_context, first, second,
+				prepared.prompts,
+			)
+			contexts[key] = context
 		request = _request(
 			value, "5_4", "outline_reviewer",
 			f"{assignment.pair_index}_{assignment.reviewer_index}_{assignment.display_order}",
 			config.outline_reviewer_route,
 			daily_blog.daily_outline_prompts.render_daily_outline_comparison(
-				prepared.stories_json, prepared.outlines_json, prepared.evidence_json,
+				context.story_context.render_context(), context.outline_context.render_context(),
+				context.evidence_context.render_context(context.evidence_context.context_chars),
 				left.content, right.content, prepared.prompts,
 			),
 			config, prepared.identity, (left.content_hash, right.content_hash), assignment,
+			role_context=context,
 		)
 		return daily_blog.replication.ReviewWork(
 			request, left.artifact_id, right.artifact_id, assignment,

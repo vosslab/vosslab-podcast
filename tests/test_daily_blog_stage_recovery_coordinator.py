@@ -113,11 +113,8 @@ def _surface(
 		"Grounded outline. <!-- evidence: " + ", ".join(evidence_ids) + " -->",
 		evidence_ids,
 	)
-	context = daily_blog.projection.build_bounded_evidence_context(
-		canonical, _LIMITS, _LIMITS["context_chars"],
-	)
 	return daily_blog.publication_admission.build_surface(
-		canonical, repositories, context, (outline,) + stories,
+		canonical, repositories, _LIMITS, (outline,) + stories,
 	)
 
 

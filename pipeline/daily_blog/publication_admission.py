@@ -8,6 +8,7 @@ import daily_blog.artifacts
 import daily_blog.candidates
 import daily_blog.projection
 import daily_blog.schema
+import daily_blog.stage6_context
 
 
 #============================================
@@ -39,6 +40,7 @@ class PublicationSurface:
 
 	source_packets: tuple[daily_blog.schema.EvidencePacket, ...]
 	evidence_context: daily_blog.schema.BoundedEvidenceContext
+	stage6_prompt_context: daily_blog.stage6_context.Stage6PromptContext
 	repositories: tuple[str, ...]
 	source_artifacts: tuple[daily_blog.artifacts.EditorialArtifact, ...]
 	daily_outline: daily_blog.artifacts.DailyOutline = dataclasses.field(init=False)
@@ -52,7 +54,7 @@ class PublicationSurface:
 	@property
 	def allowed_image_paths(self) -> tuple[str, ...]:
 		"""Return the legacy post-body view derived from typed image authority."""
-		return tuple(image.publish_path for image in self.allowed_images)
+		return tuple(sorted(image.publish_path for image in self.allowed_images))
 
 	#============================================
 	def __post_init__(self) -> None:
@@ -68,6 +70,7 @@ class PublicationSurface:
 			source_packet_ids != tuple(sorted(source_packet_ids))
 			or len(set(source_packet_ids)) != len(source_packet_ids)
 			or type(self.evidence_context) is not daily_blog.schema.BoundedEvidenceContext
+			or type(self.stage6_prompt_context) is not daily_blog.stage6_context.Stage6PromptContext
 			or type(self.repositories) is not tuple
 			or not self.repositories
 			or self.repositories != tuple(sorted(set(self.repositories)))
@@ -114,8 +117,14 @@ class PublicationSurface:
 			raise RuntimeError("Publication surface artifacts do not match its survivor scope.")
 		if any(not daily_blog.artifacts.evaluate_eligibility(
 			item, self.source_packets, allowed_repositories=self.repositories,
-		).eligible for item in self.source_artifacts):
+			).eligible for item in self.source_artifacts):
 			raise RuntimeError("Publication surface source artifacts are not mechanically grounded.")
+		if self.stage6_prompt_context.evidence_context != self.evidence_context:
+			raise RuntimeError("Publication surface prompt and admission evidence disagree.")
+		self.stage6_prompt_context.validate_against(
+			outline[0], tuple(sorted(stories, key=lambda item: item.artifact_id)),
+			self.source_packets,
+		)
 		artifact_evidence_ids = {
 			evidence_id for artifact in self.source_artifacts
 			for evidence_id in artifact.evidence_ids
@@ -148,18 +157,16 @@ class PublicationSurface:
 		artifact_images = {
 			path for artifact in self.source_artifacts for path in artifact.image_paths
 		}
-		context_images = {
-			image.publish_path for image in all_screenshot_images
-			if image.evidence_id in allowed_ids
-		}
-		allowed_image_paths = artifact_images | context_images
 		images_by_publish_path = {
 			image.publish_path: image for image in all_screenshot_images
 		}
-		if not allowed_image_paths.issubset(images_by_publish_path):
+		# Model-visible artifact paths are the screenshot-selection act. Raw
+		# survivor evidence remains citable without making every aggregate image
+		# a required publication asset.
+		if not artifact_images.issubset(images_by_publish_path):
 			raise RuntimeError("Publication surface exposes an unapproved survivor image.")
 		allowed_images = tuple(sorted(
-			(images_by_publish_path[path] for path in allowed_image_paths),
+			(images_by_publish_path[path] for path in artifact_images),
 			key=lambda image: (image.evidence_id, image.asset_path, image.publish_path),
 		))
 		# ASVS 2.2.3: later editorial stages read the cross-validated artifacts
@@ -177,7 +184,7 @@ class PublicationSurface:
 def build_surface(
 	packets: tuple[daily_blog.schema.EvidencePacket, ...],
 	repositories: tuple[str, ...],
-	evidence_context: daily_blog.schema.BoundedEvidenceContext,
+	projection_limits: dict[str, int],
 	source_artifacts: tuple[daily_blog.artifacts.EditorialArtifact, ...],
 ) -> PublicationSurface:
 	"""Bind one model-visible survivor context to its exact admission authority."""
@@ -195,7 +202,21 @@ def build_surface(
 	if type(source_artifacts) is not tuple:
 		raise RuntimeError("Publication surface requires exact source artifacts.")
 	ordered_artifacts = tuple(sorted(source_artifacts, key=lambda item: item.artifact_id))
-	return PublicationSurface(source_packets, evidence_context, repositories, ordered_artifacts)
+	outlines = tuple(
+		item for item in ordered_artifacts if type(item) is daily_blog.artifacts.DailyOutline
+	)
+	stories = tuple(
+		item for item in ordered_artifacts if type(item) is daily_blog.artifacts.RepoStory
+	)
+	if len(outlines) != 1 or not stories:
+		raise RuntimeError("Publication surface requires one outline and survivor stories.")
+	stage6_prompt_context = daily_blog.stage6_context.build_stage6_prompt_context(
+		outlines[0], stories, source_packets, projection_limits,
+	)
+	return PublicationSurface(
+		source_packets, stage6_prompt_context.evidence_context, stage6_prompt_context,
+		repositories, ordered_artifacts,
+	)
 
 
 #============================================

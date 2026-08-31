@@ -16,7 +16,6 @@ import daily_blog.roster_snapshots
 import daily_blog.run_contracts
 import daily_blog.run_state
 import daily_blog.schema
-import daily_blog.projection
 
 
 @dataclasses.dataclass(frozen=True)
@@ -39,18 +38,17 @@ class AcquisitionDependencies:
 
 @dataclasses.dataclass(frozen=True)
 class AcquisitionResult:
-	"""Return the single sealed handoff from acquisition to later publication phases."""
+	"""Return the sealed evidence handoff consumed by repository editorial."""
 
 	roster: daily_blog.repository_contracts.RepositoryRoster
 	mirrors: tuple[dict[str, object], ...]
 	activities: tuple[daily_blog.schema.RepositoryActivity, ...]
 	packet: daily_blog.schema.EvidencePacket
 	assets: dict[str, bytes]
-	projection: daily_blog.schema.EditorialProjection
 
 
 class AcquisitionCoordinator:
-	"""Persist repository, mirror, activity, evidence, and projection inputs in order."""
+	"""Persist repository, mirror, activity, and complete evidence in order."""
 
 	#============================================
 	def __init__(self, dependencies: AcquisitionDependencies) -> None:
@@ -66,14 +64,12 @@ class AcquisitionCoordinator:
 		mirrors = self._mirror_phase(roster)
 		activities = self._activity_phase(mirrors)
 		packet, assets = self._evidence_phase(mirrors, activities)
-		projection = self._projection_phase(packet)
 		result = AcquisitionResult(
 			roster=roster,
 			mirrors=tuple(mirrors),
 			activities=tuple(activities),
 			packet=packet,
 			assets=assets,
-			projection=projection,
 		)
 		return result
 
@@ -226,41 +222,6 @@ class AcquisitionCoordinator:
 		}
 		self.dependencies.complete("evidence_assembly", packet.to_dict(), reused)
 		return packet, assets
-
-	#============================================
-	def _projection_phase(
-		self, packet: daily_blog.schema.EvidencePacket,
-	) -> daily_blog.schema.EditorialProjection:
-		"""Build or restore the exact bounded editorial projection for this packet."""
-		config = self.dependencies.config
-		phase_input = {
-			"packet_id": packet.packet_id,
-			"projection_policy": daily_blog.projection.PROJECTION_POLICY_VERSION,
-			"projection_limits": config.projection_limits,
-			"schema": daily_blog.schema.PROJECTION_SCHEMA_VERSION,
-		}
-		input_hash = self.dependencies.start("editorial_projection", phase_input)
-		cached = self.dependencies.cache.load_json(
-			"editorial_projection", input_hash, "editorial_projection.json",
-		)
-		reused = cached is not None
-		if cached is None:
-			projection = daily_blog.projection.build_projection(packet, config.projection_limits)
-			self.dependencies.cache.store_json(
-				"editorial_projection", input_hash, "editorial_projection.json", projection.to_dict(),
-			)
-		else:
-			projection = daily_blog.schema.EditorialProjection.from_dict(dict(cached))
-		if projection.packet_id != packet.packet_id:
-			raise RuntimeError("Editorial projection does not match the evidence packet.")
-		self.dependencies.store.write_artifact("editorial_projection.json", projection.to_dict())
-		self.dependencies.record.editorial_projection = {
-			"projection_id": projection.projection_id,
-			"artifact": "editorial_projection.json",
-		}
-		self.dependencies.complete("editorial_projection", projection.to_dict(), reused)
-		return projection
-
 
 #============================================
 def _stable_mirror_input(entries: list[dict[str, object]]) -> list[dict[str, object]]:

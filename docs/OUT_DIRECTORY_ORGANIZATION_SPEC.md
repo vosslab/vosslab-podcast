@@ -54,18 +54,20 @@ publisher boundary:
 - `evidence.json`
 - `repository_roster.json`
 - `editorial_projection.json`
+- `publication_surface.json`
 - `post.md`
 - `assets/` containing only manifest-declared evidence assets
 
 The bundle binds the report date, selected artifact identity, generator revision, evidence,
-roster, projection, post hash, assets, active prompt contract, and activation identity. The
+roster, survivor surface, projection, post hash, assets, active prompt contract, and activation
+identity. The surface owns admitted evidence IDs, repository coverage, images, and assets. The
 producer stages those fixed files under descriptor ownership and atomically names the directory
 `publication`. A confirmed same-date replacement replaces that one directory; it never creates a
 publication version or changes the date identity.
 
 Each `runs/RUN_ID/` directory retains `run_state.json`, `events.jsonl`, and direct JSON artifacts
 for the run. Current workflow artifacts include the captured roster and prompt contract, mirror and
-activity records, evidence and editorial projection, editorial reliability summaries, selected-post
+activity records, evidence and bounded editorial contexts, editorial reliability summaries, selected-post
 write record, publication validation, bundle, import, page-verification, and typed recovery fault
 when applicable. The pending editorial and terminal-summary JSON journals are transaction-recovery
 records and are removed after successful reconciliation. Artifact names are deliberately

@@ -111,11 +111,8 @@ def _surface(
 	outline = daily_blog.artifacts.DailyOutline.create(
 		canonical[0].report_date, canonical, repositories, outline_content, ids, images,
 	)
-	context = daily_blog.projection.build_bounded_evidence_context(
-		canonical, _LIMITS, _LIMITS["context_chars"],
-	)
 	return daily_blog.publication_admission.build_surface(
-		canonical, repositories, context, (outline,) + tuple(stories),
+		canonical, repositories, _LIMITS, (outline,) + tuple(stories),
 	)
 
 
@@ -174,11 +171,9 @@ def test_surface_uses_exact_survivors_and_only_their_bundle_asset_paths(tmp_path
 		packet.report_date, (packet,), ("vosslab/first",), story_content, selected_ids,
 		(selected_path,),
 	)
-	context = daily_blog.projection.build_bounded_evidence_context(
-		(packet,), {**_LIMITS, "context_chars": 1800}, 1800,
-	)
+	limits = {**_LIMITS, "context_chars": 1800}
 	surface = daily_blog.publication_admission.build_surface(
-		(packet,), ("vosslab/first",), context, (outline, story),
+		(packet,), ("vosslab/first",), limits, (outline, story),
 	)
 	stage6_input = daily_blog.stage6.Stage6Input(
 		str(tmp_path), str(tmp_path / packet.report_date / "post.md"),
@@ -228,7 +223,7 @@ def test_aggregate_publication_packet_does_not_replace_survivor_artifact_provena
 	tmp_path: Path,
 ) -> None:
 	"""A two-repository post keeps per-repository source packet identities through admission."""
-	first, second = _packet("vosslab/first", "first.png"), _packet("vosslab/second", "second.png")
+	first, second = _packet("vosslab/first", "z.png"), _packet("vosslab/second", "a.png")
 	sources = tuple(sorted((first, second), key=lambda item: item.packet_id))
 	surface = _surface(sources)
 	first_id, second_id = first.items[0].evidence_id, second.items[0].evidence_id
@@ -267,7 +262,7 @@ def test_surface_rejects_a_claimed_scope_missing_its_survivor_packet() -> None:
 		daily_blog.publication_admission.build_surface(
 			surface.source_packets,
 			("vosslab/first", "vosslab/second"),
-			surface.evidence_context,
+			dict(surface.evidence_context.projection_limits),
 			surface.source_artifacts,
 		)
 
@@ -280,7 +275,8 @@ def test_direct_surface_rejects_duplicate_source_packet_identity() -> None:
 
 	with pytest.raises(RuntimeError, match="exact survivor evidence union"):
 		daily_blog.publication_admission.PublicationSurface(
-			(first, first), surface.evidence_context, ("vosslab/first",),
+			(first, first), surface.evidence_context, surface.stage6_prompt_context,
+			("vosslab/first",),
 			surface.source_artifacts,
 		)
 
@@ -294,7 +290,8 @@ def test_direct_surface_rejects_a_context_from_different_survivors() -> None:
 
 	with pytest.raises(RuntimeError, match="context"):
 		daily_blog.publication_admission.PublicationSurface(
-			(second,), surface.evidence_context, ("vosslab/second",), surface.source_artifacts,
+			(second,), surface.evidence_context, surface.stage6_prompt_context,
+			("vosslab/second",), surface.source_artifacts,
 		)
 
 
@@ -309,7 +306,8 @@ def test_direct_surface_rejects_source_artifacts_outside_survivor_scope() -> Non
 	with pytest.raises(RuntimeError, match="artifacts"):
 		daily_blog.publication_admission.PublicationSurface(
 			first_surface.source_packets, first_surface.evidence_context,
-			first_surface.repositories, second_surface.source_artifacts,
+			first_surface.stage6_prompt_context, first_surface.repositories,
+			second_surface.source_artifacts,
 		)
 
 

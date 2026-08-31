@@ -14,7 +14,7 @@ import daily_blog.publisher_contract
 import daily_blog.recovery
 
 
-RUN_SCHEMA_VERSION = "vosslab.daily-blog.run.v11"
+RUN_SCHEMA_VERSION = "vosslab.daily-blog.run.v12"
 UTC_TIMESTAMP_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
 
 LEGAL_PHASES = (
@@ -22,7 +22,6 @@ LEGAL_PHASES = (
 	"mirror_refresh",
 	"activity_location",
 	"evidence_assembly",
-	"editorial_projection",
 	"repository_editorial",
 	"stage5_daily_outline",
 	"stage6_complete_post",
@@ -65,6 +64,38 @@ PUBLISHABLE_ARTIFACT_ID_RE = re.compile(r"^artifact-[0-9a-f]{24}$")
 RANKING_PROMOTION_ID_RE = re.compile(r"^ranking-promotion-[0-9a-f]{24}$")
 MAX_LOGICAL_PATH_CHARS = 1024
 MAX_EDITORIAL_STEP_CHARS = 256
+
+
+#============================================
+def _migrate_v11_record(value: object) -> dict:
+	"""Read a safe v11 record after retiring its unused global projection phase."""
+	if type(value) is not dict:
+		raise RuntimeError("Run record must be an object.")
+	migrated = value.copy()
+	if "phases" not in migrated:
+		raise RuntimeError("Run record v11 phases are invalid.")
+	phases = migrated["phases"]
+	if type(phases) is not dict or "editorial_projection" not in phases:
+		raise RuntimeError("Run record v11 phases are invalid.")
+	retired = phases["editorial_projection"]
+	if (
+		type(retired) is not dict or "status" not in retired
+		or retired["status"] not in {"pending", "completed"}
+	):
+		raise RuntimeError("Run record v11 projection phase requires an offline migration.")
+	resume_index = LEGAL_PHASES.index("repository_editorial")
+	if retired["status"] == "pending" and any(
+		name not in phases or type(phases[name]) is not dict
+		or "status" not in phases[name] or phases[name]["status"] != "pending"
+		for name in LEGAL_PHASES[resume_index:]
+	):
+		raise RuntimeError("Run record v11 phase order requires an offline migration.")
+	migrated["phases"] = {
+		name: phase for name, phase in phases.items() if name != "editorial_projection"
+	}
+	migrated.pop("editorial_projection", None)
+	migrated["schema_version"] = RUN_SCHEMA_VERSION
+	return migrated
 
 
 @dataclasses.dataclass(frozen=True)
@@ -303,7 +334,6 @@ class RunRecord:
 	phases: dict[str, PhaseRecord]
 	repository_roster: dict
 	evidence_packet: dict
-	editorial_projection: dict
 	editorial_steps: list[dict]
 	editorial_transitions: list[dict]
 	best_artifact_id: str
@@ -332,7 +362,6 @@ class RunRecord:
 			phases=phases,
 			repository_roster={},
 			evidence_packet={},
-			editorial_projection={},
 			editorial_steps=[],
 			editorial_transitions=[],
 			best_artifact_id="",
@@ -545,12 +574,11 @@ class RunRecord:
 			if (
 				not self.repository_roster
 				or not self.evidence_packet
-				or not self.editorial_projection
 				or not self.editorial_steps
 				or not self.best_artifact_id
 				or not self.publication_bundle
 			):
-				raise RuntimeError("Completed run requires evidence, projection, and bundle references.")
+				raise RuntimeError("Completed run requires evidence, editorial steps, and bundle references.")
 		seen_open_phase = False
 		for name in LEGAL_PHASES:
 			status = self.phases[name].status
@@ -577,6 +605,8 @@ class RunRecord:
 			raise RuntimeError(
 				"Run record schema v10 requires an offline migration before reopen."
 			)
+		if value.get("schema_version") == "vosslab.daily-blog.run.v11":
+			value = _migrate_v11_record(value)
 		if value.get("schema_version") != RUN_SCHEMA_VERSION:
 			raise RuntimeError("Unsupported run record schema.")
 		field_names = {field.name for field in dataclasses.fields(cls)}
@@ -603,7 +633,6 @@ class RunRecord:
 		structured_fields = (
 			"repository_roster",
 			"evidence_packet",
-			"editorial_projection",
 			"publication_bundle",
 			"failure",
 		)
@@ -638,7 +667,6 @@ class RunRecord:
 			phases=phases,
 			repository_roster=value["repository_roster"].copy(),
 			evidence_packet=value["evidence_packet"].copy(),
-			editorial_projection=value["editorial_projection"].copy(),
 			editorial_steps=[item.copy() for item in value["editorial_steps"]],
 			editorial_transitions=[item.copy() for item in value["editorial_transitions"]],
 			best_artifact_id=value["best_artifact_id"],

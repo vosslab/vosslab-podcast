@@ -19,6 +19,7 @@ from collections.abc import Iterator
 
 # local repo modules
 import daily_blog.publication_contract
+import daily_blog.publication_storage
 import daily_blog.publisher_contract
 import daily_blog.io_utils
 import daily_blog.publication_article_projection
@@ -319,7 +320,11 @@ class PublicationArchiveReader:
 		"""Return one fixed bounded JSON archive artifact."""
 		if name not in self._JSON_ARTIFACTS:
 			raise RuntimeError("Publisher archive JSON artifact is unsupported.")
-		return _read_regular_at(self._archive_fd, name, MAX_RECORD_BYTES, label)
+		maximum = (
+			daily_blog.publication_storage.MAX_EVIDENCE_BYTES
+			if name == "evidence.json" else MAX_RECORD_BYTES
+		)
+		return _read_regular_at(self._archive_fd, name, maximum, label)
 
 	#============================================
 	def read_historical_v3_evidence(self) -> bytes:

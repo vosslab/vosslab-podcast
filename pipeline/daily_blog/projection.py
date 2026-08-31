@@ -466,7 +466,7 @@ def validate_bounded_evidence_context(
 			or excerpt.content_hash != daily_blog.io_utils.sha256_text(
 				item.content[excerpt.start:excerpt.end]
 			)
-		):
+	):
 			raise RuntimeError("Bounded evidence context excerpt is not an exact source slice.")
 	activity_values = tuple(activity for packet in ordered for activity in packet.activity)
 	activities = {activity.repository: activity for activity in activity_values}
@@ -501,8 +501,48 @@ def validate_bounded_evidence_context(
 			len(_bounded_context_base_frame(context)),
 			context.context_chars,
 		)
-	):
+		):
 		raise RuntimeError("Bounded evidence context exact excerpts are not canonical.")
+
+
+#============================================
+def minimum_evidence_context(
+	packets: tuple[daily_blog.schema.EvidencePacket, ...],
+	full: daily_blog.schema.BoundedEvidenceContext,
+) -> daily_blog.schema.BoundedEvidenceContext:
+	"""Derive the exact smallest one-excerpt-per-survivor evidence frame."""
+	if type(full) is not daily_blog.schema.BoundedEvidenceContext:
+		raise RuntimeError("Minimum evidence context requires a bounded evidence frame.")
+	items = {item.evidence_id: item for packet in packets for item in packet.items}
+	first_by_repository: dict[str, daily_blog.schema.EvidenceExcerpt] = {}
+	for excerpt in full.excerpts:
+		first_by_repository.setdefault(excerpt.repository, excerpt)
+	try:
+		coverage = [
+			daily_blog.schema.EvidenceExcerpt.create(
+				items[first_by_repository[card.repository].evidence_id], 0, 1,
+			)
+			for card in full.repositories
+		]
+	except (KeyError, ValueError) as error:
+		raise RuntimeError(
+			"Minimum evidence context cannot preserve citable evidence for every survivor."
+		) from error
+	cap = 1
+	while True:
+		context = daily_blog.schema.BoundedEvidenceContext.create(
+			full.report_date, full.timezone, cap, 1,
+			full.projection_limits.to_dict(), list(full.packet_ids), list(full.model_packet_ids),
+			list(full.repositories), coverage,
+		)
+		model_value = context.model_content_dict()
+		model_value["model_context_id"] = context.model_context_id
+		next_cap = len(daily_blog.io_utils.canonical_json_bytes(model_value))
+		if next_cap == cap:
+			validate_bounded_evidence_context(packets, context)
+			context.render_context(cap)
+			return context
+		cap = next_cap
 
 
 #============================================

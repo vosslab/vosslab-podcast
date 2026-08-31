@@ -221,6 +221,8 @@ def run_typed_stage5(coordinator: object, value: object) -> daily_blog.stage6.St
 	value = _validate_stage5_input(value, coordinator)
 	coordinator._start("stage5_daily_outline", {
 		"packet_ids": [item.packet_id for item in value.packets], "output_root": root,
+		"stage5_repository_context_id": value.repository_context.context_id,
+		"stage5_repository_context_model_id": value.repository_context.model_context_id,
 	})
 	cache_effects = _cache_buffer(coordinator)
 	result = daily_blog.daily_outline_workflow.run_daily_outline(
@@ -254,6 +256,9 @@ def run_typed_stage5(coordinator: object, value: object) -> daily_blog.stage6.St
 		value.packets,
 		dict(value.evidence_context.projection_limits),
 	)
+	coordinator.store.write_artifact(
+		"stage6_prompt_context.json", publication_surface.stage6_prompt_context.to_dict(),
+	)
 	stage6_value = daily_blog.stage6.Stage6Input(
 		root, _stage5_output_path(coordinator), recovery_sources, publication_surface,
 	)
@@ -261,6 +266,10 @@ def run_typed_stage5(coordinator: object, value: object) -> daily_blog.stage6.St
 		"artifact_id": result.artifact.artifact_id,
 		"content_hash": result.artifact.content_hash,
 		"selected_story_ids": [item.artifact_id for item in result.selected_stories],
+		"stage5_repository_context_id": value.repository_context.context_id,
+		"stage5_repository_context_model_id": value.repository_context.model_context_id,
+		"stage6_prompt_context_id": publication_surface.stage6_prompt_context.context_id,
+		"stage6_prompt_context_model_id": publication_surface.stage6_prompt_context.model_context_id,
 	})
 	return stage6_value
 

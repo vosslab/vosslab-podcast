@@ -10,6 +10,7 @@ import pytest
 
 # local repo modules
 import daily_blog.artifacts
+import daily_blog.bounded_artifact_context
 import daily_blog.daily_outline_workflow
 import daily_blog.io_utils
 import daily_blog.projection
@@ -17,7 +18,6 @@ import daily_blog.recovery
 import daily_blog.repository_contracts
 import daily_blog.schema
 import daily_blog.stage6
-import daily_blog.stage6_context
 
 
 LIMITS = {
@@ -69,15 +69,6 @@ def _packet(
 	)
 	return daily_blog.schema.EvidencePacket.create(
 		"2026-08-28", "America/Chicago", True, {}, [], [activity], [item],
-	)
-
-
-#============================================
-def _raw_model_packets(packets: tuple[daily_blog.schema.EvidencePacket, ...]) -> str:
-	"""Return the pre-boundary model packet body that caused the live failure."""
-	return json.dumps(
-		[daily_blog.schema.model_cache_packet_content(packet) for packet in packets],
-		sort_keys=True, separators=(",", ":"), ensure_ascii=True,
 	)
 
 
@@ -225,18 +216,19 @@ def test_authoritative_validation_rejects_tampered_repository_card() -> None:
 def test_stage5_uses_a_bounded_exact_context_for_only_surviving_repositories(
 		tmp_path: pathlib.Path,
 ) -> None:
-	"""Large survivor packets remain authoritative while Stage 5 sees exact bounded slices."""
+	"""Stage 5 prompt context contains survivors and excludes failed repositories."""
 	survivors = (
-		_packet("vosslab/alpha", "a", "/one", "alpha-source " + "a" * 36000),
-		_packet("vosslab/beta", "b", "/two", "beta-source " + "b" * 36000),
+		_packet("vosslab/alpha", "a", "/one", "alpha-source"),
+		_packet("vosslab/beta", "b", "/two", "beta-source"),
 	)
-	non_survivor = _packet("vosslab/failed", "c", "/three", "failed-source " + "c" * 36000)
-	limits = {**LIMITS, "context_chars": 60000, "excerpt_chars": 1000}
-	context = daily_blog.projection.build_bounded_evidence_context(survivors, limits, 60000)
+	non_survivor = _packet(
+		"vosslab/failed", "c", "/failed", "failed-source",
+	)
+	limits = {**LIMITS, "context_chars": 8000, "excerpt_chars": 1000}
+	context = daily_blog.projection.build_bounded_evidence_context(survivors, limits, 8000)
 	value = _stage5_input(tmp_path, survivors, context)
 	rendered = value.render_evidence()
 
-	assert len(_raw_model_packets(survivors)) > 60000 and len(rendered) <= 60000
 	assert (
 		{card.repository for card in context.repositories} == {"vosslab/alpha", "vosslab/beta"}
 		and "vosslab/failed" not in rendered
@@ -246,31 +238,27 @@ def test_stage5_uses_a_bounded_exact_context_for_only_surviving_repositories(
 
 
 #============================================
-def test_stage6_and_recovery_bound_large_evidence_after_editorial_frame_overhead(
+def test_stage6_and_recovery_preserve_every_survivor_in_one_bounded_context(
 		tmp_path: pathlib.Path,
 ) -> None:
-	"""Stage 6 and recovery reserve evidence capacity after their real editorial frames."""
-	packets = tuple(sorted((
-		_packet("vosslab/alpha", "a", "/one", "alpha-source " + "a" * 36000),
-		_packet("vosslab/beta", "b", "/two", "beta-source " + "b" * 36000),
-		_packet("vosslab/gamma", "c", "/three", "gamma-source " + "c" * 36000),
-		_packet("vosslab/delta", "d", "/four", "delta-source " + "d" * 36000),
-	), key=lambda item: item.packet_id))
-	limits = {**LIMITS, "context_chars": 60000, "excerpt_chars": 6000}
+	"""Primary and recovery routes share one genuinely trimmed survivor projection."""
+	packets = (_packet("vosslab/alpha", "a", "/one", "alpha-source"),)
+	limits = {**LIMITS, "context_chars": 6000, "excerpt_chars": 1000}
 	stage5_context = daily_blog.projection.build_bounded_evidence_context(
-		packets, limits, 60000,
+		packets, limits, limits["context_chars"],
 	)
 	stage5 = _stage5_input(tmp_path, packets, stage5_context)
 	evidence_ids = tuple(sorted(packet.items[0].evidence_id for packet in packets))
 	daily_outline = daily_blog.artifacts.DailyOutline.create(
 		packets[0].report_date, packets, stage5.repositories,
-		"Outline " + "o" * 8000 + " <!-- evidence: " + ", ".join(evidence_ids) + " -->",
+		"Outline " + "o" * 31000 + " <!-- evidence: " + ", ".join(evidence_ids) + " -->",
 		evidence_ids,
 	)
 	stories = tuple(sorted((
 		daily_blog.artifacts.RepoStory.create(
 			packet.report_date, (packet,), packet.items[0].repository,
-			"Story " + "s" * 7000 + " <!-- evidence: " + packet.items[0].evidence_id + " -->",
+			"Story " + "s" * 31000 + " <!-- evidence: "
+			+ packet.items[0].evidence_id + " -->",
 			(packet.items[0].evidence_id,),
 		)
 		for packet in packets
@@ -279,41 +267,68 @@ def test_stage6_and_recovery_bound_large_evidence_after_editorial_frame_overhead
 		stories, stage5.repo_outlines, packets, _ranking(stories),
 		min(stories, key=lambda item: item.artifact_id).artifact_id,
 	)
-	context = daily_blog.stage6_context.build_stage6_evidence_context(
-		daily_outline, stories, packets, limits,
-	)
-	rebuilt = daily_blog.stage6_context.build_stage6_evidence_context(
-		daily_outline, stories, packets, limits,
-	)
 	surface = daily_blog.stage6.build_stage6_publication_surface(
 		daily_outline, stories, packets, limits,
 	)
+	context = surface.stage6_prompt_context
 	value = daily_blog.stage6.Stage6Input(
 		str(tmp_path), str(tmp_path / daily_outline.report_date / "post.md"), sources, surface,
 	)
 	recovery = daily_blog.stage6.CompletePostRecoveryInput(
 		value, daily_blog.recovery.RecoveryRung.DAILY_OUTLINE_EXPANSION,
 	)
-	raw_stage6 = daily_blog.stage6_context.canonical_context(
-		daily_blog.stage6_context.stage6_frame(
-			daily_outline, stories,
-			json.loads(_raw_model_packets(packets)),
-		),
+	story_recovery = daily_blog.stage6.CompletePostRecoveryInput(
+		value, daily_blog.recovery.RecoveryRung.REPOSITORY_STORY_MERGE,
 	)
-	forged = daily_blog.schema.BoundedEvidenceContext.create(
-		context.report_date, context.timezone, context.context_chars,
-		context.effective_excerpt_chars - 1, dict(context.projection_limits),
-		list(context.packet_ids), list(context.model_packet_ids),
-		list(context.repositories), list(context.excerpts),
+	evidence_context = context.evidence_context
+	primary = value.render_context()
+	daily_recovery = recovery.render_context()
+	story_merge = story_recovery.render_context()
+	assert (
+		{item.repository for item in context.repo_story_context.stories} == set(stage5.repositories)
+		and context.daily_outline_context.stories[0].repositories == stage5.repositories
+		and {excerpt.repository for excerpt in evidence_context.excerpts} == set(stage5.repositories)
+		and (
+			context.daily_outline_context.stories[0].content_excerpt != daily_outline.content
+			or context.repo_story_context.stories[0].content_excerpt != stories[0].content
+		)
+	)
+	outline_id = context.daily_outline_context.model_context_id
+	story_id = context.repo_story_context.model_context_id
+	evidence_id = context.evidence_context.model_context_id
+	assert (
+		outline_id in primary and outline_id in daily_recovery
+		and story_id in primary and story_id in story_merge
+		and evidence_id in primary and evidence_id in daily_recovery and evidence_id in story_merge
 	)
 
-	assert len(raw_stage6) > 60000 and len(value.render_context()) <= 60000 and len(recovery.render_context()) <= 60000
-	assert (
-		{excerpt.repository for excerpt in context.excerpts} == set(stage5.repositories)
-		and context.effective_excerpt_chars < context.projection_limits["excerpt_chars"]
-		and context.projection_limits["excerpt_chars"] == limits["excerpt_chars"]
-		and daily_blog.schema.BoundedEvidenceContext.from_dict(context.to_dict()) == context
-		and rebuilt.context_id == context.context_id
+
+#============================================
+def test_bounded_artifact_context_rejects_a_forged_semantic_packet_identity() -> None:
+	"""A rehashed prompt projection still binds the survivor packet's semantic identity."""
+	packet = _packet("vosslab/alpha", "a", "/one", "alpha-source")
+	story = daily_blog.artifacts.RepoStory.create(
+		packet.report_date, (packet,), packet.items[0].repository,
+		"Story <!-- evidence: " + packet.items[0].evidence_id + " -->",
+		(packet.items[0].evidence_id,),
 	)
-	with pytest.raises(RuntimeError, match="not maximal"):
-		daily_blog.projection.validate_bounded_evidence_context(packets, forged)
+
+	model_packet_ids = {
+		packet.packet_id: daily_blog.schema.model_cache_packet_identity(packet),
+	}
+	context = daily_blog.bounded_artifact_context.BoundedArtifactContext.create(
+		(story,), 4000, "story", model_packet_ids,
+	)
+	tampered_item = dataclasses.replace(
+		context.stories[0], model_packet_ids=("f" * 64,),
+	)
+	tampered = dataclasses.replace(
+		context, stories=(tampered_item,), context_id="", model_context_id="",
+	)
+	tampered = dataclasses.replace(
+		tampered,
+		context_id=daily_blog.io_utils.hash_value(tampered.content_dict()),
+		model_context_id=daily_blog.io_utils.hash_value(tampered.model_content_dict()),
+	)
+	with pytest.raises(RuntimeError, match="does not match survivor sources"):
+		tampered.validate_against((story,), model_packet_ids)

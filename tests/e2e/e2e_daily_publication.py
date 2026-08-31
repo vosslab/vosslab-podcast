@@ -37,6 +37,10 @@ import daily_blog.schema
 PUBLISHER_ROOT = REPO_ROOT.parent / "vosslab-daily-blog"
 REPORT_DATE = "2026-08-23"
 REVISION = "a" * 40
+SELECTED_ASSET_PATH = "assets/selected.png"
+UNSELECTED_ASSET_PATH = "assets/unselected.png"
+SELECTED_PUBLISH_PATH = f"../../assets/publications/{REPORT_DATE}/selected.png"
+UNSELECTED_PUBLISH_PATH = f"../../assets/publications/{REPORT_DATE}/unselected.png"
 
 
 #============================================
@@ -110,8 +114,9 @@ def _source(root: pathlib.Path) -> tuple[
 	list[dict],
 	list[daily_blog.schema.RepositoryActivity],
 	daily_blog.schema.EvidencePacket,
+	dict[str, bytes],
 ]:
-	"""Build complete global evidence for two independently edited repositories."""
+	"""Build two survivors plus one aggregate screenshot outside their surface."""
 	repositories = tuple(daily_blog.repository_contracts.RepositoryRecord.from_dict({
 		"repository": repository, "repository_url": "https://github.com/" + repository,
 		"clone_url": "https://github.com/" + repository + ".git", "created_at": "2020-01-01T00:00:00Z", "is_fork": False,
@@ -137,14 +142,29 @@ def _source(root: pathlib.Path) -> tuple[
 		mirrors.append(mirror)
 		activities.append(activity)
 		items.append(item)
+	items.extend((
+		daily_blog.schema.EvidenceItem.create(
+			"screenshot", repositories[0].repository, "a" * 40, "selected.png", "1" * 40,
+			"Selected survivor screenshot.", "fixture", asset_path=SELECTED_ASSET_PATH,
+			publish_path=SELECTED_PUBLISH_PATH,
+		),
+		daily_blog.schema.EvidenceItem.create(
+			"screenshot", repositories[0].repository, "a" * 40, "unselected.png", "2" * 40,
+			"Aggregate screenshot outside the survivor surface.", "fixture",
+			asset_path=UNSELECTED_ASSET_PATH, publish_path=UNSELECTED_PUBLISH_PATH,
+		),
+	))
 	packet = daily_blog.schema.EvidencePacket.create(REPORT_DATE, "America/Chicago", True, {}, mirrors, activities, items)
-	return roster, mirrors, activities, packet
+	return roster, mirrors, activities, packet, {
+		SELECTED_ASSET_PATH: b"selected-image",
+		UNSELECTED_ASSET_PATH: b"unselected-image",
+	}
 
 
 #============================================
 def _post(title: str, evidence_ids: tuple[str, ...]) -> str:
 	"""Return a publisher-valid grounded post for the sealed offline runner."""
-	fixture_evidence, second_evidence = evidence_ids
+	fixture_evidence, second_evidence, screenshot_evidence = evidence_ids
 	opening = (
 		"On 2026-08-23 I followed the change trail in "
 		"[vosslab/fixture](https://github.com/vosslab/fixture), then compared it with "
@@ -186,6 +206,9 @@ def _post(title: str, evidence_ids: tuple[str, ...]) -> str:
 		"<!-- more -->\n\n"
 		f"## Following the fixture\n\n{fixture_story}\n\n"
 		f"## Comparing the second repository\n\n{second_story}\n\n"
+		"## Inspecting the selected result\n\n"
+		"![Selected survivor screenshot](" + SELECTED_PUBLISH_PATH + ") "
+		"<!-- evidence: " + screenshot_evidence + " -->\n\n"
 		f"## Keeping publication legible\n\n{closing}\n\n"
 		"## Project coverage\n\n- vosslab/fixture\n- vosslab/second-fixture\n")
 
@@ -240,7 +263,11 @@ class _OfflineRunner:
 		}:
 			return _post("Publication fixture", self.evidence_ids)
 		if name == "daily_outline_outline_writer":
-			return "<!-- daily-outline-scope: [\"vosslab/fixture\",\"vosslab/second-fixture\"] -->\n# Fixture outline\n\n" + self._all_citations() + "\n"
+			return (
+				"<!-- daily-outline-scope: [\"vosslab/fixture\",\"vosslab/second-fixture\"] -->\n"
+				"# Fixture outline\n\n" + self._all_citations() + "\n\n"
+				"![Selected survivor screenshot](" + SELECTED_PUBLISH_PATH + ")\n"
+			)
 		if name in {
 			"repository_outline_generator", "repository_outline_merger",
 			"repository_story_writer", "repository_story_editor",
@@ -254,8 +281,16 @@ def _runtime(
 	root: pathlib.Path, publisher: pathlib.Path, fail_page: bool,
 ) -> tuple[daily_blog.publication_workflow.PublicationRuntime, _OfflineRunner]:
 	"""Bind the public command to controlled external dependencies only."""
-	roster, mirrors, activities, packet = _source(root)
-	runner = _OfflineRunner(tuple(item.evidence_id for item in packet.items))
+	roster, mirrors, activities, packet, assets = _source(root)
+	change_ids = tuple(
+		next(item.evidence_id for item in packet.items
+			if item.kind == "dated_changelog" and item.repository == repository)
+		for repository in ("vosslab/fixture", "vosslab/second-fixture")
+	)
+	selected_screenshot_id = next(
+		item.evidence_id for item in packet.items if item.asset_path == SELECTED_ASSET_PATH
+	)
+	runner = _OfflineRunner(change_ids + (selected_screenshot_id,))
 
 	def page_verifier(repository: str, receipt: dict) -> dict:
 		if fail_page:
@@ -267,7 +302,7 @@ def _runtime(
 	return daily_blog.publication_workflow.PublicationRuntime(
 		repository_loader=lambda _owner, _output: roster,
 		mirror_refresh=lambda *_args: mirrors, activity_locator=lambda *_args: activities,
-		evidence_assembler=lambda *_args: (packet, {}),
+		evidence_assembler=lambda *_args: (packet, assets),
 		route_runner=runner,
 	publisher_function=lambda repository, transfer, **kwargs: daily_blog.publisher.import_bundle(
 		repository, transfer, replace_existing=kwargs["replace_existing"]),
@@ -323,6 +358,17 @@ def _assert_published(root: pathlib.Path, publisher: pathlib.Path, record: dict)
 		raise RuntimeError("Publisher receipt does not preserve selected post bytes.")
 	if page["rendered_page_sha256"] != hashlib.sha256(rendered.read_bytes()).hexdigest():
 		raise RuntimeError("Page verification receipt does not bind its rendered page.")
+	surface = json.loads(
+		(post.parent / "publication" / "publication_surface.json").read_text(encoding="utf-8"),
+	)
+	if [item["publish_path"] for item in surface["allowed_images"]] != [SELECTED_PUBLISH_PATH]:
+		raise RuntimeError("Publication surface did not preserve the selected image authority.")
+	archive_assets = publisher / "data" / "publication_bundles" / REPORT_DATE / "assets"
+	installed_assets = publisher / "docs" / "assets" / "publications" / REPORT_DATE
+	if not (archive_assets / "selected.png").is_file() or not (installed_assets / "selected.png").is_file():
+		raise RuntimeError("Selected survivor image did not cross the publisher boundary.")
+	if (archive_assets / "unselected.png").exists() or (installed_assets / "unselected.png").exists():
+		raise RuntimeError("Unselected aggregate image crossed the survivor boundary.")
 
 
 #============================================

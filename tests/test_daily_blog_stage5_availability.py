@@ -16,6 +16,7 @@ import daily_blog.daily_outline_workflow
 import daily_blog.projection
 import daily_blog.repository_contracts
 import daily_blog.schema
+import daily_blog.stage6
 
 
 def _activity(repository: str, marker: str) -> daily_blog.schema.RepositoryActivity:
@@ -37,21 +38,28 @@ def _context(packets: tuple[daily_blog.schema.EvidencePacket, ...]) -> daily_blo
 	"""Build the same survivor-only Stage 5 evidence frame used in production."""
 	limits = {"context_chars": 60000, "excerpt_chars": 600, "commit_subject_chars": 120}
 	return daily_blog.projection.build_bounded_evidence_context(packets, limits, limits["context_chars"])
-def _input(tmp_path: object) -> daily_blog.daily_outline_workflow.DailyOutlineInput:
+def _input(tmp_path: object, repository_count: int = 2, oversized: bool = False) -> daily_blog.daily_outline_workflow.DailyOutlineInput:
 	"""Build complete inline artifact and evidence provenance."""
 	packets = []
-	for index, repository in enumerate(("vosslab/alpha", "vosslab/beta")):
-		item = daily_blog.schema.EvidenceItem.create("dated_changelog", repository,
-			chr(97 + index) * 40, "CHANGELOG.md", chr(99 + index) * 40,
-			repository + " changed.", "git show")
+	for index in range(repository_count):
+		repository = "vosslab/repository-" + str(index).zfill(2)
+		evidence_count = 4 if oversized else 1
+		items = tuple(
+			daily_blog.schema.EvidenceItem.create("dated_changelog", repository,
+				chr(97 + index) * 40, "CHANGELOG-" + str(item_index) + ".md",
+				chr(99 + index) * 40,
+				repository + " changed. " + "exact citable evidence " * (30 if oversized else 0),
+				"git show")
+			for item_index in range(evidence_count)
+		)
 		packets.append(daily_blog.schema.EvidencePacket.create(
-			"2026-08-29", "America/Chicago", True, {}, [], [_activity(repository, chr(97 + index))], [item]))
+			"2026-08-29", "America/Chicago", True, {}, [], [_activity(repository, chr(97 + index))], items))
 	packet_tuple = tuple(packets)
 	stories = tuple(daily_blog.artifacts.RepoStory.create("2026-08-29", (packet,),
-		packet.items[0].repository, "# Story\n<!-- evidence: " + packet.items[0].evidence_id + " -->\n",
+		packet.items[0].repository, "# Story\n" + ("grounded source " * 500 if oversized else "") + "<!-- evidence: " + packet.items[0].evidence_id + " -->\n",
 		(packet.items[0].evidence_id,)) for packet in packet_tuple)
 	outlines = tuple(daily_blog.artifacts.RepoOutline.create("2026-08-29", (packet,),
-		packet.items[0].repository, "# Outline\n<!-- evidence: " + packet.items[0].evidence_id + " -->\n",
+		packet.items[0].repository, "# Outline\n" + (("\"\\\n" * 100) + "grounded plan " * 500 if oversized else "") + "<!-- evidence: " + packet.items[0].evidence_id + " -->\n",
 		(packet.items[0].evidence_id,)) for packet in packet_tuple)
 	return daily_blog.daily_outline_workflow.DailyOutlineInput(
 		stories, outlines, packet_tuple, _context(packet_tuple), str(tmp_path),
@@ -127,20 +135,43 @@ def test_input_rejects_later_story_or_outline_with_incomplete_packet_provenance(
 		daily_blog.daily_outline_workflow.DailyOutlineInput(source.repo_stories, broken_outlines, source.packets, source.evidence_context, source.working_directory)
 
 
-def test_explicit_narrower_scope_preserves_sources_and_selects_only_declared_repositories(tmp_path: object) -> None:
-	"""Stage 6 receives all sources plus an evidence-agreeing declared subset."""
-	source = _input(tmp_path)
+def test_bounded_context_retains_every_source_and_stage6_uses_only_declared_scope(tmp_path: object) -> None:
+	"""A pair-specific reviewer view fits while preserving every survivor."""
+	source = _input(tmp_path, 3, True)
 	narrow = (source.repositories[0],)
+	large_candidate = "\n" + "candidate detail " * 2500
 	runner = _Runner({
 		"daily_outline_ranking": [_ranking(source), _ranking(source)],
-		"daily_outline_writer": [_outline(source, narrow), _outline(source, narrow)],
-		"daily_outline_reviewer": [json.dumps({"decision": "ACCEPT", "score": 90, "reason": "grounded"}), json.dumps({"decision": "ACCEPT", "score": 90, "reason": "grounded"})],
+		"daily_outline_writer": [
+			_outline(source, narrow, "Candidate A") + large_candidate,
+			_outline(source, narrow, "Candidate B") + large_candidate,
+		],
+		"daily_outline_reviewer": [
+			json.dumps({"decision": "ACCEPT", "score": 90, "reason": "grounded"}),
+			json.dumps({"decision": "ACCEPT", "score": 90, "reason": "grounded"}),
+			json.dumps({"winner": "A", "reason": "grounded", "evidence_quality": "high", "confidence": 1}),
+			json.dumps({"winner": "B", "reason": "grounded", "evidence_quality": "high", "confidence": 1}),
+		],
 	})
 	result = _run(source, runner)
+	surface = daily_blog.stage6.build_stage6_publication_surface(
+		result.artifact, result.selected_stories, source.packets,
+		dict(source.evidence_context.projection_limits),
+	)
 
-	assert result.source_stories == source.repo_stories
-	assert result.artifact.repositories == narrow
-	assert tuple(item.repositories[0] for item in result.selected_stories) == narrow
+	reviewer_prompts = [prompt for role, prompt in runner.calls if role == "daily_outline_reviewer"]
+
+	assert all(
+		all(alias in prompt and repository in prompt for alias, repository in zip(
+			source.story_ranking_aliases.aliases, source.repositories, strict=True,
+		))
+		for prompt in reviewer_prompts
+	)
+	assert (
+		result.source_stories == source.repo_stories
+		and tuple(item.repositories[0] for item in result.selected_stories) == narrow
+		and surface.repositories == narrow
+	)
 
 
 @pytest.mark.parametrize("scope", (("unknown/repo",), ("vosslab/alpha", "vosslab/alpha")))

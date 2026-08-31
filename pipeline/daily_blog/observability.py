@@ -161,6 +161,11 @@ def _report_date(value: object) -> str:
 	return value
 
 
+# Immutable v1 receipts written during run v11 may name this retired phase.
+# Runtime writers continue to emit only the current ``LEGAL_PHASES`` set.
+HISTORICAL_TERMINAL_FAILURE_PHASES = frozenset({"editorial_projection"})
+
+
 def validate_terminal_summary(value: object) -> dict[str, object]:
 	"""Return a normalized exact terminal-summary copy or reject unsafe input."""
 	if type(value) is not dict or set(value) != _SUMMARY_FIELDS:
@@ -223,7 +228,10 @@ def validate_terminal_summary(value: object) -> dict[str, object]:
 			raise RuntimeError("Failed terminal summary has an invalid outcome.")
 		if bool(result["terminal_fault_category"]) == bool(result["operational_failure_kind"]):
 			raise RuntimeError("Failed terminal summary must have one failure classification.")
-		if result["failure_phase"] not in daily_blog.run_contracts.LEGAL_PHASES:
+		if (
+			result["failure_phase"] not in daily_blog.run_contracts.LEGAL_PHASES
+			and result["failure_phase"] not in HISTORICAL_TERMINAL_FAILURE_PHASES
+		):
 			raise RuntimeError("Failed terminal summary requires its failure phase.")
 	if result["publication_completed"] != bool(result["verified_page_sha256"]):
 		raise RuntimeError("Terminal summary publication facts are inconsistent.")

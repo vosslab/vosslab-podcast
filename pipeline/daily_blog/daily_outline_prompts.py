@@ -47,6 +47,10 @@ class DailyOutlineVerdictParseError(RuntimeError):
 	"""A daily-outline verdict misses its exact structured contract."""
 
 
+class DailyOutlinePromptOverflow(RuntimeError):
+	"""A fully rendered Stage 5 prompt exceeds its configured envelope."""
+
+
 def _loaded_prompts(
 	value: daily_blog.prompt_registry.loader.LoadedPromptSet | None,
 ) -> daily_blog.prompt_registry.loader.LoadedPromptSet:
@@ -102,7 +106,9 @@ def _render(
 	"""Render one complete owned template after its identity is checked."""
 	rendered = prompts.render(resource, values)
 	if len(rendered) > maximum:
-		raise RuntimeError("Daily-outline rendered prompt exceeds its configured limit.")
+		raise DailyOutlinePromptOverflow(
+			"Daily-outline rendered prompt exceeds its configured limit."
+		)
 	return rendered
 
 

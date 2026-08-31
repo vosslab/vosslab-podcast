@@ -66,18 +66,21 @@ def _surface(
 		[mirror.to_dict() for mirror in packet.mirrors], [activity], list(packet.items),
 	)
 	evidence_ids = tuple(item.evidence_id for item in survivor.items)
+	image_paths = tuple(item.publish_path for item in survivor.items if item.publish_path)
+	images = "".join("\n![selected](" + path + ")" for path in image_paths)
 	story = daily_blog.artifacts.RepoStory.create(
 		survivor.report_date, (survivor,), repository,
-		"Story <!-- evidence: " + ", ".join(evidence_ids) + " -->", evidence_ids,
+		"Story <!-- evidence: " + ", ".join(evidence_ids) + " -->" + images,
+		evidence_ids, image_paths,
 	)
 	outline = daily_blog.artifacts.DailyOutline.create(
 		survivor.report_date, (survivor,), (repository,),
-		"Outline <!-- evidence: " + ", ".join(evidence_ids) + " -->", evidence_ids,
+		"Outline <!-- evidence: " + ", ".join(evidence_ids) + " -->" + images,
+		evidence_ids, image_paths,
 	)
 	limits = {"context_chars": 8000, "excerpt_chars": 1000, "commit_subject_chars": 120}
-	context = daily_blog.projection.build_bounded_evidence_context((survivor,), limits, 8000)
 	return daily_blog.publication_admission.build_surface(
-		(survivor,), (repository,), context, (outline, story),
+		(survivor,), (repository,), limits, (outline, story),
 	)
 
 
@@ -511,13 +514,21 @@ def test_verify_published_page_rejects_an_unselected_article_image(
 def test_publication_archive_reader_reads_fixed_direct_artifacts(
 	tmp_path: pathlib.Path,
 ) -> None:
-	"""The publisher exposes only the fixed sealed archive artifact surface."""
+	"""The fixed archive surface applies its evidence-specific bounded capacity."""
 	root = _publisher_tree(tmp_path)
+	evidence_path = root / "data" / "publication_bundles" / REPORT_DATE / "evidence.json"
+	payload = "x" * (daily_blog.publisher.MAX_RECORD_BYTES + 1)
+	evidence_path.write_text(
+		daily_blog.io_utils.stable_json_text({"payload": payload}),
+		encoding="utf-8",
+	)
 	with daily_blog.publisher.open_publication_archive(str(root), REPORT_DATE) as archive:
 		bundle = archive.read_json_artifact("bundle.json", "bundle")
+		evidence = archive.read_json_artifact("evidence.json", "evidence")
 		post = archive.read_post()
 
 	assert json.loads(bundle)["report_date"] == REPORT_DATE
+	assert json.loads(evidence)["payload"] == payload
 	assert post.startswith(POST.encode("utf-8"))
 
 

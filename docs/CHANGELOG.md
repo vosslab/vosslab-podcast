@@ -2,24 +2,24 @@
 
 ### Fixes and Maintenance
 
-- Refreshed documentation for survivor-scoped `PublicationSurface`, bounded reliability reporting, semantic caching, and retained grounded artifacts.
-- Advanced new producer-to-publisher transfers to
-  `vosslab.daily-blog.bundle.v9`. Its portable `PublicationSurface` is the
-  immutable authority for survivor-scoped evidence, images, coverage, bundle
-  assets, importer admission, and rendered article-image verification; the prior
-  2026-08-30 bundle-v8 record remains historical evidence.
-- Replaced the admission regression with offline behavioral coverage from a
-  `Stage6Input` rendered context through bundle construction and publisher validation,
-  including an unselected aggregate screenshot, protecting the producer/publisher seam.
-- Refined model-route cache identity: selected commits, evidence, and prompt inputs
-  remain identity-bearing; mutable mirror branch inventory does not.
+- Advanced transfers to bundle v9; its portable `PublicationSurface` owns survivor evidence,
+  images, coverage, assets, admission, and page verification. Bundle v8 is historical evidence.
+- Covered Stage6Input-to-bundle and actual publisher import/page seams with offline checks,
+  including an unselected aggregate screenshot that remains outside survivor assets.
+- Kept semantic cache identity on selected commits, evidence, and prompts; advanced run
+  state to v12; removed the pre-survivor projection gate; bounded Stage-5 comparisons and
+  the complete Stage-6 context; aligned archived evidence reads at 128 MiB; and retained
+  the one historical phase required for valid terminal-receipt replay.
 
 ### Developer Tests and Notes
 
-- The latest-release harness refreshed and visually re-reviewed two managed README images.
-- Focused producer and publisher verification is running for the v9 boundary;
-  full-suite rerun and same-date live overwrite remain required acceptance evidence.
-  Protected `docs/BLOG_CONTRACT.md` and approved prompt assets remain unchanged.
+- The latest-release harness re-reviewed two README images; protected
+  `docs/BLOG_CONTRACT.md` and approved prompt assets remain unchanged.
+- Permanent verification passed: 3,728 producer tests, 1,462 publisher tests, and the
+  controlled publisher E2E. One-time acceptance included the strict Python-3.13 build and live
+  Aug. 27 run `20260831T183847Z-be18800c63`; it published 10,474 bytes with degradation. SHA-256:
+  bundle `323a04478108a4a9fd068ea06e7f99716e24295de196d16436ae30494e74cff6`;
+  page `1fe83125aed76a1ff77460d0e4d9982a6bbb4e8776a4e9cd58db0b9f876a7b0d`.
 
 ## 2026-08-30
 

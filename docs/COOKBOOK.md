@@ -94,18 +94,21 @@ source source_me.sh && python3 -m json.tool \
   out/OWNER/daily_blog/YYYY-MM-DD/publication/evidence.json
 source source_me.sh && python3 -m json.tool \
   out/OWNER/daily_blog/YYYY-MM-DD/publication/editorial_projection.json
+source source_me.sh && python3 -m json.tool \
+  out/OWNER/daily_blog/YYYY-MM-DD/publication/publication_surface.json
 sed -n '1,220p' out/OWNER/daily_blog/YYYY-MM-DD/publication/post.md
 ```
 
-The producer bundle binds the selected whole post, evidence, roster, and editorial projection. The
+The producer bundle binds the selected whole post, evidence, roster, survivor surface, and editorial
+projection. The surface owns admitted evidence IDs, repository coverage, images, and assets. The
 publisher's reader-visible page verification is recorded with the date's publication receipt; see
 [DAILY_BLOG_OPERATIONS.md](DAILY_BLOG_OPERATIONS.md) for that producer-to-publisher boundary.
 
 ## Diagnose cache and resume
 
 Rerun the same date through `make_blog.py` only after reading its terminal summary and run state.
-Matching validated inputs can reuse activity, evidence, editorial projection, and successful route
-work; a changed input misses cache rather than reusing unrelated work. Failed route results remain
+Matching validated inputs can reuse activity, evidence, bounded editorial contexts, and successful
+route work; a changed input misses cache rather than reusing unrelated work. Failed route results remain
 retryable, and an unsafe or mismatched cache entry is a pipeline fault.
 
 Cache and run records are audit artifacts. Preserve them during diagnosis; the retention boundary is

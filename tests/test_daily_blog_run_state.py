@@ -78,6 +78,33 @@ def test_v11_run_record_replays_typed_incumbent_transitions() -> None:
 
 
 #============================================
+def test_v11_record_reader_resumes_after_the_retired_global_projection_phase() -> None:
+	"""An unopened v11 run resumes at the first survivor-scoped editorial phase."""
+	current = daily_blog.run_contracts.RunRecord.create("run-v11-reader", "2026-08-23", CREATED_AT)
+	legacy = current.to_dict()
+	legacy["schema_version"] = "vosslab.daily-blog.run.v11"
+	legacy["editorial_projection"] = {"projection_id": "obsolete"}
+	legacy_phases = {}
+	for name, phase in legacy["phases"].items():
+		if name in {
+			"repository_discovery", "mirror_refresh", "activity_location", "evidence_assembly",
+		}:
+			phase = {**phase, "status": "completed"}
+		if name == "repository_editorial":
+			legacy_phases["editorial_projection"] = {
+				"status": "pending", "started_at": "", "completed_at": "", "input_hash": "",
+				"output_hash": "", "reused": False, "failure": "",
+			}
+		legacy_phases[name] = phase
+	legacy["phases"] = legacy_phases
+	restored = daily_blog.run_contracts.RunRecord.from_dict(legacy)
+	restored.start_phase("repository_editorial", "a" * 64)
+
+	assert restored.schema_version == daily_blog.run_contracts.RUN_SCHEMA_VERSION
+	assert restored.phases["repository_editorial"].status == "running"
+
+
+#============================================
 @pytest.mark.parametrize(
 	("transition", "summary_artifact_id"),
 	(

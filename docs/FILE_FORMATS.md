@@ -74,12 +74,26 @@ Author, referee, and repair work may produce several private artifacts. Only the
 `CompletePost` crosses the publication boundary; candidates, reviewer comparisons, and route labels do
 not.
 
+### Bounded editorial contexts
+
+The run directory retains `stage5_evidence_context.json`, `stage5_repository_context.json`, and
+`stage6_prompt_context.json` as inspectable prompt-projection evidence. They are run-owned audit and
+resumption artifacts, not producer-publisher handoff formats. The Stage-5 repository context keeps a
+fair exact-prefix projection for every retained story and outline; each direct comparison derives a
+pair-specific story, outline, and evidence context from the same sources.
+
+`stage6_prompt_context.json` binds the promoted daily outline, retained repository stories, and
+survivor evidence projection through separate provenance and model-context identities. The shared
+scale maximizes usable source text while keeping each complete primary and recovery frame within
+60,000 characters. Its source identities are validated against the same `PublicationSurface` that
+later governs citations, screenshots, repository coverage, and admission.
+
 ## Run state and observability
 
 ### Run record
 
 Every attempt owns `run_state.json` under its date-owned run directory. It uses schema
-`vosslab.daily-blog.run.v11` and is the authoritative resumable lifecycle record. It records the run
+`vosslab.daily-blog.run.v12` and is the authoritative resumable lifecycle record. It records the run
 and report identities, ordered phase states, evidence and bundle references, editorial reliability
 summaries, the current `best_artifact_id`, an outcome, and a safe failure classification when needed.
 
@@ -99,7 +113,9 @@ editorial summaries:
 
 The validator replays every transition from an empty incumbent and requires the result to equal
 `best_artifact_id`. It rejects missing, duplicated, mismatched, or type-confused transitions. Run v10
-records require an offline migration before they can be reopened.
+records require an offline migration before they can be reopened. The reader conditionally
+normalizes retained v11 records only when their retired `editorial_projection` phase and subsequent
+phase order meet the narrow migration contract. New records contain only current v12 phases.
 
 ### Event journal and terminal summary
 
@@ -113,6 +129,10 @@ terminal run. A receipt uses schema `vosslab.daily-blog.terminal-summary.v1`, bi
 terminal run-record digest, distinguishes completed and failed outcomes, reports verified publication
 facts, and projects reliability counts without diagnostic payloads. Detailed run state is retained or
 expired only through the validated summary and descriptor-owned retention path.
+
+A retained v1 failure receipt may name the retired `editorial_projection` phase. The reader accepts
+that one historical phase so later terminal receipts and crash replay can preserve valid history;
+current writers emit only v12 phases, and every other unknown phase remains invalid.
 
 Phase cache data is resumability support, not a durable exchange protocol. The producer revalidates
 cached response bytes and identities before reuse. Model/cache identity retains selected commits,
@@ -144,6 +164,11 @@ assets/...
 All declared files are sealed before handoff. The importer reads the manifest and declared children
 through held no-follow descriptors, applies size limits, rejects missing, extra, symbolic, or
 non-regular files, and validates content hashes before staging an import.
+
+Sealed JSON artifacts use a 128-KiB envelope except `evidence.json`, whose complete immutable packet
+uses a 128-MiB envelope. Producer storage, publisher transfer validation, and archived-publication
+inspection apply that same evidence-specific limit, so a valid bundle remains readable at every
+boundary.
 
 Before import, the producer sends the same exact sealed transfer to the sibling's no-write validation
 operation. A successful `vosslab.daily-blog.import-validation.v1` receipt contains exactly
@@ -229,7 +254,9 @@ publish_path
 Every entry must resolve to one screenshot in the aggregate packet whose evidence ID is allowed;
 the evidence ID, transfer asset path, and public post path must all match that screenshot. The list
 is sorted by this three-part tuple, and no evidence ID, `asset_path`, or `publish_path` may appear
-twice. This avoids treating an aggregate packet's unrelated screenshots as publication authority.
+twice. Only image paths declared by the promoted outline or repository stories enter this list.
+Other screenshots may remain citable aggregate evidence without becoming required publication
+assets. This avoids treating an aggregate packet's unrelated screenshots as publication authority.
 
 `assets` is the exact allowlist of the surface's `allowed_images`: each asset manifest entry binds
 its path, SHA-256, evidence ID, Git blob hash, and public path to one such image. A bundle cannot

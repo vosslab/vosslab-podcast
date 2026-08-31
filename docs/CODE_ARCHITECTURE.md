@@ -18,7 +18,7 @@ of an eligible artifact or an unsafe deterministic boundary is a typed pipeline 
 | [`make_blog.py`](../make_blog.py) | Public command | Date selection, replacement intent, and terminal result |
 | [`automation/publish_daily_blog.py`](../automation/publish_daily_blog.py) | Command implementation | Configured producer invocation |
 | [`pipeline/daily_blog/orchestrator.py`](../pipeline/daily_blog/orchestrator.py) | Lifecycle composition | Ordered admission and phase collaboration |
-| [`pipeline/daily_blog/acquisition_workflow.py`](../pipeline/daily_blog/acquisition_workflow.py) | Acquisition coordinator | Roster, mirrors, activity, evidence, and projection |
+| [`pipeline/daily_blog/acquisition_workflow.py`](../pipeline/daily_blog/acquisition_workflow.py) | Acquisition coordinator | Roster, mirrors, activity, and exact evidence |
 | [`pipeline/daily_blog/repository_editorial_workflow.py`](../pipeline/daily_blog/repository_editorial_workflow.py) | Repository editorial coordinator | Stage 3/4 repository material and shared route-budget results |
 | [`pipeline/daily_blog/publication_workflow.py`](../pipeline/daily_blog/publication_workflow.py) | Stages 5-8 | Daily outline, complete post, synthesis, and validation transitions |
 | [`pipeline/daily_blog/stage6.py`](../pipeline/daily_blog/stage6.py), [`pipeline/daily_blog/stage6_context.py`](../pipeline/daily_blog/stage6_context.py), [`pipeline/daily_blog/stage6_recovery.py`](../pipeline/daily_blog/stage6_recovery.py), and [`pipeline/daily_blog/stage_recovery_coordinator.py`](../pipeline/daily_blog/stage_recovery_coordinator.py) | Complete-post editorial boundary | Bounded Stage-6 context, replicated whole-post work, and typed lower-rung recovery |
@@ -38,7 +38,7 @@ dependencies it needs.
 ```text
 1. repository discovery and roster snapshot
 2. mirror refresh and report-day activity
-3. exact evidence packet and editorial projection
+3. exact evidence packet
 4. independent repository outlines and stories
 5. independent daily-outline ranking, writing, review, and promotion
 6. independent complete posts, validation, review, repair, and promotion
@@ -49,6 +49,11 @@ dependencies it needs.
 
 Stages 3 through 6 generate multiple independent candidates and promote only eligible whole
 artifacts. Review and bounded repair can improve a candidate but never mechanically assemble prose.
+Stage 5 gives every retained repository a fair bounded story and outline slice. Each direct outline
+comparison receives its own pair-specific projection, so high-volume evidence cannot crowd a
+survivor out of the model frame. Stage 6 derives one survivor-scoped prompt context from the
+promoted outline, repository stories, and citable evidence. Its primary and recovery frames each
+fit a complete 60,000-character envelope while retaining exact source and model-context identities.
 Stage 6 runs replicated authors, retains each grounded eligible peer through ordinary route failure,
 requests bounded editor feedback, and promotes only a resulting eligible complete post. If that path
 is exhausted, its two bounded editorial recovery rungs ask the existing V4 author for one whole
@@ -66,11 +71,16 @@ failure after `post.md` is preserved as incomplete operational work rather than 
 ## Durable state and caching
 
 [`pipeline/daily_blog/run_contracts.py`](../pipeline/daily_blog/run_contracts.py) defines the
-`vosslab.daily-blog.run.v11` record. `RunStore` persists legal phases, bounded redacted events,
-phase identities, editorial summaries, and one `best_artifact_id`. The v11 transition log replays
+`vosslab.daily-blog.run.v12` record. `RunStore` persists legal phases, bounded redacted events,
+phase identities, editorial summaries, and one `best_artifact_id`. The v12 transition log replays
 the incumbent through four exact operations: observation, establishment, editorial replacement,
 and publication repair. Stage 7 can request replacement only from its validated direct result;
 Stage 8 has its separately typed repair operation.
+
+Run v12 begins repository editorial directly after evidence assembly. Survivor selection now owns
+the projection boundary, so a pre-survivor global `editorial_projection` phase cannot reject a
+large repository universe before Stage 5. The reader narrowly normalizes safe retained v11 records
+whose retired phase and phase order are compatible; new records use the v12 phase set.
 
 [`pipeline/daily_blog/locks.py`](../pipeline/daily_blog/locks.py) supplies date ownership and
 phase caching. Independent model calls use cache identities that allow compatible completed work to
@@ -91,8 +101,8 @@ the completed editorial result.
 [`pipeline/daily_blog/activity.py`](../pipeline/daily_blog/activity.py), and
 [`pipeline/daily_blog/evidence.py`](../pipeline/daily_blog/evidence.py) establish the source side.
 [`pipeline/daily_blog/projection.py`](../pipeline/daily_blog/projection.py) builds bounded editorial
-input. Stage-local artifacts resolve their cited evidence against their authoritative packet under a
-stage-owned ceiling. Final-post admission is stricter:
+input after the relevant survivor scope is known. Stage-local artifacts resolve their cited evidence
+against their authoritative packet under a stage-owned ceiling. Final-post admission is stricter:
 [`pipeline/daily_blog/publication_admission.py`](../pipeline/daily_blog/publication_admission.py)
 freezes one `PublicationSurface` from the exact Stage-6 survivor packets, bounded model context, and
 promoted Stage-5 outline and repository stories before complete-post selection. It derives the
