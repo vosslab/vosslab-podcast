@@ -96,8 +96,7 @@ def _input(root: pathlib.Path) -> daily_blog.stage6.Stage6Input:
 		(story,), (repository_outline,), (packet,), promoted, story.artifact_id,
 	)
 	return daily_blog.stage6.Stage6Input(
-		daily_outline, (story,), str(root),
-		str(root / "owner" / "daily_blog" / packet.report_date / "post.md"), sources,
+		str(root), str(root / "owner" / "daily_blog" / packet.report_date / "post.md"), sources,
 		daily_blog.stage6.build_stage6_publication_surface(
 			daily_outline, (story,), (packet,), _CONTEXT_LIMITS,
 		),

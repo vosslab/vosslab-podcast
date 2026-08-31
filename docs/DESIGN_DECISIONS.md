@@ -132,16 +132,42 @@ turning a scorecard into prose instructions.
 `3a4b7148579e509b6c32fa19b31d107dc4278eb5f721b2a01353a1a9a51264ee` with
 `projected_repositories` and `reader_visible_markdown`. Policy versions 1 and 2 fail closed. The
 producer seals the snapshot, generator identity, selected artifact, and source-safety policy identity
-in the active bundle-v8 boundary. The active `publication_source_safety.v1` identity has an
+in the active bundle-v9 boundary. The active `publication_source_safety.v1` identity has an
 executable 35-case corpus and SHA-256
 `d50166736d79be7f7715cc0f7585fac71dfb2aecc1c631b10e01aeca2fb63c6b`; the historical bundle-v7
 boundary remains recorded evidence. The sibling publisher independently validates the active boundary and records a
-`vosslab.daily-blog.publication.v5` receipt, including the canonical reader-body digest.
+`vosslab.daily-blog.publication.v6` receipt, including the canonical reader-body and surface digests.
 
 **Owner.** `pipeline/daily_blog/prompt_registry/definitions.py`,
 `pipeline/daily_blog/prompt_registry/editorial_contracts.py`, `pipeline/daily_blog/editorial.py`,
 `daily_blog_maker_activation.json`, `pipeline/daily_blog/publication_contract.py`, and
 `pipeline/daily_blog/publication_storage.py`.
+
+### A survivor-scoped publication surface owns publication admission
+
+**Decision.** A single immutable `PublicationSurface` owns the survivor-scoped evidence authority
+for a publication. Stage 6 derives its writer and editor context, allowed evidence IDs, image
+paths, repository coverage, and final admission from that same runtime object. Bundle-v9 carries a
+canonical `publication_surface.json` handoff with the surface identity, packet and projection
+identities, source-artifact attestations, and the exact evidence and image allowlists. The publisher
+revalidates that handoff before staging, archive admission, and rendered-page image verification.
+
+**Why.** A stage can produce a grounded post only when its editorial context and its admission
+rules describe the same selected survivors. Reconstructing image or evidence authority from an
+aggregate packet at a producer or publisher boundary can silently restore unselected sources or
+reject the selected ones. A portable, hash-bound surface makes that authority inspectable across the
+two repositories without asking either side to infer it again.
+
+**Consequence.** `Stage6Input` carries execution configuration and forwards typed outline and story
+views from its surface instead of retaining a parallel authority. The bundle asset manifest, imported
+assets, post evidence references, and article-local rendered image sources must exactly match the
+surface allowlists. Bundle-v8 remains historical, read-only evidence; new imports require the v9
+surface contract. The semantic model-cache identity captures selected report inputs and evidence,
+not mutable mirror inventory such as a default branch revision or ref fingerprint.
+
+**Owner.** `pipeline/daily_blog/publication_admission.py`,
+`pipeline/daily_blog/stage6.py`, `pipeline/daily_blog/publication_contract.py`,
+`pipeline/daily_blog/publication_finalization.py`, and the publisher bundle importer and validators.
 
 ### Propagation records consumer maintenance
 

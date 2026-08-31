@@ -289,8 +289,7 @@ def test_stage6_and_recovery_bound_large_evidence_after_editorial_frame_overhead
 		daily_outline, stories, packets, limits,
 	)
 	value = daily_blog.stage6.Stage6Input(
-		daily_outline, stories, str(tmp_path),
-		str(tmp_path / daily_outline.report_date / "post.md"), sources, surface,
+		str(tmp_path), str(tmp_path / daily_outline.report_date / "post.md"), sources, surface,
 	)
 	recovery = daily_blog.stage6.CompletePostRecoveryInput(
 		value, daily_blog.recovery.RecoveryRung.DAILY_OUTLINE_EXPANSION,

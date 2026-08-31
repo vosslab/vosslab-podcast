@@ -6,13 +6,13 @@
 
 - Rebuilt the daily-blog production contract around immutable evidence, editorial projection,
   candidate validation, and a date-owned publication boundary.
-- This release introduced the producer/publisher bundle v5 interface. Later bundle-v7 and the
-  current bundle-v8 contracts carry the validated selected post and sealed artifact identity;
-  v8 also identifies the independently rechecked `publication_source_safety.v1` policy with its
-  executable 35-case SHA-256
-  `d50166736d79be7f7715cc0f7585fac71dfb2aecc1c631b10e01aeca2fb63c6b`. `report_date` remains the
-  sole publication identity; `bundle_sha256` verifies manifest integrity without creating a second
-  namespace.
+- This release introduced the producer/publisher bundle v5 interface. Later bundle contracts carry
+  the validated selected post and sealed artifact identity. The current bundle-v9 contract adds an
+  immutable, survivor-scoped `publication_surface.json`: Stage 6, bundle construction, import,
+  asset staging, and rendered-page verification derive evidence and image scope from the same
+  authority. The publisher records the surface identity in a publication-v6 receipt. `report_date`
+  remains the sole publication identity; `bundle_sha256` verifies manifest integrity without
+  creating a second namespace.
 - Added a two-stage, non-publishing v4 maker-voice evidence boundary. Fresh capture seals the
   approved Aug. 23 and Aug. 26 experiment evidence; a separate calibration artifact scores the
   historical Aug. 22-26 posts; deterministic attestation recomputes their joint acceptance result.
@@ -30,6 +30,12 @@
 
 - Aligned producer and publisher handling of Project coverage headings and retained the compact v4
   coverage boundary.
+- Fixed the producer/publisher authority seam that could give Stage 6 a survivor-scoped image set
+  while the importer admitted the aggregate packet's image set. The sealed portable surface now
+  carries the exact selected evidence and assets across that boundary.
+- Made model-result cache identity semantic: selected commits, evidence, and editorial request
+  control reuse, while mutable default-branch and mirror-location inventory no longer discard
+  otherwise valid cached work.
 - Strengthened existing-date checks so a coherent publication is preserved unless an interactive
   operator explicitly confirms replacement, while `bundle_sha256` detects manifest tampering.
 - Moved one-time Git and lifecycle proofs out of the fast pytest lane into direct E2E programs.
@@ -48,6 +54,10 @@
 - Focused sealed-capture, calibration, prompt-experiment, and deterministic-attestation checks
   passed (29 tests). The direct attestation E2E uses local route doubles and proves it does not
   route a model, publish, import, or activate v4.
+- Offline regression coverage follows a Stage-6 rendered context through bundle construction and
+  publisher admission, proving that a selected screenshot is accepted while an unselected aggregate
+  screenshot is excluded. Cache regression coverage proves inventory-only mirror changes reuse the
+  same semantic request.
 - The approved no-content Hermes smoke returned `OK` without a project-content payload.
 
 ### Current limitations

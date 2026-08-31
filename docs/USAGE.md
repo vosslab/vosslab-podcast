@@ -84,17 +84,22 @@ corroboration, not a test prerequisite or a claim about synthetic prose quality.
   `summary.jsonl`, `post.md`, and `publication/bundle.json`.
 - The sealed bundle contains the validated selected post, its artifact identity, evidence,
   repository roster, editorial projection, prompt-contract binding, activation receipt, and source-
-  safety policy identity. Candidate and referee deliberation remains producer-owned run history.
+  safety policy identity. Its `publication_surface.json` is the survivor-scoped authority for the
+  accepted evidence IDs, repository coverage, and image paths. Candidate and referee deliberation
+  remains producer-owned run history.
 - After descriptor validation, the producer sends the immutable bundle snapshot to the sibling
   importer on standard input; the importer does not consume a producer filesystem path.
 - The local publisher records the imported date in
-  `data/publications/<report_date>.json` as `vosslab.daily-blog.publication.v5`, retains its sealed
-  bundle archive, and records the canonical reader-body digest. The producer's
-  `import-receipt.v2` binds that record, installed post, and verified dated page.
+  `data/publications/<report_date>.json` as `vosslab.daily-blog.publication.v6`, retains its sealed
+  bundle archive and publication surface, and records the canonical reader-body digest. The
+  producer's `import-receipt.v2` binds that record, installed post, survivor-surface identity, and
+  verified dated page.
 
-The current handoff is `vosslab.daily-blog.bundle.v8`. Unsafe reader-visible Markdown is ineligible
-before publication, and the publisher repeats the sealed `publication_source_safety.v1` check. A
-cached bundle from a prior schema or policy is rebuilt rather than upgraded in place. See
+The current handoff is `vosslab.daily-blog.bundle.v9`. Unsafe reader-visible Markdown is ineligible
+before publication, and the publisher repeats the sealed `publication_source_safety.v1` check. It
+also admits post images, archived assets, and rendered article images only when they are declared by
+the sealed publication surface. A cached bundle from a prior schema or policy is rebuilt rather than
+upgraded in place. See
 [`DAILY_BLOG_OPERATIONS.md`](DAILY_BLOG_OPERATIONS.md) for the complete producer-to-publisher
 contract.
 

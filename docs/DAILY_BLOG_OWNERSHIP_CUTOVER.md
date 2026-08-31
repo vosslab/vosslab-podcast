@@ -39,24 +39,32 @@ the separately governed editorial material described in
 
 ## Sealed handoff
 
-The producer-to-publisher interface is `vosslab.daily-blog.bundle.v8`. Its
+The producer-to-publisher interface is `vosslab.daily-blog.bundle.v9`. Its
 manifest binds the report date, timezone, generator identity, evidence packet,
 editorial projection, repository roster, activation receipt, prompt-contract
 identity, selected `best_artifact_id`, post bytes, assets, source-safety policy
-identity, and bundle digest.
+identity, immutable `publication_surface.json`, and bundle digest. The surface
+is the single survivor-scoped publication authority. Its canonical content and
+`surface_id` bind the aggregate packet and projection identities, selected
+source packets and repositories, source-artifact attestations, allowed evidence
+IDs, and the one-to-one allowed screenshot evidence, asset, and publish paths.
+Writer/editor context, producer admission, bundle assets, publisher staging,
+and rendered-page image admission all derive from that same surface.
 After producer-side descriptor validation, the producer serializes exactly that
 snapshot into one bounded, hash-bound standard-input transfer. It does not give
 the publisher a producer filesystem path.
 
-The publisher validates the manifest and every declared file before staging. Its
-date-owned `vosslab.daily-blog.publication.v5` record binds the bundle digest,
-selected artifact identity, generator run and revision, evidence and projection
-archives, installed post, timezone, import time, and canonical
-`article_body_sha256`. The producer issues `import-receipt.v2` only after one
-shared committed-publication validator confirms the archive, record, and
-installed post as one coherent snapshot. Page verification requires the full
-ordered reader body, not merely the expected title and date. A rejected bundle
-leaves the prior published release intact.
+The publisher validates the manifest, `publication_surface.json`, and every
+declared file before staging. A new import writes the date-owned
+`vosslab.daily-blog.publication.v6` record, which binds the bundle digest,
+surface manifest, surface identity and hash, selected artifact identity,
+generator run and revision, evidence and projection archives, installed post,
+timezone, import time, and canonical `article_body_sha256`. The producer issues
+`import-receipt.v2` only after one shared committed-publication validator
+confirms the archive, v6 record, and installed post as one coherent snapshot.
+Page verification requires the full ordered reader body and validates each
+article-local rendered image against the sealed surface, not merely the expected
+title and date. A rejected bundle leaves the prior published release intact.
 
 The producer rejects a whole-post candidate with unsafe reader-visible Markdown
 as editorially ineligible. The portable policy permits only GitHub HTTPS links
@@ -65,10 +73,14 @@ HTML and disguised or ambiguous link forms. Its version and digest are sealed in
 the bundle: the active `publication_source_safety.v1` identity has an executable
 35-case corpus and SHA-256
 `d50166736d79be7f7715cc0f7585fac71dfb2aecc1c631b10e01aeca2fb63c6b`. The publisher performs
-its own check before it stages a site. Cache reuse fails closed across this v8 policy boundary.
-Publication-v3 remains a
-strict historical reader only: it can identify an occupied legacy date for
-inspection or replacement, but cannot originate a new import.
+its own check before it stages a site. Cache reuse fails closed across this v9
+policy and survivor-surface boundary while remaining keyed to semantic
+editorial inputs rather than mutable mirror inventory.
+
+New imports use bundle v9 and publication-v6. Historical records remain
+read-only inspection inputs: they can identify an occupied legacy date for
+inspection or replacement, but cannot originate a new import. A confirmed
+same-date replacement creates one current v9/v6 snapshot for that report date.
 
 ## Operational boundary
 

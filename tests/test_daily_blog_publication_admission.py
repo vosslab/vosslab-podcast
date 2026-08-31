@@ -1,6 +1,7 @@
 """Permanent offline coverage for survivor-scoped publication admission."""
 
 # Standard Library
+import json
 from pathlib import Path
 
 # PIP3 modules
@@ -9,7 +10,9 @@ import pytest
 # local repo modules
 import daily_blog.activation
 import daily_blog.artifacts
+import daily_blog.daily_outline_workflow
 import daily_blog.editorial
+import daily_blog.io_utils
 import daily_blog.publication_contract
 import daily_blog.publication_finalization
 import daily_blog.publication_admission
@@ -17,6 +20,7 @@ import daily_blog.projection
 import daily_blog.prompt_registry.editorial_contracts
 import daily_blog.repository_contracts
 import daily_blog.schema
+import daily_blog.stage6
 
 
 _LIMITS = {"commit_subject_chars": 120, "context_chars": 12000, "excerpt_chars": 1000}
@@ -27,9 +31,15 @@ def _packet(repository: str, asset_name: str) -> daily_blog.schema.EvidencePacke
 	"""Build one independently collected survivor packet with a screenshot asset."""
 	activity = daily_blog.schema.RepositoryActivity(
 		repository, "https://github.com/" + repository, "/fixture/" + asset_name,
-		"a" * 40, (), (), (), False,
+		"a" * 40,
+		(daily_blog.schema.CommitActivity(
+			"a" * 40, (), "Fixture", "fixture@example.com",
+			"2026-08-29T12:00:00-05:00", "2026-08-29T12:00:00-05:00",
+			"Grounded fixture work",
+		),),
+		(daily_blog.schema.RevisionRange("", "a" * 40),), ("a" * 40,), False,
 		(daily_blog.repository_contracts.RepositoryLifecycleEvent(
-			"repository_created", "2020-01-01T00:00:00Z", False, "fixture",
+			"repository_created", "2020-01-01T00:00:00Z", False, "github_owner_roster",
 		),),
 	)
 	change = daily_blog.schema.EvidenceItem.create(
@@ -110,31 +120,107 @@ def _surface(
 
 
 #============================================
+def _stage6_sources(
+	story: daily_blog.artifacts.RepoStory,
+	packet: daily_blog.schema.EvidencePacket,
+) -> daily_blog.stage6.Stage6RecoverySources:
+	"""Build the reviewed single-repository material required by Stage 6."""
+	repository_outline = daily_blog.artifacts.RepoOutline.create(
+		packet.report_date, (packet,), story.repositories[0], story.content,
+		story.evidence_ids, story.image_paths,
+	)
+	ranking_hash = "a" * 64
+	payload = {
+		"candidate_id": "ranking-1", "accepted_review_ids": ["review-1"],
+		"ranking_content_sha256": ranking_hash,
+	}
+	promoted = daily_blog.daily_outline_workflow.PromotedRanking(
+		"ranking-promotion-" + daily_blog.io_utils.sha256_text(
+			json.dumps(payload, sort_keys=True, separators=(",", ":")),
+		)[:24],
+		"ranking-1", ranking_hash, (story.content_hash,), ((story.content_hash, 100),),
+		"Grounded ranking rationale.", ("review-1",),
+	)
+	return daily_blog.stage6.Stage6RecoverySources(
+		(story,), (repository_outline,), (packet,), promoted, story.artifact_id,
+	)
+
+
+#============================================
 def test_surface_uses_exact_survivors_and_only_their_bundle_asset_paths(tmp_path: Path) -> None:
-	"""Prompt-visible survivor evidence and images pass the same mechanical authority."""
-	first, second = _packet("vosslab/first", "first.png"), _packet("vosslab/second", "second.png")
-	surface = _surface((first, second))
+	"""Stage 6 context and bundle sealing retain one survivor-scoped authority."""
+	base = _packet("vosslab/first", "selected.png")
+	unselected = daily_blog.schema.EvidenceItem.create(
+		"screenshot", "vosslab/first", "a" * 40, "unselected.png", "d" * 40,
+		"Unselected screenshot.", "fixture", asset_path="assets/unselected.png",
+		publish_path="../../assets/publications/2026-08-29/unselected.png",
+	)
+	packet = daily_blog.schema.EvidencePacket.create(
+		base.report_date, base.timezone, True, {}, [], list(base.activity),
+		list(base.items) + [unselected],
+	)
+	selected = tuple(item for item in packet.items if item is not unselected)
+	selected_ids = tuple(sorted(item.evidence_id for item in selected))
+	selected_path = next(item.publish_path for item in selected if item.kind == "screenshot")
+	story_content = (
+		"Story " + " ".join("<!-- evidence: " + item + " -->" for item in selected_ids)
+		+ "\n![selected](" + selected_path + ")"
+	)
+	story = daily_blog.artifacts.RepoStory.create(
+		packet.report_date, (packet,), "vosslab/first", story_content, selected_ids,
+		(selected_path,),
+	)
+	outline = daily_blog.artifacts.DailyOutline.create(
+		packet.report_date, (packet,), ("vosslab/first",), story_content, selected_ids,
+		(selected_path,),
+	)
+	context = daily_blog.projection.build_bounded_evidence_context(
+		(packet,), {**_LIMITS, "context_chars": 1800}, 1800,
+	)
+	surface = daily_blog.publication_admission.build_surface(
+		(packet,), ("vosslab/first",), context, (outline, story),
+	)
+	stage6_input = daily_blog.stage6.Stage6Input(
+		str(tmp_path), str(tmp_path / packet.report_date / "post.md"),
+		_stage6_sources(story, packet), surface,
+	)
+	rendered_context = stage6_input.render_context()
 	assets = daily_blog.publication_admission.survivor_assets(surface, {
-		"assets/first.png": b"first", "assets/second.png": b"second", "assets/failed.png": b"failed",
+		"assets/selected.png": b"selected", "assets/unselected.png": b"unselected",
 	})
 
 	post = daily_blog.artifacts.CompletePost.create(
-		first.report_date, surface.source_packets, surface.repositories,
-		"# Visible survivor evidence\n\nI used both approved screenshots. <!-- evidence: "
+		packet.report_date, surface.source_packets, surface.repositories,
+		"# Visible survivor evidence\n\nI used the approved screenshot. <!-- evidence: "
 		+ ", ".join(surface.allowed_evidence_ids) + " -->\n\n"
 		+ "\n".join("![fixture](" + path + ")" for path in surface.allowed_image_paths),
-		surface.allowed_evidence_ids, first.report_date, str(tmp_path / "post.md"),
+		surface.allowed_evidence_ids, packet.report_date, str(tmp_path / "post.md"),
 		surface.allowed_image_paths,
 	)
+	roster = daily_blog.repository_contracts.RepositoryRoster.create("vosslab", [
+		daily_blog.repository_contracts.RepositoryRecord.from_dict({
+			"repository": "vosslab/first", "repository_url": "https://github.com/vosslab/first",
+			"clone_url": "https://github.com/vosslab/first.git",
+			"created_at": "2020-01-01T00:00:00Z", "is_fork": False,
+		}),
+	])
+	_bundle_path, _bundle, transfer = daily_blog.publication_contract.BundleWriter(
+		str(tmp_path), "vosslab", _identity(),
+	).write("run-1", surface, assets, roster, post)
+	transfer_entries = {item.path: item.contents for item in transfer.entries}
+	portable_surface = json.loads(transfer_entries["publication_surface.json"])
 
-	assert {item.repository for item in surface.packet.activity} == {"vosslab/first", "vosslab/second"}
-	assert {item.evidence_id for item in surface.projection.excerpts} == set(
-		surface.allowed_evidence_ids
+	assert (
+		selected_ids[0] in rendered_context and selected_path in rendered_context
+		and unselected.evidence_id not in rendered_context
+		and unselected.publish_path not in rendered_context
 	)
-	assert assets == {"assets/first.png": b"first", "assets/second.png": b"second"}
-	assert daily_blog.publication_admission.complete_post_mechanical_eligibility(
-		post, surface, str(tmp_path),
-	).eligible
+	assert (
+		{path for path in transfer_entries if path.startswith("assets/")}
+		== {"assets/selected.png"}
+		and portable_surface["allowed_evidence_ids"] == list(surface.allowed_evidence_ids)
+		and portable_surface["allowed_images"][0]["publish_path"] == selected_path
+	)
 
 
 #============================================
@@ -250,6 +336,32 @@ def test_survivor_assets_rejects_a_missing_required_screenshot_byte() -> None:
 
 
 #============================================
+def test_surface_rejects_ambiguous_assets_and_decorative_source_packet_ids() -> None:
+	"""Portable authority keeps one screenshot mapping and reconstructible provenance."""
+	first = _packet("vosslab/first", "first.png")
+	duplicate = daily_blog.schema.EvidenceItem.create(
+		"screenshot", "vosslab/first", "a" * 40, "duplicate.png", "d" * 40,
+		"Duplicate screenshot.", "fixture", asset_path="assets/first.png",
+		publish_path="../../assets/publications/2026-08-29/duplicate.png",
+	)
+	ambiguous = daily_blog.schema.EvidencePacket.create(
+		first.report_date, first.timezone, True, {}, [], list(first.activity),
+		list(first.items) + [duplicate],
+	)
+	with pytest.raises(RuntimeError, match="screenshot paths must be one-to-one"):
+		_surface((ambiguous,))
+
+	surface = _surface((first,))
+	portable = daily_blog.publication_surface_contract.publication_surface_value(surface)
+	portable["source_packet_ids"] = ["0" * 64]
+	portable["surface_id"] = daily_blog.publication_surface_contract.publication_surface_id(portable)
+	with pytest.raises(RuntimeError, match="source packets do not match"):
+		daily_blog.publication_surface_contract.validate_publication_surface_value(
+			portable, surface.packet, surface.projection,
+		)
+
+
+#============================================
 def test_sealed_input_keeps_full_roster_while_its_evidence_surface_is_survivor_only(
 	tmp_path: Path,
 ) -> None:
@@ -273,10 +385,10 @@ def test_sealed_input_keeps_full_roster_while_its_evidence_surface_is_survivor_o
 	)
 	value = daily_blog.publication_finalization.SealedPublicationInput(
 		first.report_date, "run-1", str(tmp_path), "owner", str(tmp_path), _identity(), False,
-		roster, surface.packet, surface.projection,
+		roster, surface,
 		daily_blog.publication_admission.survivor_assets(surface, {"assets/first.png": b"first"}), post,
 	)
 
 	assert [item.repository for item in value.roster.repositories] == ["vosslab/failed", "vosslab/first"]
-	assert {item.repository for item in value.packet.activity} == {"vosslab/first"}
+	assert {item.repository for item in value.publication_surface.packet.activity} == {"vosslab/first"}
 	assert value.assets == {"assets/first.png": b"first"}

@@ -118,7 +118,10 @@ diagnosed terminal pipeline fault.
 Route unavailability, malformed output, and failed candidate or review work are
 editorial degradation only while an eligible whole artifact survives. Exhausted
 routes, no eligible generation, unavailable evidence, invalid configuration,
-or an unsafe integrity or path boundary are pipeline faults. Neither condition
+or an unsafe integrity or path boundary are pipeline faults. A surface,
+evidence, or image-admission mismatch is an integrity-boundary fault: it means
+the post, bundle, or publisher was presented with authority that does not agree
+with the immutable survivor-scoped publication surface. Neither condition
 justifies changing prompt prose during recovery.
 
 The recovery coordinator uses additional editorial paths and promotes only an
@@ -192,20 +195,56 @@ generator contract, evidence packet, projection, selected-post identity, post
 hash, or asset hash.
 
 This is a protective rejection. The checksum binds the bundle contents and
-contract metadata. Inspect `bundle.json`, `evidence.json`,
-`editorial_projection.json`, and `post.md` together.
+contract metadata. Inspect `bundle.json`, `publication_surface.json`,
+`evidence.json`, `editorial_projection.json`, and `post.md` together.
 
-The active production interface is `vosslab.daily-blog.bundle.v8`. It hands the
-publisher the validated selected post and its artifact identity; candidate and
-referee deliberation remains producer-owned run history. Bundle v8 also binds the
-source-safety policy version and digest: `publication_source_safety.v1` has an
-executable 35-case corpus and SHA-256
+The active production interface is `vosslab.daily-blog.bundle.v9`.
+`publication_surface.json` is the immutable authority shared by Stage 6,
+bundle construction, import, and rendered-page verification. Its aggregate
+packet, projection, survivor packet IDs, repository coverage, allowed evidence
+IDs, and allowed image entries must agree with the bundled evidence and
+projection. The asset manifest and reader-visible Markdown may use only the
+surface's allowed images. It hands the publisher the validated selected post
+and its artifact identity; candidate and referee deliberation remains
+producer-owned run history.
+
+Use the exact bounded rejection code in the terminal receipt to identify the failed relationship.
+Surface-related eligibility codes include `unknown_evidence_reference`, `unapproved_image_path`,
+`unapproved_screenshot_path`, `project_coverage_mismatch`, and `publication_policy_mismatch`.
+An importer contract failure instead uses the bounded `snapshot_rejected` failure category. These
+are trust-boundary faults, not an editorial-quality signal. Preserve the receipt and sealed bundle,
+correct the contract or source artifact, then rerun the ordinary date-owned workflow. An editor may
+improve a grounded post for presentation issues without discarding it, but it cannot expand
+evidence or image authority beyond the surface.
+
+Bundle v9 also binds the source-safety policy version and digest:
+`publication_source_safety.v1` has an executable 35-case corpus and SHA-256
 `d50166736d79be7f7715cc0f7585fac71dfb2aecc1c631b10e01aeca2fb63c6b`. An unsafe reader-visible
 Markdown source is an editorial-ineligibility result, not a publication fallback: resolve the
 candidate or source condition, then use the ordinary date-owned workflow to generate and validate
-a current bundle. Do not downgrade a bundle, reuse a stale-schema or stale-policy cache entry, or
-reconstruct a candidate from a rejected manifest. Publication-v3 handling is historical
-occupied-date inspection/replacement only, never an import downgrade path.
+a current bundle. Do not reconstruct a candidate from a rejected manifest.
+Publication-v3 handling is historical occupied-date inspection/replacement
+only, never an import downgrade path.
+
+## Unexpected cache miss or reuse
+
+Symptom: a resumed editorial route either repeats model work after a mirror
+refresh or reuses work after an apparently equivalent repository checkout.
+
+Model-cache identity represents the semantic editorial request: the report
+date and collection settings, selected historical commits and ranges, and the
+evidence made available to the route. Mirror locations, current default branch
+tips, and refresh fingerprints are operational inventory, not editorial input.
+A move or refresh that leaves the selected commits and evidence unchanged may
+reuse the cached route result. A changed selected commit, source content,
+evidence item, prompt contract, or stage configuration must produce a new
+request identity.
+
+Compare the selected activity and evidence artifacts before treating a cache
+result as suspect. A cache-identity mismatch is an operational diagnosis; it
+does not change the publication surface, post eligibility, or the date-owned
+publication identity. Preserve the bounded run facts and rerun the normal
+workflow when semantic input changed.
 
 ## Publisher import failure
 

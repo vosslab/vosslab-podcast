@@ -102,8 +102,7 @@ def _value(tmp_path: pathlib.Path) -> daily_blog.stage6.Stage6Input:
 		),), (packet,), promoted_ranking, story.artifact_id,
 	)
 	return daily_blog.stage6.Stage6Input(
-		outline, (story,), str(tmp_path),
-		str(tmp_path / packet.report_date / "post.md"), sources,
+		str(tmp_path), str(tmp_path / packet.report_date / "post.md"), sources,
 		daily_blog.stage6.build_stage6_publication_surface(
 			outline, (story,), (packet,), _CONTEXT_LIMITS,
 		),
@@ -186,8 +185,7 @@ def _contracted_story_recovery_input(tmp_path: pathlib.Path) -> daily_blog.stage
 		"Outline <!-- evidence: " + evidence_id + " -->", (evidence_id,),
 	)
 	stage6_input = daily_blog.stage6.Stage6Input(
-		daily_outline, (selected,), str(tmp_path),
-		str(tmp_path / daily_outline.report_date / "post.md"), sources,
+		str(tmp_path), str(tmp_path / daily_outline.report_date / "post.md"), sources,
 		daily_blog.stage6.build_stage6_publication_surface(
 			daily_outline, (selected,), packets, _CONTEXT_LIMITS,
 		),

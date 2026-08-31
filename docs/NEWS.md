@@ -16,11 +16,13 @@
 
 ### Highlights
 
-- The daily-blog system has a date-owned publication contract. The current bundle-v8 handoff keeps
-  `report_date` as the sole publication identity, seals `publication_source_safety.v1`'s
-  executable 35-case SHA-256 `d50166736d79be7f7715cc0f7585fac71dfb2aecc1c631b10e01aeca2fb63c6b`
-  for an independent publisher recheck, and the systemd user timer calls
-  `./make_blog.py --yesterday` at 04:00 America/Chicago through the active maker contract.
+- The daily-blog system has a date-owned publication contract. Bundle v9 carries an immutable,
+  survivor-scoped `publication_surface.json`, so the writer, bundle, importer, and rendered page
+  use the same allowed evidence and images. The publisher records that authority in its
+  publication-v6 receipt.
+- Model-result caching now follows the selected editorial request and evidence rather than mutable
+  mirror branch inventory. The systemd user timer calls `./make_blog.py --yesterday` at 04:00
+  America/Chicago through the active maker contract.
 - Fixture-backed maker evidence accepted the sealed capture, calibration, attestation, and independent
   review before the v4 producer/publisher activation.
 - Fresh fail-closed GitHub owner-roster discovery, owner-qualified mirrors, and first-day story

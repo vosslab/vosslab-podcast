@@ -72,10 +72,48 @@ def _transfer() -> daily_blog.publication_contract.SealedBundleTransfer:
 			daily_blog.io_utils.sha256_bytes(b"{}" if path.endswith(".json") else b"post\n"),
 		)
 		for path in sorted((
-			"bundle.json", "evidence.json", "repository_roster.json", "editorial_projection.json", "post.md",
+			"bundle.json", "evidence.json", "repository_roster.json", "editorial_projection.json",
+			"publication_surface.json", "post.md",
 		))
 	)
 	return daily_blog.publication_contract.SealedBundleTransfer("2026-08-26", "a" * 64, entries)
+
+
+#============================================
+def _surface(
+	packet: daily_blog.schema.EvidencePacket,
+) -> daily_blog.publication_admission.PublicationSurface:
+	"""Build one valid survivor-scoped authority for finalization exercises."""
+	repository = packet.items[0].repository
+	commit = packet.items[0].commit
+	activity = daily_blog.schema.RepositoryActivity(
+		repository, f"https://github.com/{repository}", f"/fixture/{repository}", commit,
+		(daily_blog.schema.CommitActivity(
+			commit, (), "Fixture", "fixture@example.com", "2026-08-26T12:00:00-05:00",
+			"2026-08-26T12:00:00-05:00", "Fixture work",
+		),), (daily_blog.schema.RevisionRange("", commit),), (commit,), False,
+		(daily_blog.repository_contracts.RepositoryLifecycleEvent(
+			"repository_created", "2020-01-01T00:00:00Z", False, "github_owner_roster",
+		),),
+	)
+	survivor = daily_blog.schema.EvidencePacket.create(
+		packet.report_date, packet.timezone, packet.complete, packet.collection_limits.to_dict(),
+		[mirror.to_dict() for mirror in packet.mirrors], [activity], list(packet.items),
+	)
+	evidence_ids = tuple(item.evidence_id for item in survivor.items)
+	story = daily_blog.artifacts.RepoStory.create(
+		survivor.report_date, (survivor,), repository,
+		"Story <!-- evidence: " + ", ".join(evidence_ids) + " -->", evidence_ids,
+	)
+	outline = daily_blog.artifacts.DailyOutline.create(
+		survivor.report_date, (survivor,), (repository,),
+		"Outline <!-- evidence: " + ", ".join(evidence_ids) + " -->", evidence_ids,
+	)
+	limits = {"context_chars": 8000, "excerpt_chars": 1000, "commit_subject_chars": 120}
+	context = daily_blog.projection.build_bounded_evidence_context((survivor,), limits, 8000)
+	return daily_blog.publication_admission.build_surface(
+		(survivor,), (repository,), context, (outline, story),
+	)
 
 
 #============================================
@@ -88,11 +126,7 @@ def _current_publication_config(tmp_path: pathlib.Path) -> types.SimpleNamespace
 	packet = daily_blog.schema.EvidencePacket.create(
 		report_date, "America/Chicago", True, {}, [], [], [item]
 	)
-	projection = daily_blog.projection.build_projection(packet, {
-		"context_chars": 8000,
-		"excerpt_chars": 1000,
-		"commit_subject_chars": 120,
-	})
+	surface = _surface(packet)
 	record = daily_blog.repository_contracts.RepositoryRecord.from_dict({
 		"repository": "vosslab/project",
 		"repository_url": "https://github.com/vosslab/project",
@@ -114,7 +148,7 @@ def _current_publication_config(tmp_path: pathlib.Path) -> types.SimpleNamespace
 	producer_root.mkdir()
 	bundle_path, bundle, _transfer_value = daily_blog.publication_contract.BundleWriter(
 		str(producer_root), "vosslab", _bundle_identity()
-	).write("run-one", packet, projection, {}, roster, selected)
+	).write("run-one", surface, {}, roster, selected)
 	publisher_root = tmp_path / "publisher"
 	publisher_root.mkdir()
 	(publisher_root / "mkdocs.yml").write_text(
@@ -132,8 +166,8 @@ def _current_publication_config(tmp_path: pathlib.Path) -> types.SimpleNamespace
 		"schema_version": daily_blog.publication_state.PUBLICATION_SCHEMA_VERSION,
 		"report_date": report_date,
 		"timezone": "America/Chicago",
-		"generator_run": "run-one",
-		"generator_revision": "f" * 64,
+		"generator_run": bundle["generator"]["run_id"],
+		"generator_revision": bundle["generator"]["revision"],
 		"bundle_sha256": bundle["bundle_sha256"],
 		"article_body_sha256": daily_blog.publication_article_projection.article_body_sha256(
 			daily_blog.publication_article_projection.source_article_projection(
@@ -152,6 +186,49 @@ def _current_publication_config(tmp_path: pathlib.Path) -> types.SimpleNamespace
 	return types.SimpleNamespace(
 		daily_blog_repository=str(publisher_root), report_timezone="America/Chicago"
 	)
+
+
+#============================================
+def _historical_v5_publication_config(tmp_path: pathlib.Path) -> types.SimpleNamespace:
+	"""Convert one fixture-built v9 bundle into the retained v5/v8 read-only shape."""
+	config = _current_publication_config(tmp_path)
+	root = pathlib.Path(config.daily_blog_repository)
+	report_date = "2026-08-26"
+	archive = root / "data" / "publication_bundles" / report_date
+	bundle_path = archive / "bundle.json"
+	bundle = json.loads(bundle_path.read_text(encoding="utf-8"))
+	bundle.pop("publication_surface")
+	bundle["schema_version"] = "vosslab.daily-blog.bundle.v8"
+	bundle["bundle_sha256"] = daily_blog.publication_contract.bundle_sha256(bundle)
+	bundle_path.write_text(daily_blog.io_utils.stable_json_text(bundle), encoding="utf-8")
+	(archive / "publication_surface.json").unlink()
+	archived_post = (archive / "post.md").read_text(encoding="utf-8")
+	installed_post = root / "docs" / "blog" / "posts" / f"{report_date}.md"
+	installed_post.write_text(archived_post, encoding="utf-8")
+	article_digest = daily_blog.publication_article_projection.article_body_sha256(
+		daily_blog.publication_article_projection.source_article_projection(
+			archived_post, (root / "mkdocs.yml").read_text(encoding="utf-8"),
+		)
+	)
+	record = {
+		"schema_version": "vosslab.daily-blog.publication.v5",
+		"report_date": report_date,
+		"timezone": "America/Chicago",
+		"generator_run": bundle["generator"]["run_id"],
+		"generator_revision": bundle["generator"]["revision"],
+		"bundle_sha256": bundle["bundle_sha256"],
+		"article_body_sha256": article_digest,
+		"best_artifact_id": bundle["best_artifact_id"],
+		"evidence_manifest": f"data/publication_bundles/{report_date}/evidence.json",
+		"editorial_projection_manifest": (
+			f"data/publication_bundles/{report_date}/editorial_projection.json"
+		),
+		"post_path": f"docs/blog/posts/{report_date}.md",
+		"imported_at": "2026-08-27T00:00:00Z",
+	}
+	record_path = root / "data" / "publications" / f"{report_date}.json"
+	record_path.write_text(daily_blog.io_utils.stable_json_text(record), encoding="utf-8")
+	return config
 
 
 #============================================
@@ -397,6 +474,22 @@ def test_historical_v3_record_rejects_new_receipt_fields(
 
 
 #============================================
+@pytest.mark.parametrize("tamper", (False, True))
+def test_historical_v5_bundle_v8_keeps_the_date_occupied_only_when_its_archive_is_intact(
+	tmp_path: pathlib.Path, tamper: bool,
+) -> None:
+	"""The retained v5 reader verifies its archive rather than trusting an old receipt."""
+	config = _historical_v5_publication_config(tmp_path)
+	if tamper:
+		path = pathlib.Path(config.daily_blog_repository) / "data" / "publication_bundles" / "2026-08-26" / "post.md"
+		path.write_text("changed", encoding="utf-8")
+
+	inspection = daily_blog.publication_state.inspect_publication(config, "2026-08-26")
+
+	assert inspection.state == ("invalid" if tamper else "current"), inspection.reason
+
+
+#============================================
 def test_publication_inspection_does_not_reclassify_an_internal_fault(
 	tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -504,9 +597,6 @@ def test_finalization_keeps_bundle_logical_while_importer_receives_absolute_path
 			),
 		],
 	)
-	projection = daily_blog.projection.build_projection(packet, {
-		"context_chars": 8000, "excerpt_chars": 1000, "commit_subject_chars": 120,
-	})
 	content = (
 		f"---\ndate: {packet.report_date}\n---\n# Published\n\nA grounded maker note. <!-- evidence: "
 		f"{packet.items[0].evidence_id} -->\n"
@@ -571,7 +661,7 @@ def test_finalization_keeps_bundle_logical_while_importer_receives_absolute_path
 	value = daily_blog.publication_finalization.SealedPublicationInput(
 		packet.report_date, coordinator.run_id, config.output_root, config.output_owner,
 		config.daily_blog_repository, coordinator.generator_identity,
-		coordinator.force_regeneration, roster, packet, projection, {}, post,
+		coordinator.force_regeneration, roster, _surface(packet), {}, post,
 	)
 	def finalizer_start(phase: str, value: object) -> str:
 		"""Record the bundle handoff while retaining the run's real phase transition."""
@@ -620,9 +710,6 @@ def test_finalization_stops_before_post_write_when_publisher_preflight_rejects(
 			),
 		],
 	)
-	projection = daily_blog.projection.build_projection(packet, {
-		"context_chars": 8000, "excerpt_chars": 1000, "commit_subject_chars": 120,
-	})
 	post = daily_blog.artifacts.CompletePost.create(
 		packet.report_date, (packet,), ("vosslab/example",),
 		f"---\ndate: {packet.report_date}\n---\n# Published\n\nGrounded. <!-- evidence: {packet.items[0].evidence_id} -->\n",
@@ -638,7 +725,7 @@ def test_finalization_stops_before_post_write_when_publisher_preflight_rejects(
 	value = daily_blog.publication_finalization.SealedPublicationInput(
 		packet.report_date, coordinator.run_id, config.output_root, config.output_owner,
 		config.daily_blog_repository, coordinator.generator_identity,
-		coordinator.force_regeneration, roster, packet, projection, {}, post,
+		coordinator.force_regeneration, roster, _surface(packet), {}, post,
 	)
 	def reject_preflight(*_args: object) -> dict:
 		"""Model the publisher's safe typed validation rejection."""

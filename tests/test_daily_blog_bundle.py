@@ -14,6 +14,7 @@ import daily_blog.schema
 import daily_blog.artifacts
 import daily_blog.repository_contracts
 import daily_blog.publication_contract
+import daily_blog.publication_surface_contract
 import daily_blog.editorial
 import daily_blog.prompt_registry.definitions
 import daily_blog.prompt_registry.editorial_contracts
@@ -21,6 +22,7 @@ import daily_blog.activation
 import daily_blog.io_utils
 import daily_blog.projection
 import daily_blog.publication_storage
+import daily_blog.publication_admission
 
 
 #============================================
@@ -31,6 +33,7 @@ def storage_artifacts() -> dict[str, bytes]:
 		"evidence.json": b"{}\n",
 		"repository_roster.json": b"{}\n",
 		"editorial_projection.json": b"{}\n",
+		"publication_surface.json": b"{}\n",
 		"post.md": b"A complete post.\n",
 		"assets/screenshot.png": b"image-bytes",
 	}
@@ -101,7 +104,10 @@ def test_authoritative_evidence_uses_its_transfer_bound_while_other_json_stays_c
 		*[daily_blog.publication_contract.SealedBundleTransferEntry(
 			path, b"post\n" if path == "post.md" else b"{}",
 			daily_blog.io_utils.sha256_bytes(b"post\n" if path == "post.md" else b"{}"),
-		) for path in ("bundle.json", "repository_roster.json", "editorial_projection.json", "post.md")],
+		) for path in (
+			"bundle.json", "repository_roster.json", "editorial_projection.json",
+			"publication_surface.json", "post.md",
+		)],
 	), key=lambda entry: entry.path))
 	monkeypatch.setattr(daily_blog.publication_contract, "MAX_TRANSFER_BYTES", len(evidence))
 	with pytest.raises(RuntimeError, match="aggregate schema envelope"):
@@ -119,6 +125,43 @@ def make_projection(
 		"commit_subject_chars": 120,
 	}
 	return daily_blog.projection.build_projection(packet, limits)
+
+
+#============================================
+def publication_surface(
+	packet: daily_blog.schema.EvidencePacket,
+) -> daily_blog.publication_admission.PublicationSurface:
+	"""Build the complete survivor authority used by the bundle boundary."""
+	repository = packet.items[0].repository
+	commit = packet.items[0].commit
+	activity = daily_blog.schema.RepositoryActivity(
+		repository, f"https://github.com/{repository}", f"/fixture/{repository}", commit,
+		(daily_blog.schema.CommitActivity(
+			commit, (), "Fixture", "fixture@example.com", "2026-08-23T12:00:00-05:00",
+			"2026-08-23T12:00:00-05:00", "Fixture work",
+		),), (daily_blog.schema.RevisionRange("", commit),), (commit,), False,
+		(daily_blog.repository_contracts.RepositoryLifecycleEvent(
+			"repository_created", "2020-01-01T00:00:00Z", False, "github_owner_roster",
+		),),
+	)
+	survivor = daily_blog.schema.EvidencePacket.create(
+		packet.report_date, packet.timezone, packet.complete, packet.collection_limits.to_dict(),
+		[mirror.to_dict() for mirror in packet.mirrors], [activity], list(packet.items),
+	)
+	evidence_ids = tuple(item.evidence_id for item in survivor.items)
+	story = daily_blog.artifacts.RepoStory.create(
+		survivor.report_date, (survivor,), repository,
+		"Story <!-- evidence: " + ", ".join(evidence_ids) + " -->", evidence_ids,
+	)
+	outline = daily_blog.artifacts.DailyOutline.create(
+		survivor.report_date, (survivor,), (repository,),
+		"Outline <!-- evidence: " + ", ".join(evidence_ids) + " -->", evidence_ids,
+	)
+	limits = {"context_chars": 8000, "excerpt_chars": 1000, "commit_subject_chars": 120}
+	context = daily_blog.projection.build_bounded_evidence_context((survivor,), limits, 8000)
+	return daily_blog.publication_admission.build_surface(
+		(survivor,), (repository,), context, (outline, story),
+	)
 
 
 #============================================
@@ -204,7 +247,7 @@ def test_bundle_writer_hashes_and_promotes_one_date_owned_publication(
 	packet = daily_blog.schema.EvidencePacket.create(
 		"2026-08-23", "America/Chicago", True, {}, [], [], [item]
 	)
-	projection = make_projection(packet)
+	surface = publication_surface(packet)
 	post = "approved selected post\n"
 	complete_post = selected_post(tmp_path, packet, post)
 	writer = daily_blog.publication_contract.BundleWriter(
@@ -212,14 +255,17 @@ def test_bundle_writer_hashes_and_promotes_one_date_owned_publication(
 	)
 
 	bundle_path, bundle, transfer = writer.write(
-		"run-one", packet, projection, {}, bundle_roster(packet), complete_post
+		"run-one", surface, {}, bundle_roster(packet), complete_post
 	)
 
 	with open(f"{bundle_path}/bundle.json", "r", encoding="utf-8") as handle:
 		written = json.load(handle)
 	assert written["bundle_sha256"] == daily_blog.publication_contract.bundle_sha256(written)
 	assert pathlib.Path(bundle_path).is_relative_to(tmp_path / "vosslab" / "daily_blog" / packet.report_date)
-	assert bundle["editorial_projection"]["projection_id"] == projection.projection_id
+	assert bundle["editorial_projection"]["projection_id"] == surface.projection.projection_id
+	assert bundle["publication_surface"]["surface_id"] == (
+		daily_blog.publication_surface_contract.publication_surface_value(surface)["surface_id"]
+	)
 	assert transfer.bundle_sha256 == bundle["bundle_sha256"]
 	header_size = int.from_bytes(
 		transfer.to_bytes()[len(daily_blog.publication_contract.SEALED_BUNDLE_TRANSFER_MAGIC):][:8], "big",
@@ -230,7 +276,7 @@ def test_bundle_writer_hashes_and_promotes_one_date_owned_publication(
 	(pathlib.Path(bundle_path) / "post.md").write_text("changed after sealing\n", encoding="utf-8")
 	assert next(entry.contents for entry in transfer.entries if entry.path == "post.md") == complete_post.content.encode("utf-8")
 	replacement_path, replacement, _replacement_transfer = writer.write(
-		"run-two", packet, projection, {}, bundle_roster(packet), complete_post
+		"run-two", surface, {}, bundle_roster(packet), complete_post
 	)
 
 	assert replacement_path == bundle_path
@@ -253,7 +299,8 @@ def test_sealed_transfer_rejects_an_aggregate_payload_larger_than_the_importer_c
 		for ordinal in range(8)
 	]
 	for path in (
-		"bundle.json", "evidence.json", "repository_roster.json", "editorial_projection.json", "post.md",
+		"bundle.json", "evidence.json", "repository_roster.json", "editorial_projection.json",
+		"publication_surface.json", "post.md",
 	):
 		contents = b"post\n" if path == "post.md" else b"{}"
 		entries.append(daily_blog.publication_contract.SealedBundleTransferEntry(
@@ -307,13 +354,12 @@ def test_generator_revision_fingerprints_dirty_source(
 
 
 #============================================
-def test_reusable_bundle_requires_a_structured_publication_identity() -> None:
-	"""Bundle reuse accepts the sealed value contract, never a raw revision string."""
-	with pytest.raises(RuntimeError, match="publication identity"):
+def test_reusable_bundle_requires_an_exact_publication_surface() -> None:
+	"""Bundle reuse accepts only the typed survivor authority."""
+	with pytest.raises(RuntimeError, match="publication surface"):
 		daily_blog.publication_contract.load_reusable_bundle(
 			{},
 			"/nonexistent/vosslab-test/bundles",
-			None,
 			None,
 			{},
 			"f" * 64,  # type: ignore[arg-type]
@@ -329,7 +375,7 @@ def make_v4_bundle(
 	daily_blog.publication_contract.PublicationIdentity,
 	daily_blog.editorial.PromptContractSnapshot,
 	daily_blog.schema.EvidencePacket,
-	daily_blog.schema.EditorialProjection,
+	daily_blog.publication_admission.PublicationSurface,
 	dict,
 	str,
 ]:
@@ -340,7 +386,7 @@ def make_v4_bundle(
 	packet = daily_blog.schema.EvidencePacket.create(
 		"2026-08-23", "America/Chicago", True, {}, [], [], [item]
 	)
-	projection = make_projection(packet)
+	surface = publication_surface(packet)
 	post = "approved selected post\n"
 	snapshot = daily_blog.editorial.load_prompt_contract_snapshot(contract)
 	identity = bundle_identity(contract, snapshot)
@@ -351,15 +397,14 @@ def make_v4_bundle(
 	)
 	bundle_path, bundle, _transfer = writer.write(
 		run_id,
-		packet,
-		projection,
+		surface,
 		{},
 		bundle_roster(packet),
 		selected_post(tmp_path, packet, post),
 	)
 	record = {"bundle_path": bundle_path, "bundle": bundle}
 	date_root = str(tmp_path / "vosslab" / "daily_blog" / packet.report_date)
-	return identity, snapshot, packet, projection, record, date_root
+	return identity, snapshot, packet, surface, record, date_root
 
 
 #============================================
@@ -368,7 +413,7 @@ def test_active_factory_identity_writes_and_reuses_issued_contract(
 ) -> None:
 	"""The active factory-issued identity and snapshot permit bundle reuse."""
 	contract = daily_blog.prompt_registry.editorial_contracts.active_contract()
-	identity, snapshot, packet, projection, record, date_root = make_v4_bundle(
+	identity, snapshot, packet, surface, record, date_root = make_v4_bundle(
 		tmp_path,
 		contract,
 		"exact-v4",
@@ -376,8 +421,7 @@ def test_active_factory_identity_writes_and_reuses_issued_contract(
 	bundle_path, bundle, transfer = daily_blog.publication_contract.load_reusable_bundle(
 		record,
 		date_root,
-		packet,
-		projection,
+		surface,
 		{},
 		identity,
 		bundle_roster(packet),
@@ -419,16 +463,16 @@ def test_publication_identity_seals_caller_owned_nested_inputs(
 	packet = daily_blog.schema.EvidencePacket.create(
 		"2026-08-23", "America/Chicago", True, {}, [], [], [item]
 	)
-	projection = make_projection(packet)
+	surface = publication_surface(packet)
 	writer = daily_blog.publication_contract.BundleWriter(str(tmp_path), "vosslab", identity)
 	bundle_path, bundle, _transfer = writer.write(
-		"sealed-caller-inputs", packet, projection, {}, bundle_roster(packet),
+		"sealed-caller-inputs", surface, {}, bundle_roster(packet),
 		selected_post(tmp_path, packet, "sealed selected post\n"),
 	)
 	_, reused, _transfer = daily_blog.publication_contract.load_reusable_bundle(
 		{"bundle_path": bundle_path, "bundle": bundle},
 		str(tmp_path / "vosslab" / "daily_blog" / packet.report_date),
-		packet, projection, {}, identity, bundle_roster(packet),
+		surface, {}, identity, bundle_roster(packet),
 	)
 
 	assert reused["contracts"] == expected_contracts
@@ -445,7 +489,7 @@ def test_active_bundle_reuse_rejects_an_altered_activation_receipt(
 ) -> None:
 	"""A cache hit remains bound to the receipt that selected the maker contract."""
 	contract = daily_blog.prompt_registry.editorial_contracts.active_contract()
-	identity, snapshot, packet, projection, record, date_root = make_v4_bundle(
+	identity, snapshot, packet, surface, record, date_root = make_v4_bundle(
 		tmp_path, contract, "active-activation"
 	)
 	tampered = copy.deepcopy(record["bundle"])
@@ -457,7 +501,7 @@ def test_active_bundle_reuse_rejects_an_altered_activation_receipt(
 
 	with pytest.raises(RuntimeError, match="generator contracts have changed"):
 		daily_blog.publication_contract.load_reusable_bundle(
-		record, date_root, packet, projection, {}, identity, bundle_roster(packet)
+		record, date_root, surface, {}, identity, bundle_roster(packet)
 		)
 
 
@@ -476,7 +520,7 @@ def test_reusable_bundle_rejects_a_rechecksummed_different_publication_identity(
 ) -> None:
 	"""A self-consistent manifest cannot detach either active identity field."""
 	contract = daily_blog.prompt_registry.editorial_contracts.active_contract()
-	identity, _snapshot, packet, projection, record, date_root = make_v4_bundle(
+	identity, _snapshot, packet, surface, record, date_root = make_v4_bundle(
 		tmp_path, contract, "altered-publication-identity"
 	)
 	tampered = copy.deepcopy(record["bundle"])
@@ -488,7 +532,7 @@ def test_reusable_bundle_rejects_a_rechecksummed_different_publication_identity(
 
 	with pytest.raises(RuntimeError, match="date or timezone"):
 		daily_blog.publication_contract.load_reusable_bundle(
-			record, date_root, packet, projection, {}, identity, bundle_roster(packet)
+			record, date_root, surface, {}, identity, bundle_roster(packet)
 		)
 
 
@@ -498,7 +542,7 @@ def test_reusable_bundle_rejects_a_rechecksummed_altered_evidence_manifest(
 ) -> None:
 	"""A self-consistent checksum cannot hide a detached evidence manifest."""
 	contract = daily_blog.prompt_registry.editorial_contracts.active_contract()
-	identity, _snapshot, packet, projection, record, date_root = make_v4_bundle(
+	identity, _snapshot, packet, surface, record, date_root = make_v4_bundle(
 		tmp_path, contract, "altered-evidence-manifest"
 	)
 	tampered = copy.deepcopy(record["bundle"])
@@ -510,7 +554,7 @@ def test_reusable_bundle_rejects_a_rechecksummed_altered_evidence_manifest(
 
 	with pytest.raises(RuntimeError, match="evidence manifest"):
 		daily_blog.publication_contract.load_reusable_bundle(
-			record, date_root, packet, projection, {}, identity, bundle_roster(packet)
+			record, date_root, surface, {}, identity, bundle_roster(packet)
 		)
 
 
@@ -520,7 +564,7 @@ def test_reusable_bundle_rejects_a_rechecksummed_retired_bundle_schema(
 ) -> None:
 	"""A self-consistent retired manifest never reaches publisher transfer."""
 	contract = daily_blog.prompt_registry.editorial_contracts.active_contract()
-	identity, _snapshot, packet, projection, record, date_root = make_v4_bundle(
+	identity, _snapshot, packet, surface, record, date_root = make_v4_bundle(
 		tmp_path, contract, "retired-bundle-schema"
 	)
 	tampered = copy.deepcopy(record["bundle"])
@@ -532,7 +576,7 @@ def test_reusable_bundle_rejects_a_rechecksummed_retired_bundle_schema(
 
 	with pytest.raises(RuntimeError, match="schema has changed"):
 		daily_blog.publication_contract.load_reusable_bundle(
-			record, date_root, packet, projection, {}, identity, bundle_roster(packet)
+			record, date_root, surface, {}, identity, bundle_roster(packet)
 		)
 
 
@@ -542,7 +586,7 @@ def test_v4_reuse_rejects_tampered_persisted_prompt_contract(
 ) -> None:
 	"""Reuse compares the persisted v4 contract, selection, and example digest exactly."""
 	contract = daily_blog.prompt_registry.editorial_contracts.active_contract()
-	identity, snapshot, packet, projection, record, date_root = make_v4_bundle(
+	identity, snapshot, packet, surface, record, date_root = make_v4_bundle(
 		tmp_path,
 		contract,
 		"persisted-attacks",
@@ -557,7 +601,7 @@ def test_v4_reuse_rejects_tampered_persisted_prompt_contract(
 
 	with pytest.raises(RuntimeError, match="prompt contract"):
 		daily_blog.publication_contract.load_reusable_bundle(
-		record, date_root, packet, projection, {}, identity, bundle_roster(packet)
+		record, date_root, surface, {}, identity, bundle_roster(packet)
 		)
 
 
@@ -572,13 +616,13 @@ def test_reusable_bundle_rejects_a_changed_authoritative_roster(
 	packet = daily_blog.schema.EvidencePacket.create(
 		"2026-08-23", "America/Chicago", True, {}, [], [], [item]
 	)
-	projection = make_projection(packet)
+	surface = publication_surface(packet)
 	post = "selected post\n"
 	writer = daily_blog.publication_contract.BundleWriter(
 		str(tmp_path), "vosslab", bundle_identity()
 	)
 	bundle_path, bundle, _transfer = writer.write(
-		"roster-scope", packet, projection, {}, bundle_roster(packet), selected_post(tmp_path, packet, post)
+		"roster-scope", surface, {}, bundle_roster(packet), selected_post(tmp_path, packet, post)
 	)
 	quiet = daily_blog.repository_contracts.RepositoryRecord.from_dict({
 		"repository": "vosslab/quiet-repository",
@@ -594,8 +638,7 @@ def test_reusable_bundle_rejects_a_changed_authoritative_roster(
 		daily_blog.publication_contract.load_reusable_bundle(
 			{"bundle_path": bundle_path, "bundle": bundle},
 			str(tmp_path / "vosslab" / "daily_blog" / packet.report_date),
-			packet,
-			projection,
+			surface,
 			{},
 			bundle_identity(), changed_roster,
 		)
@@ -612,13 +655,13 @@ def test_reuse_rejects_a_tampered_candidate_validation_artifact(
 	packet = daily_blog.schema.EvidencePacket.create(
 		"2026-08-23", "America/Chicago", True, {}, [], [], [item]
 	)
-	projection = make_projection(packet)
+	surface = publication_surface(packet)
 	post = "selected post\n"
 	writer = daily_blog.publication_contract.BundleWriter(
 		str(tmp_path), "vosslab", bundle_identity()
 	)
 	bundle_path, bundle, _transfer = writer.write(
-		"tampered-policy", packet, projection, {}, bundle_roster(packet), selected_post(tmp_path, packet, post)
+		"tampered-policy", surface, {}, bundle_roster(packet), selected_post(tmp_path, packet, post)
 	)
 	tampered = copy.deepcopy(bundle)
 	tampered["contracts"]["candidate_validation"]["version"] = "retired"
@@ -629,6 +672,6 @@ def test_reuse_rejects_a_tampered_candidate_validation_artifact(
 
 	with pytest.raises(RuntimeError, match="generator contracts have changed"):
 		daily_blog.publication_contract.load_reusable_bundle(
-			record, date_root, packet, projection, {},
+			record, date_root, surface, {},
 		bundle_identity(), bundle_roster(packet)
 		)

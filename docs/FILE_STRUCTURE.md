@@ -36,6 +36,7 @@ pipeline/daily_blog/
   json_contracts.py                 canonical JSON contract validation
   locks.py                          date lock and resumable phase cache
   mirrors.py                        owner-qualified Git mirror refresh and inspection
+  model_cache_contract.py           semantic editorial packet projection for route reuse
   multi_repository_coordinator.py   shared Stage-3/4 repository scheduling and joins
   observability.py                  bounded lifecycle events and terminal summaries
   orchestrator.py                   lifecycle composition only
@@ -43,8 +44,9 @@ pipeline/daily_blog/
     definitions.py                   registered Stage 3-7 prompt-set declarations
     loader.py                        allowlisted, pinned resource loading and rendering
     editorial_contracts.py           V4 editorial contract and example declarations
-  publication_contract.py           bundle-v8 identity, safety binding, and manifest writer
+  publication_contract.py           bundle-v9 identity, safety binding, and manifest writer
   publication_admission.py          frozen survivor surface and final-post policy admission
+  publication_surface_contract.py   portable survivor authority and surface-ID validation
   publication_source_safety.py      portable Markdown source-safety policy
   publication_article_projection.py canonical source and reader-body projection
   publication_finalization.py       selected-post bundle/import/page owner
@@ -125,6 +127,7 @@ out/<owner>/
 |     +- evidence.json
 |     +- repository_roster.json
 |     +- editorial_projection.json
+|     +- publication_surface.json             portable survivor-scoped publication authority
 |     +- post.md
 |     `- assets/                          manifest-declared evidence assets only
 +- daily_blog_cache/
@@ -134,15 +137,18 @@ out/<owner>/
    `- manifest.json
 ```
 
-The current handoff manifest is `vosslab.daily-blog.bundle.v8`. It contains the validated
-Stage-8 selected post and `best_artifact_id`, with evidence, roster, projection, assets, prompt and
-activation bindings, source-safety policy identity, and integrity digest. Its active
+The current handoff manifest is `vosslab.daily-blog.bundle.v9`. It contains the validated
+Stage-8 selected post and `best_artifact_id`, with evidence, roster, projection, portable
+`publication_surface.json`, selected assets, prompt and activation bindings, source-safety policy
+identity, and integrity digest. The portable surface is the immutable authority for allowed evidence
+IDs, repository coverage, and screenshot evidence/asset/publish-path mappings; the asset directory
+contains exactly its allowed screenshots. Its active
 `publication_source_safety.v1` identity seals the executable 35-case corpus digest
 `d50166736d79be7f7715cc0f7585fac71dfb2aecc1c631b10e01aeca2fb63c6b`. Candidate and referee
 records remain run-owned editorial history, not publisher inputs. The producer sends a bounded immutable byte transfer to the sibling
 publisher's standard input after its descriptor validation. The publisher records
-`publication-v5` state and the producer keeps an `import-receipt.v2` with the reader-body digest.
-Older bundle-v7 directories are not reusable current input; the exact publication-v3 reader exists
+`publication-v6` state and the producer keeps an `import-receipt.v2` with the reader-body digest.
+Older bundle directories are not reusable current input; the exact publication-v3 reader exists
 only to recognize historical occupied dates.
 
 ## Generated artifacts

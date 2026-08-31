@@ -115,9 +115,10 @@ facts, and projects reliability counts without diagnostic payloads. Detailed run
 expired only through the validated summary and descriptor-owned retention path.
 
 Phase cache data is resumability support, not a durable exchange protocol. The producer revalidates
-cached response bytes and identities before reuse. Model/cache identity retains semantic repository
-object facts such as the revision and ref fingerprint while excluding mirror locations and refresh
-observations that do not change the model task.
+cached response bytes and identities before reuse. Model/cache identity retains selected commits,
+revision ranges, snapshot commits, lifecycle facts, and evidence items. It excludes mirror paths,
+default revisions, ref fingerprints, object-availability inventory, and refresh observations that
+do not change the editorial request.
 
 ### Recovery fault digest
 
@@ -135,6 +136,7 @@ bundle.json
 evidence.json
 repository_roster.json
 editorial_projection.json
+publication_surface.json
 post.md
 assets/...
 ```
@@ -150,10 +152,16 @@ must bind the transfer. Validation checks the complete bundle admission contract
 post, release, record, or `site` mutation. The importing operation revalidates those same bytes before
 staging, so preflight is an integration check rather than a publication shortcut.
 
-### Bundle v8 manifest
+### Bundle v9 manifest and publication surface v1
 
-`bundle.json` uses `vosslab.daily-blog.bundle.v8`. It is the producer-to-publisher integrity
-boundary, so its exact top-level fields are part of the protocol:
+`bundle.json` uses `vosslab.daily-blog.bundle.v9`. It is the producer-to-publisher integrity
+boundary. `publication_surface.json` uses
+`vosslab.daily-blog.publication-surface.v1` and is the immutable, survivor-scoped authority for
+the complete post, its evidence, its repository coverage, and its images. The same surface is used
+to construct the writer and editor context, admit the selected post, choose transfer assets, import
+the bundle, and verify the rendered page.
+
+The bundle's exact top-level fields are part of the protocol:
 
 ```text
 schema_version
@@ -167,6 +175,7 @@ contracts
 evidence
 repository_roster
 editorial_projection
+publication_surface
 post
 assets
 maker_activation
@@ -175,14 +184,68 @@ editorial_prompt_contract
 
 `bundle_sha256` is the canonical digest of this manifest with that field omitted. The `post` entry
 names only `post.md`, binds its SHA-256 and `artifact_id`, and must agree with `best_artifact_id`.
-The evidence, roster, and projection entries bind their sealed filenames, identities, and hashes.
-`assets` is the complete allowlist of declared asset paths and identities. `generator`, `contracts`,
-maker activation, and editorial prompt-contract values preserve validated producer provenance. The
+The evidence, roster, projection, and surface entries bind their sealed filenames, identities, and
+hashes. The `publication_surface` entry is exactly:
+
+```text
+path: publication_surface.json
+surface_id: SHA-256 identity of the canonical surface value
+sha256: SHA-256 identity of the canonical surface JSON value
+```
+
+The surface has exactly these fields:
+
+```text
+schema_version
+surface_id
+report_date
+timezone
+aggregate_packet_id
+source_packet_ids
+repositories
+source_artifacts
+editorial_projection_id
+allowed_evidence_ids
+allowed_images
+```
+
+`surface_id` is the canonical SHA-256 hash of the surface object with only `surface_id` omitted.
+It therefore binds the complete survivor authority, rather than a mutable run or mirror location.
+`source_packet_ids` and `repositories` are sorted, unique lists. `source_artifacts` is a sorted
+list of exact attestations with `kind`, `artifact_id`, and `content_hash`; it contains one
+`DailyOutline` and the promoted `RepoStory` artifacts that formed the survivor set.
+`aggregate_packet_id` and `editorial_projection_id` identify the sealed packet and projection used
+by the surface. `allowed_evidence_ids` is the sorted, exact set of evidence IDs in that projection's
+excerpts: neither side may add, omit, or substitute an evidence identity.
+
+Each `allowed_images` entry is a structured, canonical tuple of:
+
+```text
+evidence_id
+asset_path
+publish_path
+```
+
+Every entry must resolve to one screenshot in the aggregate packet whose evidence ID is allowed;
+the evidence ID, transfer asset path, and public post path must all match that screenshot. The list
+is sorted by this three-part tuple, and no evidence ID, `asset_path`, or `publish_path` may appear
+twice. This avoids treating an aggregate packet's unrelated screenshots as publication authority.
+
+`assets` is the exact allowlist of the surface's `allowed_images`: each asset manifest entry binds
+its path, SHA-256, evidence ID, Git blob hash, and public path to one such image. A bundle cannot
+include a packet-wide extra asset, and an allowed surface asset cannot be omitted. `generator`,
+`contracts`, maker activation, and editorial prompt-contract values preserve validated producer
+provenance. The
 `contracts.publication_source_safety` value identifies the deterministic source-safety policy by
 version and executable-vector SHA-256; the active identity is
 `publication_source_safety.v1` with a 35-case executable corpus and SHA-256
 `d50166736d79be7f7715cc0f7585fac71dfb2aecc1c631b10e01aeca2fb63c6b`. It makes the exact policy
 applied to the post verifiable without treating the prose as a prompt contract.
+
+The sealed transfer contains every core artifact above plus exactly the manifest-declared surface
+assets. The producer's no-write validation and the publisher's import both revalidate that held,
+no-follow byte snapshot. The archive, installed post, and rendered-page validator retain this same
+surface authority; article-local image sources must be among its `publish_path` values.
 
 The bundle carries one validated selected post and its grounded inputs. It never carries candidate
 posts, referee results, anonymous rankings, or route-to-candidate mappings.
@@ -194,7 +257,7 @@ Code examples remain inert source text. The publisher independently applies the 
 policy while importing, so an unsafe candidate cannot become publishable through bundle reuse or a
 cross-repository handoff.
 
-### Publisher record v5 and import receipt v2
+### Publisher record v6 and import receipt v2
 
 The sibling `vosslab-daily-blog` repository owns the current date-keyed record at:
 
@@ -202,11 +265,14 @@ The sibling `vosslab-daily-blog` repository owns the current date-keyed record a
 data/publications/YYYY-MM-DD.json
 ```
 
-It uses `vosslab.daily-blog.publication.v5`. The record is exact and date-keyed; it binds the
+It uses `vosslab.daily-blog.publication.v6`. The record is exact and date-keyed; it binds the
 report date, timezone, bundle digest, selected artifact identity, generator run and revision,
 verified evidence and projection archive paths, the public post path, import timestamp, and
-`article_body_sha256`. That digest is calculated from the canonical visible reader-body projection
-of the installed Markdown post using the publisher's configured MkDocs Markdown extensions.
+`article_body_sha256`. It also binds `publication_surface_id`,
+`publication_surface_sha256`, and the exact date-owned
+`publication_surface_manifest` archive path. The body digest is calculated from the canonical visible
+reader-body projection of the installed Markdown post using the publisher's configured MkDocs
+Markdown extensions.
 
 The producer returns `vosslab.daily-blog.import-receipt.v2` only after its one
 `CommittedPublication` validation reads the held archive snapshot, date-keyed record, and installed
@@ -239,25 +305,30 @@ repository_roster.json -- roster_id --> evidence.json -- packet_id --> editorial
                                                          |                     |
                                                          |                     projection_id
                                                          v                     v
-selected CompletePost -- artifact_id --> bundle.json -- bundle_sha256 --> publication v5 record
-                                                                      |
-                                                                      v
-                                                   import-receipt v2 / article_body_sha256
+selected CompletePost -- artifact_id --> publication_surface.json --> bundle.json -- bundle_sha256
+                                      |              |                    |              |
+                                      |              v                    |              v
+                                      |      surface_id / allowed scope    |   publication v6 record
+                                      |                                   |              |
+                                      v                                   v              v
+                             surface-scoped images ----------------> sealed transfer  import-receipt v2
+                                                                                       / article_body_sha256
 ```
 
-The manifest ties all sealed input hashes and the selected post to the one `report_date`. The
-publisher repeats the bundle digest and selected artifact identity in its date-keyed record and
+The manifest ties all sealed input hashes and the selected post to the one `report_date`; the surface
+ties all downstream editorial and image authority to the same survivor set. The publisher repeats
+the bundle digest, selected artifact identity, and surface identity in its date-keyed record and
 binds the reader-visible body digest in its receipt, making provenance and publication integrity
 independently verifiable on both sides of the handoff.
 
 ### Compatibility and reuse
 
-Bundle-v7 remains historical evidence only. The active writer and importer create and accept v8;
-the producer refuses to reuse a cached bundle when its schema, source-safety policy identity, or
-sealed contents do not match the current run. A publisher `publication.v3` record is an exact,
-read-only historical record shape used only for the retained 2026-08-26 date while it remains
-unrepublished. New imports and new receipts use publication v5 and the current bundle contract. The
-v3 reader is removed when that date is republished with v8/v5 or explicitly migrated.
+Bundle-v7 and bundle-v8 are historical evidence only. The active writer and importer create and
+accept v9; the producer refuses to reuse a cached bundle when its schema, source-safety policy
+identity, publication surface, or sealed contents do not match the current run. Publisher
+`publication.v3` and pre-surface `publication.v5` records remain exact read-only historical receipt
+shapes. New imports use `publication.v6` and the v9 surface contract; a date becomes v6 when it is
+republished through the current handoff.
 
 ## Maintenance rules
 

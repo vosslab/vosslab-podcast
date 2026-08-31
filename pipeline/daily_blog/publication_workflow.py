@@ -255,8 +255,7 @@ def run_typed_stage5(coordinator: object, value: object) -> daily_blog.stage6.St
 		dict(value.evidence_context.projection_limits),
 	)
 	stage6_value = daily_blog.stage6.Stage6Input(
-		result.artifact, result.selected_stories, root, _stage5_output_path(coordinator),
-		recovery_sources, publication_surface,
+		root, _stage5_output_path(coordinator), recovery_sources, publication_surface,
 	)
 	coordinator._complete("stage5_daily_outline", {
 		"artifact_id": result.artifact.artifact_id,
@@ -624,15 +623,15 @@ def _publication_validation_transition(
 #============================================
 def validate_selected_post(
 	coordinator: object,
-	packets: tuple[daily_blog.schema.EvidencePacket, ...],
 	post: daily_blog.artifacts.CompletePost,
-	surface: daily_blog.publication_admission.PublicationSurface | None = None,
+	surface: daily_blog.publication_admission.PublicationSurface,
 ) -> daily_blog.publication_validation.PublicationValidationResult:
 	"""Apply Stage 8 and advance the coordinator's sole best-artifact pointer."""
 	if type(post) is not daily_blog.artifacts.CompletePost:
 		raise RuntimeError("Publication validation requires an exact Stage 7 selected CompletePost.")
-	if type(packets) is not tuple or not packets or any(type(item) is not daily_blog.schema.EvidencePacket for item in packets):
-		raise RuntimeError("Publication validation requires the exact editorial packet union.")
+	if type(surface) is not daily_blog.publication_admission.PublicationSurface:
+		raise RuntimeError("Publication validation requires one exact publication surface.")
+	packets = surface.source_packets
 	phase_input = {
 		"before_artifact_id": post.artifact_id,
 		"content_hash": post.content_hash,

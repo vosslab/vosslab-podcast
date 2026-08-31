@@ -2,17 +2,24 @@
 
 ### Fixes and Maintenance
 
-- Refreshed the README and broad documentation set for the current survivor-scoped
-  `PublicationSurface`, reliability accounting, bounded rejections, and semantic cache boundary.
-- Retained grounded drafts and eligible incumbents through partial writer, editor,
-  reviewer, and Stage-7 failure.
+- Refreshed documentation for survivor-scoped `PublicationSurface`, bounded reliability reporting, semantic caching, and retained grounded artifacts.
+- Advanced new producer-to-publisher transfers to
+  `vosslab.daily-blog.bundle.v9`. Its portable `PublicationSurface` is the
+  immutable authority for survivor-scoped evidence, images, coverage, bundle
+  assets, importer admission, and rendered article-image verification; the prior
+  2026-08-30 bundle-v8 record remains historical evidence.
+- Replaced the admission regression with offline behavioral coverage from a
+  `Stage6Input` rendered context through bundle construction and publisher validation,
+  including an unselected aggregate screenshot, protecting the producer/publisher seam.
+- Refined model-route cache identity: selected commits, evidence, and prompt inputs
+  remain identity-bearing; mutable mirror branch inventory does not.
 
 ### Developer Tests and Notes
 
-- The latest-release screenshot harness refreshed the two managed 2026-08-29 README images.
-  Repeatable local-only capture and visual re-review passed.
-- The permanent offline suite passed 3,692 tests. Protected `docs/BLOG_CONTRACT.md`
-  and prompt assets remained unchanged.
+- The latest-release harness refreshed and visually re-reviewed two managed README images.
+- Focused producer and publisher verification is running for the v9 boundary;
+  full-suite rerun and same-date live overwrite remain required acceptance evidence.
+  Protected `docs/BLOG_CONTRACT.md` and approved prompt assets remain unchanged.
 
 ## 2026-08-30
 

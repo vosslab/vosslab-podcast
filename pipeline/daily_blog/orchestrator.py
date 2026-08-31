@@ -290,7 +290,7 @@ class DailyPublicationOrchestrator:
 			)
 			surface = stage6_input.publication_surface
 			validated = daily_blog.publication_workflow.validate_selected_post(
-				self, surface.source_packets, stage7_result.artifact, surface,
+				self, stage7_result.artifact, surface,
 			)
 			if validated.source_post is not stage7_result.artifact:
 				raise RuntimeError("Publication validation must retain the exact Stage 7 selected source post.")
@@ -302,8 +302,7 @@ class DailyPublicationOrchestrator:
 				daily_blog.publication_finalization.SealedPublicationInput(
 					self.report_date, self.run_id, self.config.output_root, self.config.output_owner,
 					self.config.daily_blog_repository, self.generator_identity,
-					self.force_regeneration, acquisition.roster, surface.packet,
-					surface.projection,
+					self.force_regeneration, acquisition.roster, surface,
 					daily_blog.publication_admission.survivor_assets(
 						surface, acquisition.assets,
 					), validated.post,

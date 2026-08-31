@@ -80,17 +80,18 @@ def _cache(tmp_path: pathlib.Path) -> daily_blog.route_cache.RouteResultCache:
 
 
 #============================================
-def test_model_cache_packet_identity_ignores_mirror_refresh_observations(
+def test_model_cache_packet_identity_tracks_editorial_evidence_not_mirror_inventory(
 	tmp_path: pathlib.Path,
 ) -> None:
-	"""Equivalent repository objects reuse editorial work across fresh mirror checks."""
+	"""Equivalent editorial inputs reuse despite mirror inventory changes."""
 	value, _story = _stage5_alias_input(tmp_path / "input")
 	base = value.packets[0]
+	observed_at = base.activity[0].lifecycle_events[0].occurred_at
 	semantic = {
 		"repository": "owner/repository",
 		"repository_url": "https://github.com/owner/repository",
 		"clone_url": "https://github.com/owner/repository.git",
-		"created_at": "2020-01-01T00:00:00Z",
+		"created_at": observed_at,
 		"is_fork": False,
 		"roster_id": "a" * 64,
 		"default_revision": "a" * 40,
@@ -99,11 +100,11 @@ def test_model_cache_packet_identity_ignores_mirror_refresh_observations(
 	}
 	first_mirror = {
 		**semantic, "cache_path": "/first/mirror", "refresh_result": "refreshed",
-		"refresh_error": "", "refreshed_at": "2026-08-31T12:00:00Z",
+		"refresh_error": "", "refreshed_at": observed_at,
 	}
 	second_mirror = {
 		**semantic, "cache_path": "/second/mirror", "refresh_result": "skipped",
-		"refresh_error": "unused observation", "refreshed_at": "2026-08-31T13:00:00Z",
+		"refresh_error": "unused observation", "refreshed_at": observed_at,
 	}
 	def packet(mirror: dict[str, object]) -> daily_blog.schema.EvidencePacket:
 		return daily_blog.schema.EvidencePacket.create(
@@ -111,15 +112,39 @@ def test_model_cache_packet_identity_ignores_mirror_refresh_observations(
 			base.collection_limits.to_dict(), [mirror], list(base.activity), list(base.items),
 		)
 	first, second = packet(first_mirror), packet(second_mirror)
-	changed = packet({**second_mirror, "ref_fingerprint": "c" * 64})
+	inventory_changed = packet({
+		**second_mirror,
+		"default_revision": "c" * 40,
+		"object_available": False,
+		"ref_fingerprint": "d" * 64,
+	})
+	changed_item = daily_blog.schema.EvidenceItem.create(
+		"dated_changelog", "owner/repository", "a" * 40, "CHANGELOG.md", "c" * 40,
+		"Changed grounded evidence.", "git show",
+	)
+	evidence_changed = daily_blog.schema.EvidencePacket.create(
+		base.report_date, base.timezone, base.complete, base.collection_limits.to_dict(),
+		[second_mirror], list(base.activity), [changed_item],
+	)
+	changed_commit = daily_blog.schema.CommitActivity(
+		"c" * 40, (), "Author", "author@example.com", observed_at,
+		observed_at, "Changed grounded activity.",
+	)
+	changed_activity = dataclasses.replace(
+		base.activity[0], commits=(changed_commit,),
+		revision_ranges=(daily_blog.schema.RevisionRange("", "c" * 40),),
+		snapshot_commits=("c" * 40,),
+	)
+	activity_changed = daily_blog.schema.EvidencePacket.create(
+		base.report_date, base.timezone, base.complete, base.collection_limits.to_dict(),
+		[second_mirror], [changed_activity], list(base.items),
+	)
 
-	assert first.packet_id != second.packet_id
-	assert daily_blog.schema.model_cache_packet_identity(first) == (
-		daily_blog.schema.model_cache_packet_identity(second)
-	)
-	assert daily_blog.schema.model_cache_packet_identity(first) != (
-		daily_blog.schema.model_cache_packet_identity(changed)
-	)
+	identity = daily_blog.schema.model_cache_packet_identity
+	assert first.packet_id != second.packet_id and {
+		identity(second), identity(inventory_changed),
+	} == {identity(first)}
+	assert identity(first) not in {identity(evidence_changed), identity(activity_changed)}
 
 
 def _stage5_alias_input(
@@ -289,7 +314,7 @@ def _real_stage_requests(
 		stories, outlines, packets, promoted_ranking, stories[0].artifact_id,
 	)
 	stage6_input = daily_blog.stage6.Stage6Input(
-		daily_outline, stories, str(root), str(root / "2026-08-29" / "post.md"),
+		str(root), str(root / "2026-08-29" / "post.md"),
 		sources, daily_blog.stage6.build_stage6_publication_surface(
 			daily_outline, stories, packets, context_limits,
 		),

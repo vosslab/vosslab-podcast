@@ -77,9 +77,12 @@ GitHub activity -> exact evidence -> independent editorial work -> eligible whol
                -> sealed bundle -> publisher validation -> built and verified reader page
 ```
 
-The producer sends `vosslab.daily-blog.bundle.v8`, binding the date, selected artifact, evidence,
-roster, editorial projection, prompt and activation identities, declared assets, source-safety
-policy, and digest. The publisher checks that sealed snapshot before making the date visible. Unsafe
+The producer sends `vosslab.daily-blog.bundle.v9`, binding the date, selected artifact, evidence,
+roster, editorial projection, prompt and activation identities, source-safety policy, and digest.
+Its canonical `publication_surface.json` carries the one survivor-scoped publication authority:
+required repository coverage plus the exact evidence IDs and image paths available to the post.
+The bundle asset list, publisher archive, staged assets, and rendered-page image check all derive
+from that surface. The publisher checks the sealed snapshot before making the date visible; unsafe
 reader-visible Markdown is rejected before handoff and independently checked again by the publisher.
 
 Each attempt keeps bounded run state and event summaries; a completed date retains the selected post,
@@ -88,11 +91,17 @@ sealed bundle, and the receipts that connect the bundle to the verified page:
 ```text
 out/<owner>/daily_blog/<report_date>/
   runs/<run_id>/                 bounded state, events, and editorial reliability summaries
-  publication/bundle.json        sealed bundle-v8 manifest
+  publication/bundle.json        sealed bundle-v9 manifest
   publication/evidence.json      exact source evidence
   publication/editorial_projection.json
+  publication/publication_surface.json
   post.md                        selected reader-facing post
 ```
+
+The publisher finishes an accepted handoff with a date-keyed
+`vosslab.daily-blog.publication.v6` receipt. It binds the bundle digest, selected artifact,
+reader-body digest, and the archived survivor surface identity and hash, so the rendered page can be
+checked against the same evidence and image authority used during editorial admission.
 
 ## Also useful: local content drafts
 

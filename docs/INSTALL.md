@@ -41,6 +41,10 @@ The checked-in daily-blog routes invoke `hermes chat`; a live publication also n
 the configured GitHub credential source and the local publisher checkout named in
 [`settings.yaml`](../settings.yaml). Keep provider credentials out of that file.
 
+The producer and publisher must be updated together for a live run: the active handoff is
+bundle v9 and includes the survivor-scoped `publication_surface.json` authority that the
+publisher records in its publication-v6 receipt.
+
 The included systemd user unit calls `./make_blog.py --yesterday` at 04:00
 America/Chicago. Install it only on a host prepared for live publication:
 

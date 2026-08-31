@@ -8,10 +8,11 @@ import pathlib
 # local repo modules
 import daily_blog.io_utils
 import daily_blog.json_contracts
+import daily_blog.model_cache_contract
 import daily_blog.repository_contracts
 
 
-BUNDLE_SCHEMA_VERSION = "vosslab.daily-blog.bundle.v8"
+BUNDLE_SCHEMA_VERSION = "vosslab.daily-blog.bundle.v9"
 EVIDENCE_SCHEMA_VERSION = "vosslab.daily-blog.evidence.v4"
 PROJECTION_SCHEMA_VERSION = "vosslab.daily-blog.editorial-projection.v2"
 BOUNDED_EVIDENCE_CONTEXT_SCHEMA_VERSION = "vosslab.daily-blog.bounded-evidence-context.v2"
@@ -57,32 +58,22 @@ def validate_bundle_asset_path(value: object) -> str:
 
 #============================================
 def model_cache_evidence(value: object) -> object:
-	"""Project stable repository facts for model prompts and route caching.
-
-	The authoritative EvidencePacket v4 retains mirror locations and refresh
-	observations. This portable view keeps the semantic inputs that affect model
-	work so equivalent repository objects can reuse the same result.
-	"""
-	if type(value) is dict:
-		return {
-			key: model_cache_evidence(item)
-			for key, item in value.items()
-			if key not in {"cache_path", "refresh_error", "refresh_result", "refreshed_at"}
-		}
-	if type(value) is list:
-		return [model_cache_evidence(item) for item in value]
-	return value
+	"""Project stable repository facts for model prompts and route caching."""
+	return daily_blog.model_cache_contract.semantic_value(value)
 
 
 #============================================
 def model_cache_packet_content(packet: "EvidencePacket") -> dict:
-	"""Return the portable semantic projection of one authoritative packet."""
+	"""Return the prompt-relevant projection of one authoritative packet.
+
+	EvidencePacket intentionally records mirror inventory so provenance can
+	explain collection. Editorial routes instead depend on the dated evidence
+	and selected repository activity below. Keeping that distinction explicit
+	lets a fresh mirror observation reuse an equivalent model result.
+	"""
 	if type(packet) is not EvidencePacket:
 		raise RuntimeError("Model/cache evidence projection requires EvidencePacket.")
-	value = model_cache_evidence(packet.content_dict())
-	if type(value) is not dict:
-		raise RuntimeError("Model/cache evidence projection is invalid.")
-	return value
+	return daily_blog.model_cache_contract.packet_content(packet)
 
 
 #============================================

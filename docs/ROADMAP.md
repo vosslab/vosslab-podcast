@@ -14,11 +14,13 @@ to priorities, not a release schedule. The authoritative execution record is
   prose are human-owned and unchanged. The registry mechanically resolves the active contract and
   its immutable resources.
 - Publication is date-owned: `report_date` is the sole publication identity. A sealed
-  `vosslab.daily-blog.bundle.v8` carries the selected eligible artifact and its portable
+  `vosslab.daily-blog.bundle.v9` carries the selected eligible artifact and its portable
   source-safety policy identity (`publication_source_safety.v1`, 35 executable cases, SHA-256
-  `d50166736d79be7f7715cc0f7585fac71dfb2aecc1c631b10e01aeca2fb63c6b`) into the publisher, whose
-  durable publication record is `vosslab.daily-blog.publication.v5`, including the canonical
-  reader-body digest.
+  `d50166736d79be7f7715cc0f7585fac71dfb2aecc1c631b10e01aeca2fb63c6b`) into the publisher.
+  Its immutable `publication_surface.json` is the survivor-scoped authority for evidence IDs,
+  repository coverage, and image paths across generation, bundle construction, import, and
+  rendered-page validation. The publisher's durable `vosslab.daily-blog.publication.v6` receipt
+  records that surface alongside the canonical reader-body digest.
 - Five self-generated, no-egress fixture cases already prove evidence-to-page integrity across
   quiet, busy, single-repository, screenshot-bearing, and degraded-dependency conditions. The
   durable validation record preserves the evidence and temporary-harness disposition.
@@ -27,11 +29,11 @@ to priorities, not a release schedule. The authoritative execution record is
   `report_date=2026-08-28`; it is fixture-backed integrity evidence, not a live-model or
   prose-quality claim. Live model or network work remains optional corroboration.
 
-- The active v8 contract rejects unsafe reader-visible source as editorial ineligibility, carries
+- The active v9 contract rejects unsafe reader-visible source as editorial ineligibility, carries
   `publication_source_safety.v1`'s executable 35-case SHA-256
   `d50166736d79be7f7715cc0f7585fac71dfb2aecc1c631b10e01aeca2fb63c6b` for independent publisher
-  recheck, and declines stale-schema or stale-policy cache reuse. Bundle-v7 and publication-v3
-  remain explicit historical compatibility readers, never current import or reuse paths.
+  recheck, and declines stale-schema or stale-policy cache reuse. Historical records are retained
+  as evidence; current import and reuse paths require the active v9/v6 contract.
 
 ## Ongoing maintenance
 

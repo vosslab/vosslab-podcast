@@ -26,7 +26,7 @@ of an eligible artifact or an unsafe deterministic boundary is a typed pipeline 
 | [`pipeline/daily_blog/run_contracts.py`](../pipeline/daily_blog/run_contracts.py) and [`pipeline/daily_blog/run_state.py`](../pipeline/daily_blog/run_state.py) | Durable run record | Resumable bounded state, events, and terminal summaries |
 | `pipeline/daily_blog/prompt_registry/` | Prompt identity registry | Central immutable declarations and issued resource loads |
 | [`pipeline/daily_blog/publication_admission.py`](../pipeline/daily_blog/publication_admission.py) | Final-post admission | Frozen survivor evidence surface, matching projection, and confined publication assets |
-| [`pipeline/daily_blog/publication_contract.py`](../pipeline/daily_blog/publication_contract.py) and [`pipeline/daily_blog/publication_storage.py`](../pipeline/daily_blog/publication_storage.py) | Producer publication boundary | Sealed bundle-v8, source-safety identity, and descriptor-owned date storage |
+| [`pipeline/daily_blog/publication_contract.py`](../pipeline/daily_blog/publication_contract.py), `pipeline/daily_blog/publication_surface_contract.py`, and [`pipeline/daily_blog/publication_storage.py`](../pipeline/daily_blog/publication_storage.py) | Producer publication boundary | Sealed bundle-v9, portable survivor authority, source-safety identity, and descriptor-owned date storage |
 | [`pipeline/daily_blog/publisher.py`](../pipeline/daily_blog/publisher.py) and [`pipeline/daily_blog/publisher_contract.py`](../pipeline/daily_blog/publisher_contract.py) | Publisher process boundary | Exact stdin preflight/import, bounded typed subprocess protocol, committed-publication, and reader-body validation |
 
 The orchestrator is deliberately a small composition owner. Acquisition, repository editorial, and
@@ -77,8 +77,12 @@ phase caching. Independent model calls use cache identities that allow compatibl
 be reused when later peers fail. The coordinator serializes durable state and shared cache effects,
 while route execution stays bounded and parallel inside the configured limits. Validated route results
 buffered during terminal Stage-6 recovery are committed before its typed fault leaves that boundary.
-Compatibility retains repository revision and ref-fingerprint facts while excluding mirror paths,
-refresh timestamps, and refresh outcomes that do not alter the model-visible task.
+`pipeline/daily_blog/model_cache_contract.py` defines the cache identity as a semantic editorial
+request: report date, collection limits, selected
+activity, and evidence items. It omits mutable mirror inventory, including mirror locations,
+default revisions, ref fingerprints, refresh timestamps, and refresh outcomes. A selected commit,
+range, or evidence change therefore misses the cache, while an equivalent mirror observation reuses
+the completed editorial result.
 
 ## Prompt and evidence trust boundaries
 
@@ -109,21 +113,33 @@ architecture.
 
 ## Producer-publisher boundary
 
-The producer writes `vosslab.daily-blog.bundle.v8`. Its manifest binds the report date, selected
-`best_artifact_id`, generator identity, contracts, immutable maker receipt, prompt contract,
-evidence packet, roster, editorial projection, post, declared assets, source-safety policy identity,
-and bundle digest. Candidate
-and referee deliberation remain producer-owned run history and are not handoff fields.
+The producer writes `vosslab.daily-blog.bundle.v9`. Before Stage 6, one immutable
+`PublicationSurface` binds the survivor packets, promoted daily outline and repository stories,
+bounded evidence context, repository scope, aggregate packet, editorial projection, allowed evidence
+IDs, and allowed screenshots. Stage 6 prompt rendering, whole-post admission, Stage 7 synthesis, and
+Stage 8 validation all use that same surface. `Stage6Input` carries execution paths and recovery
+catalogue alongside the surface; it does not own a competing copy of editorial authority.
+
+`pipeline/daily_blog/publication_surface_contract.py` serializes that authority as canonical
+`publication_surface.json`. Its surface ID binds the report
+date and timezone, aggregate and source packet identities, survivor repositories and source
+artifacts, projection, allowed evidence IDs, and one-to-one screenshot evidence, asset, and publish
+paths. Bundle v9 binds that portable surface alongside the report date, selected `best_artifact_id`,
+generator identity, contracts, immutable maker receipt, prompt contract, evidence packet, roster,
+editorial projection, post, declared assets, source-safety policy identity, and bundle digest.
+Candidate and referee deliberation remain producer-owned run history and are not handoff fields.
 
 `publication_storage.py` reads and writes bundle artifacts through held no-follow descriptors,
 enforces bounded regular-file envelopes, and atomically promotes one date-local bundle. The producer
 first sends that exact sealed byte snapshot to the sibling's no-write validation endpoint. A valid
 `vosslab.daily-blog.import-validation.v1` receipt binds the report date, bundle digest, and selected
 artifact before the producer invokes the importing standard-input endpoint; neither endpoint can
-reopen a producer path. The sibling independently validates the declared archive, date-keyed
-`publication-v5` record, and installed post as one committed publication. Its `import-receipt.v2`
-includes the canonical reader-body digest, and finalization verifies the whole ordered body in the
-rendered Material article rather than title/date chrome alone.
+reopen a producer path. The sibling validates the portable surface before it admits post evidence or
+images, requires the asset manifest and staged assets to equal that surface's allowed screenshot set,
+and validates the declared archive and date-keyed `publication-v6` record as one committed
+publication. Its `import-receipt.v2` includes the canonical reader-body digest. Finalization then
+verifies the whole ordered body and the article-local image sources against the installed portable
+surface, rather than relying on title/date chrome or aggregate evidence screenshots.
 
 The subprocess boundary accepts only bounded canonical JSON results. Publisher failures use the
 text-free `vosslab.daily-blog.import-failure.v1` envelope with one allowlisted category

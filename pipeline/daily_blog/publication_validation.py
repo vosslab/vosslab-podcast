@@ -212,7 +212,7 @@ def validate_and_repair_complete_post(
 	packets: collections.abc.Sequence[daily_blog.schema.EvidencePacket],
 	approved_output_root: str,
 	generator_run: str,
-	surface: daily_blog.publication_admission.PublicationSurface | None = None,
+	surface: daily_blog.publication_admission.PublicationSurface,
 ) -> PublicationValidationResult:
 	"""Return one eligible post with canonical publisher metadata.
 
@@ -242,14 +242,17 @@ def validate_and_repair_complete_post(
 			"Publication validation rejected complete post: "
 			+ ", ".join(source_eligibility.reasons)
 		)
-	if surface is not None and (
+	# ASVS 2.2.3 and 2.3.1: Stage 8 receives the same authority that supplied
+	# editorial context; a packet-only validation path cannot bypass it.
+	if (
 		type(surface) is not daily_blog.publication_admission.PublicationSurface
 		or surface.source_packets != tuple(sorted(packets, key=lambda item: item.packet_id))
 	):
 		raise RuntimeError("Publication validation surface does not match the exact packet union.")
-	if surface is not None and daily_blog.publication_admission.complete_post_policy_issues(
-		post, surface,
-	):
+	# ASVS 2.3.1: Stage 8 is a defense-in-depth admission boundary.  Earlier
+	# editorial paths retain grounded drafts for repair; only a fully reviewed,
+	# readable post may cross into the publisher-owned workflow.
+	if daily_blog.publication_admission.complete_post_policy_issues(post, surface):
 		raise RuntimeError("Publication validation rejected complete post: publication_policy_mismatch")
 	body, existing_metadata = _body_and_metadata(post.content)
 	titles = tuple(match.group("title") for match in H1_RE.finditer(body))

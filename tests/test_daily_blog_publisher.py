@@ -11,6 +11,7 @@ import pytest
 
 # local repo modules
 import daily_blog.publication_contract
+import daily_blog.publication_admission
 import daily_blog.io_utils
 import daily_blog.publisher
 import daily_blog.publisher_contract
@@ -20,6 +21,7 @@ import daily_blog.editorial
 import daily_blog.schema
 import daily_blog.projection
 import daily_blog.repository_contracts
+import daily_blog.artifacts
 
 
 REPORT_DATE = "2026-08-26"
@@ -43,7 +45,49 @@ def _write_json(path: pathlib.Path, value: dict) -> None:
 
 
 #============================================
-def _publisher_tree(tmp_path: pathlib.Path, *, include_page: bool = True) -> pathlib.Path:
+def _surface(
+	packet: daily_blog.schema.EvidencePacket,
+) -> daily_blog.publication_admission.PublicationSurface:
+	"""Build the exact survivor authority supplied to bundle creation."""
+	repository = packet.items[0].repository
+	commit = packet.items[0].commit
+	activity = daily_blog.schema.RepositoryActivity(
+		repository, f"https://github.com/{repository}", f"/fixture/{repository}", commit,
+		(daily_blog.schema.CommitActivity(
+			commit, (), "Fixture", "fixture@example.com", "2026-08-26T12:00:00-05:00",
+			"2026-08-26T12:00:00-05:00", "Fixture work",
+		),), (daily_blog.schema.RevisionRange("", commit),), (commit,), False,
+		(daily_blog.repository_contracts.RepositoryLifecycleEvent(
+			"repository_created", "2020-01-01T00:00:00Z", False, "github_owner_roster",
+		),),
+	)
+	survivor = daily_blog.schema.EvidencePacket.create(
+		packet.report_date, packet.timezone, packet.complete, packet.collection_limits.to_dict(),
+		[mirror.to_dict() for mirror in packet.mirrors], [activity], list(packet.items),
+	)
+	evidence_ids = tuple(item.evidence_id for item in survivor.items)
+	story = daily_blog.artifacts.RepoStory.create(
+		survivor.report_date, (survivor,), repository,
+		"Story <!-- evidence: " + ", ".join(evidence_ids) + " -->", evidence_ids,
+	)
+	outline = daily_blog.artifacts.DailyOutline.create(
+		survivor.report_date, (survivor,), (repository,),
+		"Outline <!-- evidence: " + ", ".join(evidence_ids) + " -->", evidence_ids,
+	)
+	limits = {"context_chars": 8000, "excerpt_chars": 1000, "commit_subject_chars": 120}
+	context = daily_blog.projection.build_bounded_evidence_context((survivor,), limits, 8000)
+	return daily_blog.publication_admission.build_surface(
+		(survivor,), (repository,), context, (outline, story),
+	)
+
+
+#============================================
+def _publisher_tree(
+	tmp_path: pathlib.Path,
+	*,
+	include_page: bool = True,
+	include_surface_image: bool = False,
+) -> pathlib.Path:
 	"""Create one coherent committed publisher tree without invoking its importer."""
 	root = tmp_path / "publisher"
 	(root / "scripts").mkdir(parents=True)
@@ -54,12 +98,20 @@ def _publisher_tree(tmp_path: pathlib.Path, *, include_page: bool = True) -> pat
 	item = daily_blog.schema.EvidenceItem.create(
 		"commit_metadata", "vosslab/project", "a" * 40, "", "", "work", "git show",
 	)
+	items = [item]
+	assets: dict[str, bytes] = {}
+	if include_surface_image:
+		screenshot = daily_blog.schema.EvidenceItem.create(
+			"screenshot", "vosslab/project", "a" * 40, "selected.png", "c" * 40,
+			"Selected screenshot.", "fixture", asset_path="assets/selected.png",
+			publish_path="../../assets/publications/2026-08-26/selected.png",
+		)
+		items.append(screenshot)
+		assets[screenshot.asset_path] = b"selected image bytes"
 	packet = daily_blog.schema.EvidencePacket.create(
-		REPORT_DATE, "America/Chicago", True, {}, [], [], [item],
+		REPORT_DATE, "America/Chicago", True, {}, [], [], items,
 	)
-	projection = daily_blog.projection.build_projection(packet, {
-		"context_chars": 8000, "excerpt_chars": 1000, "commit_subject_chars": 120,
-	})
+	surface = _surface(packet)
 	roster = daily_blog.repository_contracts.RepositoryRoster.create("vosslab", [
 		daily_blog.repository_contracts.RepositoryRecord.from_dict({
 			"repository": "vosslab/project", "repository_url": "https://github.com/vosslab/project",
@@ -104,14 +156,14 @@ def _publisher_tree(tmp_path: pathlib.Path, *, include_page: bool = True) -> pat
 	producer_root.mkdir(exist_ok=True)
 	bundle_path, bundle, _transfer_value = daily_blog.publication_contract.BundleWriter(
 		str(producer_root), "vosslab", identity,
-	).write("run-one", packet, projection, {}, roster, selected)
+	).write("run-one", surface, assets, roster, selected)
 	archive.parent.mkdir(parents=True)
 	shutil.copytree(bundle_path, archive)
 	article_projection = daily_blog.publication_article_projection.source_article_projection(
 		post, (root / "mkdocs.yml").read_text(encoding="utf-8"),
 	)
 	_write_json(root / "data" / "publications" / f"{REPORT_DATE}.json", {
-		"schema_version": "vosslab.daily-blog.publication.v5",
+		"schema_version": "vosslab.daily-blog.publication.v6",
 		"report_date": REPORT_DATE,
 		"bundle_sha256": bundle["bundle_sha256"],
 		"article_body_sha256": daily_blog.publication_article_projection.article_body_sha256(article_projection),
@@ -124,6 +176,11 @@ def _publisher_tree(tmp_path: pathlib.Path, *, include_page: bool = True) -> pat
 		"generator_run": "run-one",
 		"imported_at": "2026-08-26T00:00:00Z",
 		"post_path": f"docs/blog/posts/{REPORT_DATE}.md",
+		"publication_surface_id": bundle["publication_surface"]["surface_id"],
+		"publication_surface_manifest": (
+			f"data/publication_bundles/{REPORT_DATE}/publication_surface.json"
+		),
+		"publication_surface_sha256": bundle["publication_surface"]["sha256"],
 		"timezone": "America/Chicago",
 	})
 	if include_page:
@@ -161,6 +218,7 @@ def _transfer(root: pathlib.Path) -> daily_blog.publication_contract.SealedBundl
 		"evidence.json": (archive / "evidence.json").read_bytes(),
 		"repository_roster.json": (archive / "repository_roster.json").read_bytes(),
 		"editorial_projection.json": (archive / "editorial_projection.json").read_bytes(),
+		"publication_surface.json": (archive / "publication_surface.json").read_bytes(),
 		"post.md": (archive / "post.md").read_bytes(),
 	}
 	transfer = daily_blog.publication_contract.sealed_bundle_transfer(bundle, artifacts)
@@ -409,6 +467,47 @@ def test_verify_published_page_binds_committed_content_and_page(
 
 
 #============================================
+def test_verify_published_page_accepts_a_surface_selected_article_image(
+	tmp_path: pathlib.Path,
+) -> None:
+	"""A deep MkDocs-relative image remains valid when the sealed surface selected it."""
+	root = _publisher_tree(tmp_path, include_surface_image=True)
+	page = root / "generated" / "releases" / REPORT_DATE / "blog" / "2026" / "08" / "26" / "durable-boundaries" / "index.html"
+	page.write_text(
+		"<html><main><time datetime='2026-08-26T00:00:00Z'>August 26, 2026</time>"
+		"<article class='md-content__inner md-typeset'><h1>Durable Boundaries</h1>"
+		"<p>A grounded maker note.</p>"
+		"<img src='../../../../../assets/publications/2026-08-26/selected.png' alt='Selected'>"
+		"</article></main></html>",
+		encoding="utf-8",
+	)
+
+	result = daily_blog.publisher.verify_published_page(str(root), _receipt(root))
+
+	assert result["report_date"] == REPORT_DATE
+
+
+#============================================
+def test_verify_published_page_rejects_an_unselected_article_image(
+	tmp_path: pathlib.Path,
+) -> None:
+	"""An aggregate-only image cannot enter the rendered article without surface authority."""
+	root = _publisher_tree(tmp_path, include_surface_image=True)
+	page = root / "generated" / "releases" / REPORT_DATE / "blog" / "2026" / "08" / "26" / "durable-boundaries" / "index.html"
+	page.write_text(
+		"<html><main><time datetime='2026-08-26T00:00:00Z'>August 26, 2026</time>"
+		"<article class='md-content__inner md-typeset'><h1>Durable Boundaries</h1>"
+		"<p>A grounded maker note.</p>"
+		"<img src='../../../../../assets/publications/2026-08-26/unselected.png' alt='Unselected'>"
+		"</article></main></html>",
+		encoding="utf-8",
+	)
+
+	with pytest.raises(RuntimeError, match="image is outside the publication surface"):
+		daily_blog.publisher.verify_published_page(str(root), _receipt(root))
+
+
+#============================================
 def test_publication_archive_reader_reads_fixed_direct_artifacts(
 	tmp_path: pathlib.Path,
 ) -> None:
@@ -458,7 +557,7 @@ def test_publication_archive_reader_rejects_a_nonregular_bundle(
 def test_committed_publication_rejects_undeclared_archive_provenance(
 	tmp_path: pathlib.Path, path: str,
 ) -> None:
-	"""A v8 archive contains exactly its sealed manifests and declared assets."""
+	"""A v9 archive contains exactly its sealed manifests and declared assets."""
 	root = _publisher_tree(tmp_path)
 	archive = root / "data" / "publication_bundles" / REPORT_DATE
 	target = archive / path
@@ -646,18 +745,22 @@ def test_committed_receipt_rejects_a_self_reported_bundle_digest(
 
 
 #============================================
-@pytest.mark.parametrize("mutation", ["missing", "mismatch"])
-def test_committed_receipt_requires_the_v5_record_artifact_binding(
+@pytest.mark.parametrize("mutation", ["missing", "mismatch", "surface_id", "surface_checksum"])
+def test_committed_receipt_requires_the_v6_record_artifact_binding(
 	tmp_path: pathlib.Path, mutation: str,
 ) -> None:
-	"""The publisher record and sealed bundle must name the same selected artifact."""
+	"""The publisher record binds both selected work and its survivor surface."""
 	root = _publisher_tree(tmp_path)
 	record_path = root / "data" / "publications" / f"{REPORT_DATE}.json"
 	record = json.loads(record_path.read_text(encoding="utf-8"))
 	if mutation == "missing":
 		del record["best_artifact_id"]
-	else:
+	elif mutation == "mismatch":
 		record["best_artifact_id"] = "artifact-ffffffffffffffffffffffff"
+	elif mutation == "surface_id":
+		record["publication_surface_id"] = "f" * 64
+	else:
+		record["publication_surface_sha256"] = "F" * 64
 	record_path.write_text(json.dumps(record, sort_keys=True), encoding="utf-8")
 
 	with pytest.raises(RuntimeError, match="publication record"):

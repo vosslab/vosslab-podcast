@@ -109,7 +109,7 @@ def _source(tmp_path: pathlib.Path) -> tuple[
 	outline = daily_blog.artifacts.DailyOutline.create(packet.report_date, (packet,), ("owner/repository",),
 		"Outline <!-- evidence: " + item.evidence_id + " -->", (item.evidence_id,))
 	value = daily_blog.stage6.Stage6Input(
-		outline, (story,), str(tmp_path), output_path,
+		str(tmp_path), output_path,
 		_recovery_sources(story, packet), daily_blog.stage6.build_stage6_publication_surface(
 			outline, (story,), (packet,), _CONTEXT_LIMITS,
 		),

@@ -12,6 +12,28 @@ import daily_blog.schema
 
 #============================================
 @dataclasses.dataclass(frozen=True)
+class PublicationImage:
+	"""One exact screenshot authority admitted with a publication surface."""
+
+	evidence_id: str
+	asset_path: str
+	publish_path: str
+
+	#============================================
+	def __post_init__(self) -> None:
+		"""Keep the surface image authority typed and path-confined."""
+		if (
+			type(self.evidence_id) is not str or not self.evidence_id
+			or type(self.asset_path) is not str or not self.asset_path
+			or type(self.publish_path) is not str or not self.publish_path
+		):
+			raise RuntimeError("Publication image authority is invalid.")
+		# ASVS 5.3.2: asset paths cross a repository-to-publication file boundary.
+		daily_blog.schema.validate_bundle_asset_path(self.asset_path)
+
+
+#============================================
+@dataclasses.dataclass(frozen=True)
 class PublicationSurface:
 	"""Exact editorial survivors and the material allowed into publication."""
 
@@ -19,10 +41,18 @@ class PublicationSurface:
 	evidence_context: daily_blog.schema.BoundedEvidenceContext
 	repositories: tuple[str, ...]
 	source_artifacts: tuple[daily_blog.artifacts.EditorialArtifact, ...]
+	daily_outline: daily_blog.artifacts.DailyOutline = dataclasses.field(init=False)
+	repo_stories: tuple[daily_blog.artifacts.RepoStory, ...] = dataclasses.field(init=False)
 	packet: daily_blog.schema.EvidencePacket = dataclasses.field(init=False)
 	projection: daily_blog.schema.EditorialProjection = dataclasses.field(init=False)
 	allowed_evidence_ids: tuple[str, ...] = dataclasses.field(init=False)
-	allowed_image_paths: tuple[str, ...] = dataclasses.field(init=False)
+	allowed_images: tuple[PublicationImage, ...] = dataclasses.field(init=False)
+
+	#============================================
+	@property
+	def allowed_image_paths(self) -> tuple[str, ...]:
+		"""Return the legacy post-body view derived from typed image authority."""
+		return tuple(image.publish_path for image in self.allowed_images)
 
 	#============================================
 	def __post_init__(self) -> None:
@@ -114,24 +144,34 @@ class PublicationSurface:
 		projection.render_context()
 		if {item.evidence_id for item in projection.excerpts} != allowed_ids:
 			raise RuntimeError("Publication surface projection does not cover its allowed evidence.")
+		all_screenshot_images = _packet_screenshot_images(packet)
 		artifact_images = {
 			path for artifact in self.source_artifacts for path in artifact.image_paths
 		}
 		context_images = {
-			item.publish_path for item in packet.items
-			if item.kind == "screenshot" and item.evidence_id in allowed_ids and item.publish_path
+			image.publish_path for image in all_screenshot_images
+			if image.evidence_id in allowed_ids
 		}
-		allowed_images = artifact_images | context_images
-		packet_images = {
-			item.publish_path for item in packet.items
-			if item.kind == "screenshot" and item.publish_path
+		allowed_image_paths = artifact_images | context_images
+		images_by_publish_path = {
+			image.publish_path: image for image in all_screenshot_images
 		}
-		if not allowed_images.issubset(packet_images):
+		if not allowed_image_paths.issubset(images_by_publish_path):
 			raise RuntimeError("Publication surface exposes an unapproved survivor image.")
+		allowed_images = tuple(sorted(
+			(images_by_publish_path[path] for path in allowed_image_paths),
+			key=lambda image: (image.evidence_id, image.asset_path, image.publish_path),
+		))
+		# ASVS 2.2.3: later editorial stages read the cross-validated artifacts
+		# from this authority instead of accepting a parallel outline/story copy.
+		object.__setattr__(self, "daily_outline", outline[0])
+		object.__setattr__(self, "repo_stories", tuple(sorted(
+			stories, key=lambda item: item.artifact_id,
+		)))
 		object.__setattr__(self, "packet", packet)
 		object.__setattr__(self, "projection", projection)
 		object.__setattr__(self, "allowed_evidence_ids", tuple(sorted(allowed_ids)))
-		object.__setattr__(self, "allowed_image_paths", tuple(sorted(allowed_images)))
+		object.__setattr__(self, "allowed_images", allowed_images)
 
 #============================================
 def build_surface(
@@ -191,19 +231,43 @@ def _aggregate_packet(
 
 
 #============================================
+def _packet_screenshot_images(
+	packet: daily_blog.schema.EvidencePacket,
+) -> tuple[PublicationImage, ...]:
+	"""Return a packet's one-to-one screenshot identity triples.
+
+	ASVS 2.2.3: reject ambiguous evidence-to-file mappings before a model can
+	observe the surface, so writer, bundle, and publisher all inherit one mapping.
+	"""
+	images = []
+	seen_evidence_ids: set[str] = set()
+	seen_assets: set[str] = set()
+	seen_publish_paths: set[str] = set()
+	for item in packet.items:
+		if item.kind != "screenshot":
+			continue
+		image = PublicationImage(item.evidence_id, item.asset_path, item.publish_path)
+		if (
+			image.evidence_id in seen_evidence_ids
+			or image.asset_path in seen_assets
+			or image.publish_path in seen_publish_paths
+		):
+			raise RuntimeError("Publication surface screenshot paths must be one-to-one.")
+		seen_evidence_ids.add(image.evidence_id)
+		seen_assets.add(image.asset_path)
+		seen_publish_paths.add(image.publish_path)
+		images.append(image)
+	return tuple(sorted(images, key=lambda image: (
+		image.evidence_id, image.asset_path, image.publish_path,
+	)))
+
+
+#============================================
 def survivor_assets(surface: PublicationSurface, assets: dict[str, bytes]) -> dict[str, bytes]:
 	"""Return only survivor screenshot bytes admitted by the sealed surface."""
 	if type(surface) is not PublicationSurface or type(assets) is not dict:
 		raise RuntimeError("Publication surface assets require exact typed inputs.")
-	required = {
-		item.asset_path for item in surface.packet.items
-		if (
-			item.kind == "screenshot"
-			and item.publish_path in surface.allowed_image_paths
-			and type(item.asset_path) is str
-			and item.asset_path
-		)
-	}
+	required = {image.asset_path for image in surface.allowed_images}
 	if any(path not in assets or type(assets[path]) is not bytes for path in required):
 		raise RuntimeError("Publication surface is missing a survivor screenshot asset.")
 	return {path: assets[path] for path in sorted(required)}

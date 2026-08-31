@@ -11,6 +11,8 @@ import daily_blog.artifacts
 import daily_blog.io_utils
 import daily_blog.locks
 import daily_blog.publication_contract
+import daily_blog.publication_admission
+import daily_blog.publication_surface_contract
 import daily_blog.publisher
 import daily_blog.publisher_contract
 import daily_blog.repository_contracts
@@ -32,8 +34,7 @@ class SealedPublicationInput:
 	generator_identity: daily_blog.publication_contract.PublicationIdentity
 	force_regeneration: bool
 	roster: daily_blog.repository_contracts.RepositoryRoster
-	packet: daily_blog.schema.EvidencePacket
-	projection: daily_blog.schema.EditorialProjection
+	publication_surface: daily_blog.publication_admission.PublicationSurface
 	assets: dict[str, bytes]
 	selected_post: daily_blog.artifacts.CompletePost
 
@@ -58,13 +59,15 @@ class SealedPublicationInput:
 			or type(self.force_regeneration) is not bool
 			or type(self.generator_identity) is not daily_blog.publication_contract.PublicationIdentity
 			or type(self.roster) is not daily_blog.repository_contracts.RepositoryRoster
-			or type(self.packet) is not daily_blog.schema.EvidencePacket
-			or type(self.projection) is not daily_blog.schema.EditorialProjection
+			or type(self.publication_surface) is not daily_blog.publication_admission.PublicationSurface
 			or type(self.assets) is not dict
 			or type(self.selected_post) is not daily_blog.artifacts.CompletePost
 		):
 			raise RuntimeError("Publication finalization input is invalid.")
-		if self.packet.report_date != self.report_date or self.selected_post.report_date != self.report_date:
+		if (
+			self.publication_surface.packet.report_date != self.report_date
+			or self.selected_post.report_date != self.report_date
+		):
 			raise RuntimeError("Publication finalization input report date is inconsistent.")
 		if any(type(path) is not str or type(contents) is not bytes for path, contents in self.assets.items()):
 			raise RuntimeError("Publication finalization assets are invalid.")
@@ -165,10 +168,15 @@ class PublicationFinalizationCoordinator:
 	def create_or_reuse_bundle(self) -> tuple[str, dict, daily_blog.publication_contract.SealedBundleTransfer, bool]:
 		"""Create or verify one descriptor-pinned reusable bundle."""
 		value = self.value
+		surface = value.publication_surface
+		packet = surface.packet
+		projection = surface.projection
+		surface_value = daily_blog.publication_surface_contract.publication_surface_value(surface)
 		phase_input = {
 			"repository_roster": value.roster.to_dict(),
-			"packet_id": value.packet.packet_id,
-			"projection_id": value.projection.projection_id,
+			"packet_id": packet.packet_id,
+			"projection_id": projection.projection_id,
+			"publication_surface_id": surface_value["surface_id"],
 			"best_artifact_id": value.selected_post.artifact_id,
 			"post_content_hash": value.selected_post.content_hash,
 			"asset_hashes": {
@@ -187,7 +195,7 @@ class PublicationFinalizationCoordinator:
 				value.output_root, value.output_owner, value.generator_identity,
 			)
 			bundle_path, bundle, transfer = writer.write(
-				value.run_id, value.packet, value.projection, value.assets, value.roster,
+				value.run_id, surface, value.assets, value.roster,
 				value.selected_post,
 			)
 			self.cache.store_json("bundle_creation", input_hash, "bundle.json", {
@@ -198,7 +206,7 @@ class PublicationFinalizationCoordinator:
 				value.output_root, value.output_owner, "daily_blog", value.report_date,
 			)
 			bundle_path, bundle, transfer = daily_blog.publication_contract.load_reusable_bundle(
-				dict(cached), date_root, value.packet, value.projection, value.assets,
+				dict(cached), date_root, surface, value.assets,
 				value.generator_identity, value.roster,
 			)
 		if bundle.get("best_artifact_id") != value.selected_post.artifact_id:

@@ -58,9 +58,11 @@ failures, uses bounded review and verdict repair, and promotes an eligible whole
 mechanically joins prose. Stage 7 preserves the already-grounded Stage-6 incumbent unless an
 eligible synthesis wins its direct comparison.
 
-Stage 6 is a bounded editorial subflow: replicated authors create whole-post candidates; eligible
-grounded work survives partial route loss; editors return bounded feedback for those candidates; and
-promotion selects only an eligible whole post. If its normal author/editor path exhausts, its two
+Stage 6 is a bounded editorial subflow: it freezes one survivor-scoped `PublicationSurface`, then
+uses that same authority for writer and editor context, evidence citations, repository coverage,
+screenshots, and final admission. Replicated authors create whole-post candidates; eligible grounded
+work survives partial route loss; editors return bounded feedback for those candidates; and promotion
+selects only an eligible whole post. If its normal author/editor path exhausts, its two
 recovery rungs request a whole post from the retained daily outline and then from retained repository
 stories. The retained strongest story remains provenance only and is never assembled into a post.
 
@@ -115,10 +117,11 @@ transition in an existing run once, but it does not make that run the retry targ
 
 Hash-verified phase-cache entries reuse matching activity, evidence, projections, and successful
 route results. Failed route calls remain retryable, and compatible ordinal calls can be reused when
-the configured replication count changes. Equivalent repository objects keep the same model/cache
-identity across mirror locations and refresh observations; revision and ref-fingerprint changes still
-invalidate that identity. Cache reuse saves work; it cannot relax evidence, eligibility, identity, or
-publication validation.
+the configured replication count changes. Model-cache identity describes the semantic editorial
+request: selected commits, activity, evidence, prompts, and editorial inputs. Mirror locations,
+default-branch observations, and ref fingerprints do not invalidate matching work by themselves.
+Changed selected evidence or commits does invalidate it. Cache reuse saves work; it cannot relax
+evidence, eligibility, identity, or publication validation.
 
 Complete-post candidates reused from cache are admitted again against the current frozen
 `PublicationSurface` and final-post policy. A cached candidate that no longer meets that admission is
@@ -136,11 +139,15 @@ The producer writes one selected-post handoff at:
 out/<owner>/daily_blog/YYYY-MM-DD/publication/
 ```
 
-Its manifest is `vosslab.daily-blog.bundle.v8`. It binds the report date, selected
-`best_artifact_id`, evidence packet, repository roster, editorial projection, declared assets,
-activation and prompt-contract identities, generator revision, source-safety policy identity, and
-hashes. Candidate and referee
-topology remains producer-side diagnostic state; it is not publisher input.
+Its manifest is `vosslab.daily-blog.bundle.v9`. It binds the report date, selected
+`best_artifact_id`, evidence packet, repository roster, editorial projection, immutable
+`publication_surface.json`, declared assets, activation and prompt-contract identities, generator
+revision, source-safety policy identity, and hashes. The surface records the exact survivor set:
+aggregate and source packet identities, repositories, source-artifact attestations, projected
+evidence IDs, and the one-to-one evidence ID, asset path, and published image-path entries. Bundle
+assets exactly equal those selected image entries; screenshots that remain in aggregate evidence but
+are outside the surface are not transferred or published. Candidate and referee topology remains
+producer-side diagnostic state; it is not publisher input.
 
 The producer sends that validated snapshot through one bounded hash-bound standard-input envelope;
 the publisher never reopens a producer bundle path. It first invokes the publisher's no-write
@@ -149,24 +156,24 @@ the publisher never reopens a producer bundle path. It first invokes the publish
 That preflight validates the same semantic contract but creates no publisher record, archive, post,
 release, or `site` change. The importing endpoint then revalidates and accepts only the bounded,
 manifest-declared snapshot through held descriptors. It rejects symlinks, nonregular or undeclared
-artifacts, missing artifacts, identity mismatch, and digest mismatch. Its per-date
-`vosslab.daily-blog.publication.v5` record binds the bundle, selected artifact, installed post,
-archive, release, and canonical `article_body_sha256` to the same report date. The producer returns
+artifacts, missing artifacts, identity mismatch, digest mismatch, and any asset or image reference
+outside `publication_surface.json`. Its per-date `vosslab.daily-blog.publication.v6` record binds
+the bundle, selected artifact, installed post, archive, release, canonical `article_body_sha256`, and
+the surface manifest, hash, and identity to the same report date. The producer returns
 `vosslab.daily-blog.import-receipt.v2` only after shared committed-publication validation confirms
-the archive, record, and installed post together. Separate page verification requires the complete
-ordered reader body in the dated article surface, while allowing normal site chrome.
+the archive, v6 record, surface, and installed post together. Separate page verification requires the
+complete ordered reader body in the dated article surface and checks that each article image is one
+of the surface's published image paths, while allowing normal site chrome.
 
 The source-safety identity records the version and digest of the policy applied to the selected
 Markdown. The active `publication_source_safety.v1` policy has an executable 35-case corpus and
-SHA-256 `d50166736d79be7f7715cc0f7585fac71dfb2aecc1c631b10e01aeca2fb63c6b`. It admits only sealed
-screenshot paths and GitHub HTTPS links as reader-visible targets; raw HTML and ambiguous,
+SHA-256 `d50166736d79be7f7715cc0f7585fac71dfb2aecc1c631b10e01aeca2fb63c6b`. It admits only the sealed
+surface screenshot paths and GitHub HTTPS links as reader-visible targets; raw HTML and ambiguous,
 disguised, or otherwise unapproved active markup make a candidate editorially ineligible. The
-publisher independently rechecks the same policy at import. A cached bundle is reused only when
-its current v8 schema, safety identity, and sealed artifacts validate; otherwise the producer
-rebuilds it. Exact legacy `publication.v3` records remain read-only support for inspecting or
-replacing the retained 2026-08-26 historical date, never a new-import format. The producer and
-publisher remove that finite compatibility reader once the date is republished with v8/v5 or explicitly
-migrated.
+publisher independently rechecks the same policy and surface scope at import. A cached bundle is
+reused only when its current v9 schema, surface identity, safety identity, and sealed artifacts
+validate; otherwise the producer rebuilds it. Earlier publication receipts are retained only for
+read-only historical inspection; new imports use v9 bundles and v6 records.
 
 The importer reports actual prior-state results under its date lock:
 

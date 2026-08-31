@@ -154,8 +154,6 @@ class Stage6RecoverySources:
 class Stage6Input:
 	"""The provenance-checked input boundary for complete-post work."""
 
-	daily_outline: daily_blog.artifacts.DailyOutline
-	repo_stories: tuple[daily_blog.artifacts.RepoStory, ...]
 	output_root: str
 	output_path: str
 	recovery_sources: Stage6RecoverySources
@@ -163,15 +161,6 @@ class Stage6Input:
 
 	def __post_init__(self) -> None:
 		"""Fail closed before a prompt can observe ungrounded editorial state."""
-		if type(self.daily_outline) is not daily_blog.artifacts.DailyOutline:
-			raise RuntimeError("Stage 6 requires an exact DailyOutline.")
-		if type(self.repo_stories) is not tuple or not self.repo_stories:
-			raise RuntimeError("Stage 6 requires a nonempty promoted RepoStory tuple.")
-		if any(type(item) is not daily_blog.artifacts.RepoStory for item in self.repo_stories):
-			raise RuntimeError("Stage 6 requires exact RepoStory values.")
-		story_ids = tuple(item.artifact_id for item in self.repo_stories)
-		if story_ids != tuple(sorted(story_ids)) or len(set(story_ids)) != len(story_ids):
-			raise RuntimeError("Stage 6 RepoStory values must be identity-sorted and unique.")
 		if type(self.output_root) is not str or not os.path.isabs(self.output_root):
 			raise RuntimeError("Stage 6 requires one trusted absolute output root.")
 		if type(self.output_path) is not str or not os.path.isabs(self.output_path):
@@ -180,12 +169,6 @@ class Stage6Input:
 			raise RuntimeError("Stage 6 requires exact recovery sources.")
 		if type(self.publication_surface) is not daily_blog.publication_admission.PublicationSurface:
 			raise RuntimeError("Stage 6 requires one exact publication surface.")
-		expected_artifacts = tuple(sorted(
-			(self.daily_outline,) + self.repo_stories,
-			key=lambda item: item.artifact_id,
-		))
-		if self.publication_surface.source_artifacts != expected_artifacts:
-			raise RuntimeError("Stage 6 publication surface does not bind its editorial sources.")
 		if not os.path.isdir(os.path.realpath(self.output_root)):
 			raise RuntimeError("Stage 6 trusted output root must exist.")
 		self._validate_grounding()
@@ -199,6 +182,16 @@ class Stage6Input:
 	def report_date(self) -> str:
 		"""Expose the sole publication identity required by the frozen V4 prompt."""
 		return self.daily_outline.report_date
+
+	@property
+	def daily_outline(self) -> daily_blog.artifacts.DailyOutline:
+		"""Return the only promoted outline, owned by the publication surface."""
+		return self.publication_surface.daily_outline
+
+	@property
+	def repo_stories(self) -> tuple[daily_blog.artifacts.RepoStory, ...]:
+		"""Return the only survivor stories, owned by the publication surface."""
+		return self.publication_surface.repo_stories
 
 	@property
 	def packets(self) -> tuple[daily_blog.schema.EvidencePacket, ...]:
@@ -217,20 +210,13 @@ class Stage6Input:
 
 	def _validate_grounding(self) -> None:
 		"""Require artifact, packet, repository, and date consistency at the seam."""
-		if not daily_blog.artifacts.evaluate_eligibility(
-			self.daily_outline, self.packets,
-			allowed_repositories=self.daily_outline.repositories,
-		).eligible:
-			raise RuntimeError("Stage 6 DailyOutline is not mechanically eligible.")
+		# ASVS 2.2.3 and 2.3.1: the surface has already bound the editorial
+		# artifacts, evidence union, and repository scope.  Only the recovery
+		# catalog may add facts here, and it must contain the selected sources.
 		if any(item.report_date != self.report_date for item in self.packets):
 			raise RuntimeError("Stage 6 packets must share the DailyOutline report date.")
 		repositories: set[str] = set()
 		for story in self.repo_stories:
-			if not daily_blog.artifacts.evaluate_eligibility(
-				story, self.packets,
-				allowed_repositories=self.daily_outline.repositories,
-			).eligible:
-				raise RuntimeError("Stage 6 RepoStory is not mechanically eligible.")
 			if story.report_date != self.report_date:
 				raise RuntimeError("Stage 6 RepoStory report date does not match DailyOutline.")
 			repositories.update(story.repositories)
@@ -335,23 +321,14 @@ class CompletePostRecoveryInput:
 	@property
 	def repositories(self) -> tuple[str, ...]:
 		"""Return the exact target scope for the requested recovery editorial path."""
-		if self.rung is daily_blog.recovery.RecoveryRung.DAILY_OUTLINE_EXPANSION:
-			return self.stage6_input.daily_outline.repositories
-		return tuple(
-			item.repositories[0]
-			for item in self.stage6_input.recovery_sources.repo_stories
-			if item.repositories[0] in self.stage6_input.daily_outline.repositories
-		)
+		return self.stage6_input.publication_surface.repositories
 
 	@property
 	def source_artifacts(self) -> tuple[daily_blog.artifacts.DailyOutline | daily_blog.artifacts.RepoStory, ...]:
 		"""Return the immutable source artifacts without composing their prose."""
 		if self.rung is daily_blog.recovery.RecoveryRung.DAILY_OUTLINE_EXPANSION:
-			return (self.stage6_input.daily_outline,)
-		return tuple(
-			item for item in self.stage6_input.recovery_sources.repo_stories
-			if item.repositories[0] in self.stage6_input.daily_outline.repositories
-		)
+			return (self.stage6_input.publication_surface.daily_outline,)
+		return self.stage6_input.publication_surface.repo_stories
 
 	@property
 	def strongest_story_within_scope(self) -> daily_blog.artifacts.RepoStory:
@@ -367,7 +344,7 @@ class CompletePostRecoveryInput:
 		if not stories:
 			stories = tuple(
 				item for item in self.stage6_input.recovery_sources.repo_stories
-				if item.repositories[0] in self.repositories
+				if item.repositories[0] in self.stage6_input.publication_surface.repositories
 			)
 		scores = dict(self.stage6_input.recovery_sources.promoted_ranking.scores)
 		best_score = max(scores[item.content_hash] for item in stories)

@@ -9,9 +9,11 @@ import html.parser
 import json
 import os
 import pathlib
+import posixpath
 import re
 import stat
 import subprocess
+import urllib.parse
 import zoneinfo
 from collections.abc import Iterator
 
@@ -22,14 +24,16 @@ import daily_blog.io_utils
 import daily_blog.publication_article_projection
 import daily_blog.repository_contracts
 import daily_blog.schema
+import daily_blog.publication_surface_contract
 
 
 IMPORT_RECEIPT_SCHEMA_VERSION = "vosslab.daily-blog.import-receipt.v2"
-PUBLISHER_PUBLICATION_RECORD_SCHEMA_VERSION = "vosslab.daily-blog.publication.v5"
+PUBLISHER_PUBLICATION_RECORD_SCHEMA_VERSION = "vosslab.daily-blog.publication.v6"
 PUBLISHER_PUBLICATION_RECORD_FIELDS = frozenset({
 	"article_body_sha256", "best_artifact_id", "bundle_sha256", "editorial_projection_manifest",
 	"evidence_manifest", "generator_revision", "generator_run", "imported_at",
-	"post_path", "report_date", "schema_version", "timezone",
+	"post_path", "publication_surface_id", "publication_surface_manifest",
+	"publication_surface_sha256", "report_date", "schema_version", "timezone",
 })
 IMPORT_STATUSES = frozenset({"idempotent", "imported", "replaced"})
 IMPORT_RECEIPT_FIELDS = frozenset({
@@ -42,7 +46,7 @@ MAX_POST_BYTES = 2 * 1024 * 1024
 MAX_PAGE_BYTES = 8 * 1024 * 1024
 MAX_ASSET_BYTES = 8 * 1024 * 1024
 # The retained v3 archive stores a 304,383-byte evidence packet. This applies
-# only to read-only historical state inspection, never new v5/v8 imports.
+# only to read-only historical state inspection, never new v9 imports.
 HISTORICAL_V3_EVIDENCE_MAX_BYTES = 512 * 1024
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 SLUG_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
@@ -124,6 +128,63 @@ class _RenderedPageParser(html.parser.HTMLParser):
 		self.main_text.append(data)
 		if self.active_h1 is not None and not self.headerlink_depth:
 			self.main_h1_titles[self.active_h1].append(data)
+
+
+#============================================
+class _RenderedArticleImageParser(html.parser.HTMLParser):
+	"""Collect image sources from exactly the Material reader article surface."""
+
+	#============================================
+	def __init__(self) -> None:
+		"""Initialize article-scoped image collection with structural tracking."""
+		super().__init__(convert_charrefs=True)
+		self._candidates: list[list[str]] = []
+		self._active: list[tuple[int, list[str]]] = []
+		self._depth = 0
+
+	#============================================
+	def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+		"""Record image sources only beneath a recognized reader article."""
+		attributes = {name.lower(): value for name, value in attrs if value is not None}
+		if tag == "img":
+			source = attributes.get("src")
+			if isinstance(source, str) and source:
+				for _start_depth, images in self._active:
+					images.append(source)
+		if tag in daily_blog.publication_article_projection.VOID_TAGS:
+			return
+		self._depth += 1
+		if tag == "article" and (
+			daily_blog.publication_article_projection.ARTICLE_CLASS_TOKENS
+			<= set(attributes.get("class", "").split())
+		):
+			images: list[str] = []
+			self._candidates.append(images)
+			self._active.append((self._depth, images))
+
+	#============================================
+	def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+		"""Apply normal source collection to XML-style HTML elements."""
+		self.handle_starttag(tag, attrs)
+		if tag not in daily_blog.publication_article_projection.VOID_TAGS:
+			self.handle_endtag(tag)
+
+	#============================================
+	def handle_endtag(self, _tag: str) -> None:
+		"""Retire article collectors without allowing sibling images to leak in."""
+		if self._depth <= 0:
+			raise RuntimeError("Rendered article HTML is structurally invalid.")
+		self._active = [(depth, images) for depth, images in self._active if depth != self._depth]
+		self._depth -= 1
+
+	#============================================
+	def article_images(self) -> tuple[str, ...]:
+		"""Return sources from one complete, unambiguous reader article."""
+		if self._active or self._depth:
+			raise RuntimeError("Rendered article HTML is structurally incomplete.")
+		if len(self._candidates) != 1:
+			raise RuntimeError("rendered page does not contain one unambiguous article surface")
+		return tuple(self._candidates[0])
 
 
 #============================================
@@ -246,6 +307,7 @@ class PublicationArchiveReader:
 
 	_JSON_ARTIFACTS = frozenset({
 		"bundle.json", "evidence.json", "repository_roster.json", "editorial_projection.json",
+		"publication_surface.json",
 	})
 
 	#============================================
@@ -419,6 +481,39 @@ def _verify_rendered_article(page_text: str, title: str, report_date: str) -> No
 
 
 #============================================
+def _normalized_rendered_image_path(value: str) -> str:
+	"""Return one canonical site-root asset path from a rendered article image source."""
+	if type(value) is not str or not value:
+		raise RuntimeError("rendered article image source is invalid")
+	parsed = urllib.parse.urlsplit(value)
+	if parsed.scheme or parsed.netloc:
+		raise RuntimeError("rendered article image source is not a local publication asset")
+	path = urllib.parse.unquote(parsed.path)
+	if not path or "\x00" in path or "\\" in path:
+		raise RuntimeError("rendered article image source is invalid")
+	# ASVS 5.3.2: collapse MkDocs' deep relative links before comparing them
+	# with the sealed publication-surface allowlist at the file-serving boundary.
+	normalized = posixpath.normpath("/" + path.lstrip("/"))
+	if not normalized.startswith("/assets/"):
+		raise RuntimeError("rendered article image source is outside publication assets")
+	return normalized
+
+
+#============================================
+def _verify_rendered_article_images(page_text: str, allowed_image_paths: tuple[str, ...]) -> None:
+	"""Require every reader-visible article image to remain surface-authorized."""
+	if type(allowed_image_paths) is not tuple or any(type(path) is not str for path in allowed_image_paths):
+		raise RuntimeError("publication surface image authority is invalid")
+	allowed = {_normalized_rendered_image_path(path) for path in allowed_image_paths}
+	parser = _RenderedArticleImageParser()
+	parser.feed(page_text)
+	parser.close()
+	for source in parser.article_images():
+		if _normalized_rendered_image_path(source) not in allowed:
+			raise RuntimeError("rendered article image is outside the publication surface")
+
+
+#============================================
 def _verify_served_release(root: str, report_date: str) -> None:
 	"""Require the publisher's served pointer to select this exact physical release."""
 	release = os.path.join(root, "generated", "releases", report_date)
@@ -488,6 +583,7 @@ class CommittedPublication:
 	publication_record_bytes: bytes
 	post_bytes: bytes
 	rendered_page_path: str
+	allowed_image_paths: tuple[str, ...]
 
 
 #============================================
@@ -501,7 +597,7 @@ def _record_article_body_sha256(record: dict) -> str:
 
 #============================================
 def _validate_publication_record(record: dict, report_date: str, bundle_sha256: str) -> None:
-	"""Require every publisher v5 record field to bind the one date-owned archive."""
+	"""Require every current publisher record field to bind one date-owned archive."""
 	if record.get("schema_version") != PUBLISHER_PUBLICATION_RECORD_SCHEMA_VERSION or set(record) != PUBLISHER_PUBLICATION_RECORD_FIELDS:
 		raise RuntimeError("Publisher publication record schema is unsupported.")
 	if record.get("report_date") != report_date or record.get("bundle_sha256") != bundle_sha256:
@@ -510,9 +606,17 @@ def _validate_publication_record(record: dict, report_date: str, bundle_sha256: 
 		"evidence_manifest": f"data/publication_bundles/{report_date}/evidence.json",
 		"editorial_projection_manifest": f"data/publication_bundles/{report_date}/editorial_projection.json",
 		"post_path": f"docs/blog/posts/{report_date}.md",
+		"publication_surface_manifest": (
+			f"data/publication_bundles/{report_date}/publication_surface.json"
+		),
 	}
 	if any(record.get(field) != value for field, value in expected_paths.items()):
 		raise RuntimeError("Publisher publication record paths are inconsistent.")
+	# ASVS 1.5.2 and 2.2.1: constrain imported record identities before they
+	# participate in the archive-to-installed-publication integrity workflow.
+	for field in ("article_body_sha256", "publication_surface_id", "publication_surface_sha256"):
+		if not isinstance(record.get(field), str) or SHA256_RE.fullmatch(record[field]) is None:
+			raise RuntimeError(f"Publisher publication record {field} is invalid.")
 	if not isinstance(record.get("timezone"), str):
 		raise RuntimeError("Publisher publication record timezone is invalid.")
 	try:
@@ -536,14 +640,17 @@ def _validate_publication_record(record: dict, report_date: str, bundle_sha256: 
 
 #============================================
 def _archive_artifacts(archive: PublicationArchiveReader) -> tuple[dict, dict[str, bytes]]:
-	"""Read and validate the complete v8 archive snapshot under one descriptor."""
-	core_names = {"bundle.json", "evidence.json", "repository_roster.json", "editorial_projection.json", "post.md"}
+	"""Read and validate the complete v9 archive snapshot under one descriptor."""
+	core_names = {
+		"bundle.json", "evidence.json", "repository_roster.json", "editorial_projection.json",
+		"publication_surface.json", "post.md",
+	}
 	bundle_bytes = archive.read_json_artifact("bundle.json", "bundle manifest")
 	bundle = _json_object(bundle_bytes, "bundle manifest")
 	json_artifacts = {"bundle.json": bundle_bytes}
 	for name, label in (
 		("evidence.json", "evidence"), ("repository_roster.json", "repository roster"),
-		("editorial_projection.json", "editorial projection"),
+		("editorial_projection.json", "editorial projection"), ("publication_surface.json", "publication surface"),
 	):
 		contents = archive.read_json_artifact(name, label)
 		value = _json_object(contents, label)
@@ -606,10 +713,29 @@ def validate_committed_publication(
 		raise RuntimeError("Publisher publication record timezone is inconsistent.")
 	with open_publication_archive(root, report_date) as archive:
 		bundle, artifacts = _archive_artifacts(archive)
+	packet_value = _json_object(artifacts["evidence.json"], "archive evidence")
+	projection_value = _json_object(artifacts["editorial_projection.json"], "archive editorial projection")
+	packet = daily_blog.schema.EvidencePacket.from_dict(packet_value)
+	projection = daily_blog.schema.EditorialProjection.from_dict(projection_value)
+	surface_value = _json_object(artifacts["publication_surface.json"], "archive publication surface")
+	# ASVS 1.5.2 and 2.2.3: carry image authority only after independently
+	# revalidating the portable surface against its archived packet and projection.
+	surface = daily_blog.publication_surface_contract.validate_publication_surface_value(
+		surface_value, packet, projection,
+	)
 	if bundle.get("bundle_sha256") != bundle_sha256 or bundle.get("report_date") != report_date:
 		raise RuntimeError("Publisher archive bundle does not bind the committed record.")
 	if expected_timezone is not None and bundle.get("timezone") != expected_timezone:
 		raise RuntimeError("Publisher archive bundle timezone is inconsistent.")
+	# ASVS 2.2.3 and 2.3.1: the publisher record, sealed bundle, and archived
+	# survivor surface must identify the same presentation authority.
+	surface_manifest = bundle.get("publication_surface")
+	if not isinstance(surface_manifest, dict) or surface_manifest != {
+		"path": "publication_surface.json",
+		"surface_id": record["publication_surface_id"],
+		"sha256": record["publication_surface_sha256"],
+	}:
+		raise RuntimeError("Publisher publication record surface authority is inconsistent.")
 	if artifacts["post.md"] != post_bytes:
 		raise RuntimeError("Publisher archived post does not match the installed post.")
 	post_sha256 = daily_blog.io_utils.sha256_bytes(post_bytes)
@@ -638,6 +764,10 @@ def validate_committed_publication(
 		report_date=report_date, bundle_sha256=bundle_sha256, article_body_sha256=article_digest,
 		best_artifact_id=best_artifact_id, publication_record_bytes=record_bytes, post_bytes=post_bytes,
 		rendered_page_path=rendered_page_path,
+		allowed_image_paths=tuple(
+			image["publish_path"] for image in surface["allowed_images"]
+			if isinstance(image, dict)
+		),
 	)
 
 
@@ -765,6 +895,9 @@ def verify_published_page(daily_blog_repository: str, receipt: object) -> dict:
 	try:
 		validated = validate_import_receipt(receipt, receipt["bundle_sha256"], receipt["report_date"])
 		root = _trusted_root(daily_blog_repository)
+		publication = validate_committed_publication(
+			root, validated["report_date"], validated["bundle_sha256"],
+		)
 		record = _confined_file(root, validated["publication_record_path"], MAX_RECORD_BYTES, "publication record")
 		if daily_blog.io_utils.sha256_bytes(record) != validated["publication_record_sha256"]:
 			raise RuntimeError("publication record changed after import")
@@ -790,6 +923,7 @@ def verify_published_page(daily_blog_repository: str, receipt: object) -> dict:
 		daily_blog.publication_article_projection.verify_rendered_article(
 			page_text, expected_projection,
 		)
+		_verify_rendered_article_images(page_text, publication.allowed_image_paths)
 	except RuntimeError as error:
 		raise RuntimeError(f"page_verification: {error}") from error
 	result = dict(validated)

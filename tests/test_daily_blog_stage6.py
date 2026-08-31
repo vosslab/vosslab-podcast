@@ -101,7 +101,7 @@ def input_value(tmp_path: Path) -> daily_blog.stage6.Stage6Input:
 		"Outline <!-- evidence: " + evidence_id + " -->", (evidence_id,),
 	)
 	return daily_blog.stage6.Stage6Input(
-		outline, (story,), str(tmp_path), str(tmp_path / "2026-08-23" / "post.md"),
+		str(tmp_path), str(tmp_path / "2026-08-23" / "post.md"),
 		recovery_sources(story, source), daily_blog.stage6.build_stage6_publication_surface(
 			outline, (story,), (source,), _CONTEXT_LIMITS,
 		),
@@ -168,8 +168,7 @@ def two_repository_input(tmp_path: Path) -> tuple[daily_blog.stage6.Stage6Input,
 		stories, repo_outlines, packets, ranking, min(stories, key=lambda item: item.artifact_id).artifact_id,
 	)
 	return daily_blog.stage6.Stage6Input(
-		outline, stories, str(tmp_path),
-		str(tmp_path / first.report_date / "post.md"), recovery,
+		str(tmp_path), str(tmp_path / first.report_date / "post.md"), recovery,
 		daily_blog.stage6.build_stage6_publication_surface(
 			outline, stories, packets, _CONTEXT_LIMITS,
 		),
