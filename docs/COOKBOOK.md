@@ -38,16 +38,16 @@ quality.
 Use the repository-root command for the active date-owned publication workflow.
 
 ```bash
-./make_blog.py --yesterday
-./make_blog.py --date 2026-21-08
-./make_blog.py --date 2026-21-08 --yes
+source source_me.sh && python3 make_blog.py --yesterday
+source source_me.sh && python3 make_blog.py --date 2026-08-21
+source source_me.sh && python3 make_blog.py --date 2026-08-21 --yes
 ```
 
-`--yesterday` selects the preceding date in the configured report timezone. `--date` prefers
-`YYYY-MM-DD` and also accepts unambiguous `YYYY-DD-MM`, so the example selects `2026-08-21`.
-The command selects exactly one report date and relaunches through the repository-local Python 3.12
-environment. `report_date` is the sole publication identity. `--yesterday` and explicit `--yes`
-authorize same-date replacement; an explicit date without `--yes` asks before replacing it.
+`--yesterday` selects the preceding date in the configured report timezone. `--date` uses canonical
+`YYYY-MM-DD` and also accepts an unambiguous `YYYY-DD-MM` input. The command selects exactly one
+report date and runs through the repository-local Python 3.12 environment. `report_date` is the sole
+publication identity. `--yesterday` and explicit `--yes` authorize same-date replacement; an
+explicit date without `--yes` asks before replacing it.
 
 This normal route may refresh mirrors, invoke the configured model routes, and import the selected
 post. It is optional corroboration of the controlled no-egress path, not a completion dependency.

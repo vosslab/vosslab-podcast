@@ -12,11 +12,17 @@ import daily_blog.artifacts
 import daily_blog.io_utils
 
 
-EDITORIAL_RELIABILITY_SCHEMA_VERSION = "vosslab.daily-blog.editorial-reliability.v1"
+EDITORIAL_RELIABILITY_SCHEMA_VERSION = "vosslab.daily-blog.editorial-reliability.v2"
+LEGACY_EDITORIAL_RELIABILITY_SCHEMA_VERSION = "vosslab.daily-blog.editorial-reliability.v1"
+MAX_REJECTION_CODES = 64
+REJECTION_CODE_RE = re.compile(r"[a-z][a-z0-9_]{0,63}\Z")
 STEP_OUTCOMES = frozenset({"succeeded", "degraded"})
 REVIEW_FAILURES = frozenset({
 	"timeout", "start_failure", "process_failure", "empty_response", "invalid_verdict",
 })
+
+
+#============================================
 @dataclasses.dataclass(frozen=True)
 class StepReliability:
 	"""One factual bounded summary for a subjective editorial step."""
@@ -31,6 +37,7 @@ class StepReliability:
 	disagreements: int
 	best_artifact_id: str
 	reasons: tuple[str, ...]
+	rejection_counts: tuple[tuple[str, int], ...] = ()
 	schema_version: str = EDITORIAL_RELIABILITY_SCHEMA_VERSION
 
 	#============================================
@@ -52,7 +59,21 @@ class StepReliability:
 			raise RuntimeError("Editorial reliability reasons must be text.")
 		if tuple(sorted(set(self.reasons))) != self.reasons:
 			raise RuntimeError("Editorial reliability reasons must be sorted and unique.")
-		if self.outcome == "succeeded" and self.reasons:
+		if (
+			type(self.rejection_counts) is not tuple
+			or len(self.rejection_counts) > MAX_REJECTION_CODES
+			or tuple(sorted(self.rejection_counts)) != self.rejection_counts
+			or len({code for code, _count in self.rejection_counts}) != len(self.rejection_counts)
+			or any(
+				type(code) is not str
+				or REJECTION_CODE_RE.fullmatch(code) is None
+				or type(count) is not int
+				or not 0 < count <= self.attempted
+				for code, count in self.rejection_counts
+			)
+		):
+			raise RuntimeError("Editorial reliability rejection counts are invalid.")
+		if self.outcome == "succeeded" and (self.reasons or self.rejection_counts):
 			raise RuntimeError("Successful editorial work cannot retain degradation reasons.")
 
 	#============================================
@@ -61,19 +82,42 @@ class StepReliability:
 		self.validate()
 		value = dataclasses.asdict(self)
 		value["reasons"] = list(self.reasons)
+		value["rejection_counts"] = [
+			{"code": code, "count": count} for code, count in self.rejection_counts
+		]
 		return value
 
 	#============================================
 	@classmethod
 	def from_dict(cls, value: dict) -> "StepReliability":
-		"""Restore exact reliability state from durable JSON."""
+		"""Restore current or legacy reliability state from durable JSON."""
 		fields = {field.name for field in dataclasses.fields(cls)}
-		if type(value) is not dict or set(value) != fields or type(value["reasons"]) is not list:
+		legacy_fields = fields - {"rejection_counts"}
+		if (
+			type(value) is dict
+			and set(value) == legacy_fields
+			and value.get("schema_version") == LEGACY_EDITORIAL_RELIABILITY_SCHEMA_VERSION
+			and type(value.get("reasons")) is list
+		):
+			value = {**value, "rejection_counts": [],
+				"schema_version": EDITORIAL_RELIABILITY_SCHEMA_VERSION}
+		if (
+			type(value) is not dict
+			or set(value) != fields
+			or type(value["reasons"]) is not list
+			or type(value["rejection_counts"]) is not list
+			or any(
+				type(item) is not dict or set(item) != {"code", "count"}
+				for item in value["rejection_counts"]
+			)
+		):
 			raise RuntimeError("Editorial reliability summary uses unsupported fields.")
 		summary = cls(
 			value["step"], value["outcome"], value["attempted"], value["succeeded"],
 			value["failed"], value["reused"], value["repaired"], value["disagreements"],
-			value["best_artifact_id"], tuple(value["reasons"]), value["schema_version"],
+			value["best_artifact_id"], tuple(value["reasons"]),
+			tuple((item["code"], item["count"]) for item in value["rejection_counts"]),
+			value["schema_version"],
 		)
 		summary.validate()
 		return summary
@@ -106,6 +150,39 @@ class ReplicationResult:
 			if type(item.artifact) is self.expected_type
 			and item.eligibility is not None and item.eligibility.eligible
 		)
+
+
+#============================================
+def generation_reliability(
+	step: str,
+	result: ReplicationResult,
+	reasons: collections.abc.Iterable[str] = (),
+) -> StepReliability:
+	"""Summarize one replicated generation mechanism with bounded rejection counts."""
+	values = result.candidates
+	all_reasons = set(reasons) | {item.failure for item in values if item.failure}
+	rejection_counts: dict[str, int] = {}
+	for item in values:
+		if not item.result.ok or item.eligibility is None or item.eligibility.eligible:
+			continue
+		if not item.eligibility.reasons:
+			all_reasons.add("ineligible_generation")
+		for reason in item.eligibility.reasons:
+			all_reasons.add(reason)
+			if reason != "publication_policy_mismatch":
+				rejection_counts[reason] = rejection_counts.get(reason, 0) + 1
+	attempted = len(values)
+	succeeded = sum(
+		item.result.ok and item.eligibility is not None and item.eligibility.eligible
+		for item in values
+	)
+	reused = sum(item.result.ok and item.result.resumed for item in values)
+	outcome = "degraded" if all_reasons else "succeeded"
+	summary = StepReliability(
+		step, outcome, attempted, succeeded, attempted - succeeded, reused,
+		0, 0, "", tuple(sorted(all_reasons)), tuple(sorted(rejection_counts.items())),
+	)
+	return summary
 
 
 @dataclasses.dataclass(frozen=True)

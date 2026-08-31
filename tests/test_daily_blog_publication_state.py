@@ -676,14 +676,34 @@ def test_orchestrator_records_publisher_preflight_as_an_operational_fault(
 		"dated_changelog", "vosslab/example", "a" * 40, "docs/CHANGELOG.md", "b" * 40,
 		"Fixture work.", "fixture",
 	)
-	packet = daily_blog.schema.EvidencePacket.create(
-		"2026-08-26", "America/Chicago", True, {}, [], [], [item],
+	activity = daily_blog.schema.RepositoryActivity(
+		"vosslab/example", "https://github.com/vosslab/example", "/fixture/example",
+		"a" * 40,
+		(daily_blog.schema.CommitActivity(
+			"a" * 40, (), "Fixture", "fixture@example.com",
+			"2026-08-26T12:00:00-05:00", "2026-08-26T12:00:00-05:00", "Fixture work",
+		),),
+		(daily_blog.schema.RevisionRange("", "a" * 40),), ("a" * 40,), False,
+		(daily_blog.repository_contracts.RepositoryLifecycleEvent(
+			"repository_created", "2020-01-01T00:00:00Z", False, "github_owner_roster",
+		),),
 	)
-	projection = daily_blog.projection.build_projection(packet, {
-		"context_chars": 8000, "excerpt_chars": 1000, "commit_subject_chars": 120,
-	})
-	surface = daily_blog.publication_admission.PublicationSurface(
-		(packet,), packet, projection, ("vosslab/example",),
+	packet = daily_blog.schema.EvidencePacket.create(
+		"2026-08-26", "America/Chicago", True, {}, [], [activity], [item],
+	)
+	story = daily_blog.artifacts.RepoStory.create(
+		packet.report_date, (packet,), "vosslab/example",
+		"Grounded story. <!-- evidence: " + item.evidence_id + " -->", (item.evidence_id,),
+	)
+	outline = daily_blog.artifacts.DailyOutline.create(
+		packet.report_date, (packet,), ("vosslab/example",),
+		"Grounded outline. <!-- evidence: " + item.evidence_id + " -->", (item.evidence_id,),
+	)
+	context = daily_blog.projection.build_bounded_evidence_context(
+		(packet,), {"context_chars": 8000, "excerpt_chars": 1000, "commit_subject_chars": 120}, 8000,
+	)
+	surface = daily_blog.publication_admission.build_surface(
+		(packet,), ("vosslab/example",), context, (outline, story),
 	)
 	post = daily_blog.artifacts.CompletePost.create(
 		packet.report_date, (packet,), ("vosslab/example",),

@@ -27,6 +27,33 @@ def editorial_summary(
 
 
 #============================================
+def test_v1_reliability_summary_replays_without_synthetic_rejection_counts() -> None:
+	"""Existing resumable runs migrate to the bounded rejection-count schema."""
+	value = editorial_summary("legacy").to_dict()
+	value.pop("rejection_counts")
+	value["schema_version"] = daily_blog.replication.LEGACY_EDITORIAL_RELIABILITY_SCHEMA_VERSION
+	restored = daily_blog.replication.StepReliability.from_dict(value)
+
+	assert restored.rejection_counts == ()
+	assert restored.schema_version == daily_blog.replication.EDITORIAL_RELIABILITY_SCHEMA_VERSION
+
+
+#============================================
+def test_v2_rejection_counts_survive_run_record_round_trip() -> None:
+	"""Categorical rejection facts remain available after durable state replay."""
+	record = daily_blog.run_contracts.RunRecord.create("run-rejections", "2026-08-23", CREATED_AT)
+	summary = daily_blog.replication.StepReliability(
+		"writer", "degraded", 2, 1, 1, 0, 0, 0, "",
+		("citation_density_mismatch",), (("citation_density_mismatch", 1),),
+	)
+	record.add_editorial_step(summary, daily_blog.run_contracts.ObserveIncumbent())
+	restored = daily_blog.run_contracts.RunRecord.from_dict(record.to_dict())
+	replayed = daily_blog.replication.StepReliability.from_dict(restored.editorial_steps[0])
+
+	assert replayed.rejection_counts == (("citation_density_mismatch", 1),)
+
+
+#============================================
 def test_v11_run_record_replays_typed_incumbent_transitions() -> None:
 	"""Typed transition replay preserves the selected publication artifact."""
 	record = daily_blog.run_contracts.RunRecord.create("run-transitions", "2026-08-23", CREATED_AT)

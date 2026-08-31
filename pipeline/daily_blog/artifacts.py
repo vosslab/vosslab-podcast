@@ -20,6 +20,9 @@ ELIGIBILITY_REASONS = frozenset({
 	"unapproved_image_path", "report_date_mismatch", "publication_identity_mismatch",
 	"output_path_outside_root", "invalid_machine_metadata", "insufficient_evidence_density",
 	"unsafe_publication_source", "publication_policy_mismatch",
+	"repository_scope_mismatch", "unapproved_screenshot_path",
+	"citation_density_mismatch", "project_coverage_mismatch",
+	"presentation_policy_mismatch",
 })
 NO_ARTIFACT_REASONS = frozenset({
 	"route_unavailable", "no_eligible_generation", "evidence_unavailable", "configuration",

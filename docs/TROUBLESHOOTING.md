@@ -1,9 +1,43 @@
-# Daily blog troubleshooting
+# Pipeline troubleshooting
 
-Use this page to identify a known daily-blog failure without changing a run, a
-cache, or a published release. Start with the date-owned run directory: its
-`run_state.json`, `events.jsonl`, and bounded terminal summary describe the
-same durable attempt.
+Use this page to diagnose the local GitHub-to-content runner or the date-owned
+daily publication without changing a generated artifact, cache, run record, or
+published release. The routes have different recovery boundaries: local drafts
+are stage outputs, while the daily route has one durable attempt per run and
+one publication identity per `report_date`.
+
+## General runner stops
+
+Symptom: `automation/run_local_pipeline.py` reports a failed named stage or
+exits after its configured retry count.
+
+Read the first failing stage name and correct that stage's declared input,
+runtime dependency, or configuration before rerunning the established command:
+
+```bash
+source source_me.sh && python3 automation/run_local_pipeline.py --last-day
+source source_me.sh && python3 automation/run_local_pipeline.py --last-week
+```
+
+The runner invokes fetch, changelog summary, outline, outline compilation,
+blog, Bluesky, podcast-script, and narrator-audio stages in that order. It
+passes the same `settings.yaml` path to each stage. Use `--no-api-calls` only
+when a current user-scoped `github_data_*.jsonl` artifact already exists; it
+skips fetch and cannot create that input. Inspect the resolved output paths and
+the named stage's input before deleting or regenerating cached files. See
+[USAGE.md](USAGE.md) for the supported runner options and output locations.
+
+## Daily run records
+
+Symptom: a date-owned daily publication needs diagnosis or recovery.
+
+Start with `out/<owner>/daily_blog/YYYY-MM-DD/summary.jsonl`, then inspect the
+selected `runs/RUN_ID/run_state.json` and `runs/RUN_ID/events.jsonl`. The
+summary is the bounded terminal receipt; the run files contain bounded phase
+and lifecycle facts for that one attempt. They intentionally omit prompts,
+model responses, credentials, and raw external diagnostics. Use
+[DAILY_BLOG_OPERATIONS.md](DAILY_BLOG_OPERATIONS.md) for the current layout and
+ownership contract.
 
 ## Wrong Python environment
 
@@ -35,7 +69,9 @@ Inspect the systemd timer and the most recent service log first:
 
 ```bash
 systemctl --user status vosslab-daily-publication.timer
+systemctl --user list-timers vosslab-daily-publication.timer
 journalctl --user -u vosslab-daily-publication.service -n 100
+systemctl --user cat vosslab-daily-publication.service
 ```
 
 The timer invokes `./make_blog.py --yesterday` at 04:00 America/Chicago. It
@@ -70,13 +106,20 @@ to the publication process.
 Symptom: author, editor, reviewer, or repair work records a route failure,
 empty response, malformed structured response, or no eligible result.
 
-Read the terminal summary before treating the run as a pipeline defect. A
-completed `succeeded` run has no recorded editorial degradation; a completed
-`degraded` run promoted an eligible artifact despite partial editorial failure.
-A `pipeline_fault` CLI result carries a typed category and digest, while an
-incomplete operational failure has no completed publication. Route unavailability
-and no eligible generation are diagnosed facts, not evidence that any prompt
-or model candidate was better.
+Read the terminal summary before treating a route problem as a pipeline defect.
+A completed `degraded` run promoted an eligible grounded artifact despite
+partial editorial failure and verified its page. A completed `succeeded` run
+also verified its page. A failed receipt identifies either a typed terminal
+pipeline-fault category or an operational failure kind; a process interruption
+before a terminal receipt is an incomplete operational failure. The public CLI
+emits a bounded `pipeline_fault` JSON record and exits with status 2 only for a
+diagnosed terminal pipeline fault.
+
+Route unavailability, malformed output, and failed candidate or review work are
+editorial degradation only while an eligible whole artifact survives. Exhausted
+routes, no eligible generation, unavailable evidence, invalid configuration,
+or an unsafe integrity or path boundary are pipeline faults. Neither condition
+justifies changing prompt prose during recovery.
 
 The recovery coordinator uses additional editorial paths and promotes only an
 eligible artifact. It does not mechanically assemble partial prose. Preserve the

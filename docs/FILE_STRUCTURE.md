@@ -24,14 +24,19 @@ pipeline/daily_blog/
   agents.py                         bounded parallel editorial route execution
   artifacts.py                      typed editorial artifact identities
   candidates.py                     complete-post eligibility validation
+  complete_post_editor_prompts.py   Stage-6 editor prompt rendering
   config.py                         settings and role-route configuration
   daily_outline_workflow.py         Stage-5 ranking, outline, review, and promotion
   editorial.py                      prompt rendering and editorial packet preparation
+  editorial_stage_config.py         validated stage-local route and limit configuration
   evidence.py                       exact-object evidence collection
   final_synthesis_config.py         Stage-7 settings contract
   final_synthesis_prompts.py        Stage-7 prompt resource loader
+  io_utils.py                       atomic bounded file and hash helpers
+  json_contracts.py                 canonical JSON contract validation
   locks.py                          date lock and resumable phase cache
   mirrors.py                        owner-qualified Git mirror refresh and inspection
+  multi_repository_coordinator.py   shared Stage-3/4 repository scheduling and joins
   observability.py                  bounded lifecycle events and terminal summaries
   orchestrator.py                   lifecycle composition only
   prompt_registry/                  central immutable prompt declarations and issued loads
@@ -46,19 +51,25 @@ pipeline/daily_blog/
   publication_state.py              local committed-publication state classification
   publication_storage.py            descriptor-owned no-follow bundle storage
   publication_validation.py         Stage-8 publication validation
+  private_artifacts.py              run-owned private artifact confinement
   publisher.py                      publisher CLI and receipt validation boundary
   publisher_contract.py             bounded validation, result, and failure subprocess protocol
   recovery.py                       typed editorial recovery and fault digest
   replication.py                    independent review and promotion primitives
   repositories.py                   authoritative owner-roster acquisition
   repository_editorial_workflow.py  Stage-3/4 repository editorial coordination
+  repository_contracts.py           typed repository editorial handoff contracts
   repository_outline_workflow.py    Stage-3 outline candidates and review
   repository_story_workflow.py      Stage-4 story candidates and review
   roster_snapshots.py               immutable verified roster storage
   route_cache.py                    route-result cache serialization
+  routes.py                         isolated stdin command execution for editorial routes
   run_contracts.py                  v11 run record and incumbent transitions
   run_state.py                      RunStore persistence and recovery
-  stage6.py                         Stage-6 author/editor path and whole-post recovery adapters
+  schema.py                         evidence, projection, and bounded-context types
+  stage6.py                         Stage-6 author/editor path and typed input boundary
+  stage6_context.py                 bounded Stage-6 and recovery evidence frames
+  stage6_recovery.py                lower-rung whole-post author, editor, and review work
   stage7.py                         Stage-7 incumbent-preserving synthesis
   stage_recovery_coordinator.py     serial typed recovery-state coordination
 ```
@@ -133,6 +144,14 @@ publisher's standard input after its descriptor validation. The publisher record
 `publication-v5` state and the producer keeps an `import-receipt.v2` with the reader-body digest.
 Older bundle-v7 directories are not reusable current input; the exact publication-v3 reader exists
 only to recognize historical occupied dates.
+
+## Generated artifacts
+
+`out/` holds local generated content, date-owned daily-blog records, caches, and locks; its exact
+location is configured by `output_root`. `graphify-out/` is an ignored orientation map generated
+from source. Python bytecode, build outputs, virtual environments, local reports, and generated or
+local-only directories are also ignored by [`.gitignore`](../.gitignore). Do not treat an ignored
+path as authoritative source or runtime proof.
 
 ## Tests
 

@@ -79,6 +79,49 @@ def _cache(tmp_path: pathlib.Path) -> daily_blog.route_cache.RouteResultCache:
 	return daily_blog.route_cache.RouteResultCache(daily_blog.locks.PhaseCache(str(tmp_path)))
 
 
+#============================================
+def test_model_cache_packet_identity_ignores_mirror_refresh_observations(
+	tmp_path: pathlib.Path,
+) -> None:
+	"""Equivalent repository objects reuse editorial work across fresh mirror checks."""
+	value, _story = _stage5_alias_input(tmp_path / "input")
+	base = value.packets[0]
+	semantic = {
+		"repository": "owner/repository",
+		"repository_url": "https://github.com/owner/repository",
+		"clone_url": "https://github.com/owner/repository.git",
+		"created_at": "2020-01-01T00:00:00Z",
+		"is_fork": False,
+		"roster_id": "a" * 64,
+		"default_revision": "a" * 40,
+		"object_available": True,
+		"ref_fingerprint": "b" * 64,
+	}
+	first_mirror = {
+		**semantic, "cache_path": "/first/mirror", "refresh_result": "refreshed",
+		"refresh_error": "", "refreshed_at": "2026-08-31T12:00:00Z",
+	}
+	second_mirror = {
+		**semantic, "cache_path": "/second/mirror", "refresh_result": "skipped",
+		"refresh_error": "unused observation", "refreshed_at": "2026-08-31T13:00:00Z",
+	}
+	def packet(mirror: dict[str, object]) -> daily_blog.schema.EvidencePacket:
+		return daily_blog.schema.EvidencePacket.create(
+			base.report_date, base.timezone, base.complete,
+			base.collection_limits.to_dict(), [mirror], list(base.activity), list(base.items),
+		)
+	first, second = packet(first_mirror), packet(second_mirror)
+	changed = packet({**second_mirror, "ref_fingerprint": "c" * 64})
+
+	assert first.packet_id != second.packet_id
+	assert daily_blog.schema.model_cache_packet_identity(first) == (
+		daily_blog.schema.model_cache_packet_identity(second)
+	)
+	assert daily_blog.schema.model_cache_packet_identity(first) != (
+		daily_blog.schema.model_cache_packet_identity(changed)
+	)
+
+
 def _stage5_alias_input(
 	root: pathlib.Path,
 ) -> tuple[daily_blog.daily_outline_workflow.DailyOutlineInput, daily_blog.artifacts.RepoStory]:
@@ -246,8 +289,10 @@ def _real_stage_requests(
 		stories, outlines, packets, promoted_ranking, stories[0].artifact_id,
 	)
 	stage6_input = daily_blog.stage6.Stage6Input(
-		daily_outline, stories, packets, str(root), str(root / "2026-08-29" / "post.md"),
-		sources, evidence_context,
+		daily_outline, stories, str(root), str(root / "2026-08-29" / "post.md"),
+		sources, daily_blog.stage6.build_stage6_publication_surface(
+			daily_outline, stories, packets, context_limits,
+		),
 	)
 	stage5_config = daily_blog.editorial_stage_config.DailyOutlineConfig()
 	final_config = daily_blog.final_synthesis_config.FinalSynthesisConfig()

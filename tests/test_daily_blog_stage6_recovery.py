@@ -102,9 +102,9 @@ def _value(tmp_path: pathlib.Path) -> daily_blog.stage6.Stage6Input:
 		),), (packet,), promoted_ranking, story.artifact_id,
 	)
 	return daily_blog.stage6.Stage6Input(
-		outline, (story,), (packet,), str(tmp_path),
+		outline, (story,), str(tmp_path),
 		str(tmp_path / packet.report_date / "post.md"), sources,
-		daily_blog.stage6.build_stage6_evidence_context(
+		daily_blog.stage6.build_stage6_publication_surface(
 			outline, (story,), (packet,), _CONTEXT_LIMITS,
 		),
 	)
@@ -180,16 +180,16 @@ def _contracted_story_recovery_input(tmp_path: pathlib.Path) -> daily_blog.stage
 	)
 	sources = daily_blog.stage6.Stage6RecoverySources(stories, outlines, packets, ranking, strongest.artifact_id)
 	evidence_id = selected.evidence_ids[0]
+	selected_packets = tuple(packet for packet in packets if packet.items[0].repository == "vosslab/a")
 	daily_outline = daily_blog.artifacts.DailyOutline.create(
-		packets[0].report_date, packets, selected.repositories,
+		packets[0].report_date, selected_packets, selected.repositories,
 		"Outline <!-- evidence: " + evidence_id + " -->", (evidence_id,),
 	)
 	stage6_input = daily_blog.stage6.Stage6Input(
-		daily_outline, (selected,), packets, str(tmp_path),
+		daily_outline, (selected,), str(tmp_path),
 		str(tmp_path / daily_outline.report_date / "post.md"), sources,
-		daily_blog.stage6.build_stage6_evidence_context(
-			daily_outline, (selected,), (next(packet for packet in packets
-			if packet.items[0].repository == "vosslab/a"),), _CONTEXT_LIMITS,
+		daily_blog.stage6.build_stage6_publication_surface(
+			daily_outline, (selected,), packets, _CONTEXT_LIMITS,
 		),
 	)
 	return daily_blog.stage6.CompletePostRecoveryInput(

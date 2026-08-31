@@ -279,15 +279,18 @@ def test_stage6_and_recovery_bound_large_evidence_after_editorial_frame_overhead
 		stories, stage5.repo_outlines, packets, _ranking(stories),
 		min(stories, key=lambda item: item.artifact_id).artifact_id,
 	)
-	context = daily_blog.stage6.build_stage6_evidence_context(
+	context = daily_blog.stage6_context.build_stage6_evidence_context(
 		daily_outline, stories, packets, limits,
 	)
-	rebuilt = daily_blog.stage6.build_stage6_evidence_context(
+	rebuilt = daily_blog.stage6_context.build_stage6_evidence_context(
+		daily_outline, stories, packets, limits,
+	)
+	surface = daily_blog.stage6.build_stage6_publication_surface(
 		daily_outline, stories, packets, limits,
 	)
 	value = daily_blog.stage6.Stage6Input(
-		daily_outline, stories, packets, str(tmp_path),
-		str(tmp_path / daily_outline.report_date / "post.md"), sources, context,
+		daily_outline, stories, str(tmp_path),
+		str(tmp_path / daily_outline.report_date / "post.md"), sources, surface,
 	)
 	recovery = daily_blog.stage6.CompletePostRecoveryInput(
 		value, daily_blog.recovery.RecoveryRung.DAILY_OUTLINE_EXPANSION,

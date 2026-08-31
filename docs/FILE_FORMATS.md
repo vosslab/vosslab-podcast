@@ -61,11 +61,14 @@ artifact type, report date, packet identities, repositories, evidence references
 canonical `artifact_id`. Stage-local eligibility derives scope from cited evidence that resolves
 against authoritative packets under the stage-owned repository ceiling; a model-provided scope marker
 must equal that derived scope and cannot grant authority. Final `CompletePost` admission is separate:
-it uses the frozen `PublicationSurface` made from the exact Stage-6 survivor packet union, its matching
-aggregate packet and projection, and only its required assets. Final citations demonstrate grounding
-inside that surface; they cannot reduce its required coverage. The full repository roster remains
-sealed provenance context, not extra final-post scope. Validation also verifies report identity and
-embedded-asset provenance before an artifact can become the selected post.
+it uses the frozen `PublicationSurface` made from the exact Stage-6 survivor packets, its
+`vosslab.daily-blog.bounded-evidence-context.v2` context, and promoted Stage-5 source artifacts. The
+surface derives one aggregate packet, required
+repository coverage, allowed evidence and image paths, and a sealed projection that includes every
+evidence identity already visible through a promoted source artifact. Final citations demonstrate
+grounding inside that surface; they cannot reduce its required coverage. The full repository roster
+remains sealed provenance context, not extra final-post scope. Validation also verifies report identity
+and embedded-asset provenance before an artifact can become the selected post.
 
 Author, referee, and repair work may produce several private artifacts. Only the selected eligible
 `CompletePost` crosses the publication boundary; candidates, reviewer comparisons, and route labels do
@@ -79,6 +82,12 @@ Every attempt owns `run_state.json` under its date-owned run directory. It uses 
 `vosslab.daily-blog.run.v11` and is the authoritative resumable lifecycle record. It records the run
 and report identities, ordered phase states, evidence and bundle references, editorial reliability
 summaries, the current `best_artifact_id`, an outcome, and a safe failure classification when needed.
+
+Each editorial summary uses `vosslab.daily-blog.editorial-reliability.v2`. Its `rejection_counts`
+contains at most 64 sorted, unique canonical `{code, count}` entries. Each code is a bounded
+machine-readable category, and each positive count is no greater than the step's attempted count;
+the field carries no candidate or provider prose. The reader upgrades retained v1 summaries to v2 with
+an empty count set so compatible cached work from an earlier attempt remains resumable.
 
 The record's `editorial_transitions` are replayable typed incumbent operations paired one-for-one with
 editorial summaries:
@@ -106,7 +115,9 @@ facts, and projects reliability counts without diagnostic payloads. Detailed run
 expired only through the validated summary and descriptor-owned retention path.
 
 Phase cache data is resumability support, not a durable exchange protocol. The producer revalidates
-cached response bytes and identities before reuse.
+cached response bytes and identities before reuse. Model/cache identity retains semantic repository
+object facts such as the revision and ref fingerprint while excluding mirror locations and refresh
+observations that do not change the model task.
 
 ### Recovery fault digest
 

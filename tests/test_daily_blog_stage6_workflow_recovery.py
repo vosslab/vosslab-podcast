@@ -96,9 +96,9 @@ def _input(root: pathlib.Path) -> daily_blog.stage6.Stage6Input:
 		(story,), (repository_outline,), (packet,), promoted, story.artifact_id,
 	)
 	return daily_blog.stage6.Stage6Input(
-		daily_outline, (story,), (packet,), str(root),
+		daily_outline, (story,), str(root),
 		str(root / "owner" / "daily_blog" / packet.report_date / "post.md"), sources,
-		daily_blog.stage6.build_stage6_evidence_context(
+		daily_blog.stage6.build_stage6_publication_surface(
 			daily_outline, (story,), (packet,), _CONTEXT_LIMITS,
 		),
 	)
@@ -195,7 +195,8 @@ def _parsed_policy_ineligible(value: daily_blog.stage6.Stage6Input) -> daily_blo
 	eligibility = daily_blog.publication_admission.complete_post_eligibility(
 		primary, value.publication_surface, value.output_root,
 	)
-	assert eligibility.reasons == ("publication_policy_mismatch",)
+	assert "publication_policy_mismatch" in eligibility.reasons
+	assert "presentation_policy_mismatch" in eligibility.reasons
 	writing = daily_blog.replication.ReplicationResult(
 		daily_blog.artifacts.CompletePost,
 		(daily_blog.replication.ReplicatedCandidate(request, response, primary, eligibility, ""),),

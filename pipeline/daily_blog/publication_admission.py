@@ -16,9 +16,13 @@ class PublicationSurface:
 	"""Exact editorial survivors and the material allowed into publication."""
 
 	source_packets: tuple[daily_blog.schema.EvidencePacket, ...]
-	packet: daily_blog.schema.EvidencePacket
-	projection: daily_blog.schema.EditorialProjection
+	evidence_context: daily_blog.schema.BoundedEvidenceContext
 	repositories: tuple[str, ...]
+	source_artifacts: tuple[daily_blog.artifacts.EditorialArtifact, ...]
+	packet: daily_blog.schema.EvidencePacket = dataclasses.field(init=False)
+	projection: daily_blog.schema.EditorialProjection = dataclasses.field(init=False)
+	allowed_evidence_ids: tuple[str, ...] = dataclasses.field(init=False)
+	allowed_image_paths: tuple[str, ...] = dataclasses.field(init=False)
 
 	#============================================
 	def __post_init__(self) -> None:
@@ -30,38 +34,113 @@ class PublicationSurface:
 		):
 			raise RuntimeError("Publication surface must bind one exact survivor evidence union.")
 		source_packet_ids = tuple(item.packet_id for item in self.source_packets)
-		packet_repositories = (
-			{item.repository for item in self.packet.activity}
-			or {item.repository for item in self.packet.items}
-		) if type(self.packet) is daily_blog.schema.EvidencePacket else set()
 		if (
 			source_packet_ids != tuple(sorted(source_packet_ids))
 			or len(set(source_packet_ids)) != len(source_packet_ids)
-			or type(self.packet) is not daily_blog.schema.EvidencePacket
-			or type(self.projection) is not daily_blog.schema.EditorialProjection
+			or type(self.evidence_context) is not daily_blog.schema.BoundedEvidenceContext
 			or type(self.repositories) is not tuple
 			or not self.repositories
 			or self.repositories != tuple(sorted(set(self.repositories)))
-			or packet_repositories != set(self.repositories)
-			or self.projection.packet_id != self.packet.packet_id
+			or type(self.source_artifacts) is not tuple
+			or not self.source_artifacts
+			or any(type(item) not in {
+				daily_blog.artifacts.DailyOutline, daily_blog.artifacts.RepoStory,
+			} for item in self.source_artifacts)
 		):
 			raise RuntimeError("Publication surface must bind one exact survivor evidence union.")
-		if self.packet != _aggregate_packet(self.source_packets):
-			raise RuntimeError(
-				"Publication surface aggregate packet does not match its survivor provenance."
-			)
-		if self.projection != daily_blog.projection.build_projection(
-			self.packet, dict(self.projection.projection_limits),
+		artifact_ids = tuple(item.artifact_id for item in self.source_artifacts)
+		if artifact_ids != tuple(sorted(artifact_ids)) or len(set(artifact_ids)) != len(artifact_ids):
+			raise RuntimeError("Publication surface source artifacts must be canonical and unique.")
+		packet = _aggregate_packet(self.source_packets)
+		packet_repositories = {item.repository for item in packet.activity} or {
+			item.repository for item in packet.items
+		}
+		if packet_repositories != set(self.repositories):
+			raise RuntimeError("Publication surface packets do not exactly cover the survivor scope.")
+		# ASVS 2.2.3: validate the bounded model view and its packet union as one
+		# combined authority before either editorial generation or admission uses it.
+		daily_blog.projection.validate_bounded_evidence_context(
+			self.source_packets, self.evidence_context,
+		)
+		context_repositories = tuple(sorted(card.repository for card in self.evidence_context.repositories))
+		if context_repositories != self.repositories:
+			raise RuntimeError("Publication surface context does not match its survivor scope.")
+		outline = tuple(
+			item for item in self.source_artifacts
+			if type(item) is daily_blog.artifacts.DailyOutline
+		)
+		stories = tuple(
+			item for item in self.source_artifacts
+			if type(item) is daily_blog.artifacts.RepoStory
+		)
+		if len(outline) != 1 or not stories:
+			raise RuntimeError("Publication surface requires one outline and survivor stories.")
+		if (
+			outline[0].repositories != self.repositories
+			or outline[0].packet_ids != source_packet_ids
+			or tuple(sorted({repository for item in stories for repository in item.repositories}))
+			!= self.repositories
 		):
-			raise RuntimeError("Publication surface projection does not match its survivor evidence.")
+			raise RuntimeError("Publication surface artifacts do not match its survivor scope.")
+		if any(not daily_blog.artifacts.evaluate_eligibility(
+			item, self.source_packets, allowed_repositories=self.repositories,
+		).eligible for item in self.source_artifacts):
+			raise RuntimeError("Publication surface source artifacts are not mechanically grounded.")
+		artifact_evidence_ids = {
+			evidence_id for artifact in self.source_artifacts
+			for evidence_id in artifact.evidence_ids
+		}
+		allowed_ids = {
+			excerpt.evidence_id for excerpt in self.evidence_context.excerpts
+		} | artifact_evidence_ids
+		packet_ids = {item.evidence_id for item in packet.items}
+		if not allowed_ids or not allowed_ids.issubset(packet_ids):
+			raise RuntimeError("Publication surface exposes evidence outside its survivor packets.")
+		items_by_id = {item.evidence_id: item for item in packet.items}
+		excerpts = list(self.evidence_context.excerpts)
+		excerpt_ids = {item.evidence_id for item in excerpts}
+		for evidence_id in sorted(artifact_evidence_ids - excerpt_ids):
+			item = items_by_id[evidence_id]
+			end = min(len(item.content), self.evidence_context.projection_limits["excerpt_chars"])
+			excerpts.append(daily_blog.schema.EvidenceExcerpt.create(item, 0, end))
+		projection = daily_blog.schema.EditorialProjection.create(
+			packet.packet_id, self.evidence_context.report_date, self.evidence_context.timezone,
+			dict(self.evidence_context.projection_limits),
+			list(self.evidence_context.repositories), excerpts,
+		)
+		# The bounded prompt view can omit a raw slice already represented by a
+		# promoted artifact.  The sealed projection retains one exact packet slice
+		# for every such model-visible ID so downstream admission uses this authority.
+		projection.render_context()
+		if {item.evidence_id for item in projection.excerpts} != allowed_ids:
+			raise RuntimeError("Publication surface projection does not cover its allowed evidence.")
+		artifact_images = {
+			path for artifact in self.source_artifacts for path in artifact.image_paths
+		}
+		context_images = {
+			item.publish_path for item in packet.items
+			if item.kind == "screenshot" and item.evidence_id in allowed_ids and item.publish_path
+		}
+		allowed_images = artifact_images | context_images
+		packet_images = {
+			item.publish_path for item in packet.items
+			if item.kind == "screenshot" and item.publish_path
+		}
+		if not allowed_images.issubset(packet_images):
+			raise RuntimeError("Publication surface exposes an unapproved survivor image.")
+		object.__setattr__(self, "packet", packet)
+		object.__setattr__(self, "projection", projection)
+		object.__setattr__(self, "allowed_evidence_ids", tuple(sorted(allowed_ids)))
+		object.__setattr__(self, "allowed_image_paths", tuple(sorted(allowed_images)))
 
 #============================================
 def build_surface(
 	packets: tuple[daily_blog.schema.EvidencePacket, ...],
 	repositories: tuple[str, ...],
-	projection_limits: dict[str, int],
+	evidence_context: daily_blog.schema.BoundedEvidenceContext,
+	source_artifacts: tuple[daily_blog.artifacts.EditorialArtifact, ...],
 ) -> PublicationSurface:
-	"""Aggregate exactly the Stage-6 survivor packets into one sealed surface."""
+	"""Bind one model-visible survivor context to its exact admission authority."""
 	if type(packets) is not tuple or not packets or any(
 		type(item) is not daily_blog.schema.EvidencePacket for item in packets
 	):
@@ -73,18 +152,10 @@ def build_surface(
 	):
 		raise RuntimeError("Publication surface requires a canonical survivor repository scope.")
 	source_packets = tuple(sorted(packets, key=lambda item: item.packet_id))
-	packet = _aggregate_packet(source_packets)
-	packet_repositories = tuple(sorted({
-		repository for source in source_packets
-		for repository in ({activity.repository for activity in source.activity}
-			or {item.repository for item in source.items})
-	}))
-	if packet_repositories != repositories:
-		raise RuntimeError("Publication surface packets do not exactly cover the survivor scope.")
-	return PublicationSurface(
-		source_packets, packet,
-		daily_blog.projection.build_projection(packet, projection_limits), repositories,
-	)
+	if type(source_artifacts) is not tuple:
+		raise RuntimeError("Publication surface requires exact source artifacts.")
+	ordered_artifacts = tuple(sorted(source_artifacts, key=lambda item: item.artifact_id))
+	return PublicationSurface(source_packets, evidence_context, repositories, ordered_artifacts)
 
 
 #============================================
@@ -121,12 +192,17 @@ def _aggregate_packet(
 
 #============================================
 def survivor_assets(surface: PublicationSurface, assets: dict[str, bytes]) -> dict[str, bytes]:
-	"""Return only screenshot bytes referenced by the exact survivor packet."""
+	"""Return only survivor screenshot bytes admitted by the sealed surface."""
 	if type(surface) is not PublicationSurface or type(assets) is not dict:
 		raise RuntimeError("Publication surface assets require exact typed inputs.")
 	required = {
 		item.asset_path for item in surface.packet.items
-		if item.kind == "screenshot" and type(item.asset_path) is str and item.asset_path
+		if (
+			item.kind == "screenshot"
+			and item.publish_path in surface.allowed_image_paths
+			and type(item.asset_path) is str
+			and item.asset_path
+		)
 	}
 	if any(path not in assets or type(assets[path]) is not bytes for path in required):
 		raise RuntimeError("Publication surface is missing a survivor screenshot asset.")
@@ -141,13 +217,46 @@ def complete_post_eligibility(
 ) -> daily_blog.artifacts.EligibilityResult:
 	"""Combine mechanical provenance and active final-post body policy."""
 	mechanical = complete_post_mechanical_eligibility(post, surface, output_root)
-	policy_issues = daily_blog.candidates.validate_complete_post_body(
-		post.content, surface.packet, surface.projection,
-	)
+	policy_issues = complete_post_policy_issues(post, surface)
 	reasons = set(mechanical.reasons)
 	if policy_issues:
 		reasons.add("publication_policy_mismatch")
+		reasons.update(_policy_rejection_codes(policy_issues))
 	return daily_blog.artifacts.EligibilityResult(not reasons, tuple(sorted(reasons)))
+
+
+#============================================
+def complete_post_policy_issues(
+	post: daily_blog.artifacts.CompletePost,
+	surface: PublicationSurface,
+) -> tuple[str, ...]:
+	"""Return explicit repair instructions against the exact model-visible surface."""
+	if type(post) is not daily_blog.artifacts.CompletePost or type(surface) is not PublicationSurface:
+		raise RuntimeError("Complete-post policy requires exact typed inputs.")
+	issues = daily_blog.candidates.validate_complete_post_body(
+		post.content, surface.packet, surface.projection,
+		allowed_evidence_ids=surface.allowed_evidence_ids,
+		allowed_screenshot_paths=surface.allowed_image_paths,
+	)
+	return tuple(issues)
+
+
+#============================================
+def _policy_rejection_codes(issues: tuple[str, ...]) -> tuple[str, ...]:
+	"""Map detailed editor instructions to bounded operational categories."""
+	codes = set()
+	for issue in issues:
+		if issue.startswith("Post cites unknown evidence IDs:"):
+			codes.add("unknown_evidence_reference")
+		elif "image path outside projected evidence" in issue:
+			codes.add("unapproved_screenshot_path")
+		elif issue.startswith("Project coverage") or "missing active repositories" in issue:
+			codes.add("project_coverage_mismatch")
+		elif "cite" in issue.casefold() or "evidence" in issue.casefold():
+			codes.add("citation_density_mismatch")
+		else:
+			codes.add("presentation_policy_mismatch")
+	return tuple(sorted(codes))
 
 
 #============================================
@@ -159,6 +268,16 @@ def complete_post_mechanical_eligibility(
 	"""Verify provenance and output ownership without applying authored-body taste."""
 	if type(surface) is not PublicationSurface:
 		raise RuntimeError("Complete-post admission requires the frozen publication surface.")
-	return daily_blog.artifacts.evaluate_eligibility(
+	base = daily_blog.artifacts.evaluate_eligibility(
 		post, surface.source_packets, (output_root,), surface.repositories,
 	)
+	reasons = set(base.reasons)
+	used_ids = set(daily_blog.artifacts.evidence_references(post.content)) | set(post.evidence_ids)
+	if not used_ids.issubset(surface.allowed_evidence_ids):
+		reasons.add("unknown_evidence_reference")
+	used_images = set(daily_blog.artifacts.referenced_image_paths(post.content)) | set(post.image_paths)
+	if not used_images.issubset(surface.allowed_image_paths):
+		reasons.update({"unapproved_image_path", "unapproved_screenshot_path"})
+	if "evidence_outside_repository_scope" in reasons:
+		reasons.add("repository_scope_mismatch")
+	return daily_blog.artifacts.EligibilityResult(not reasons, tuple(sorted(reasons)))

@@ -1,7 +1,8 @@
 # Install
 
-This repository runs from a source checkout. Installation creates the physical
-repository-local `.venv` used by the daily-publication command and developer tools.
+This repository runs from a source checkout. Installation creates the physical,
+repository-local `.venv` used by the general content runner, date-owned publication
+command, and developer tools.
 
 ## Requirements
 
@@ -19,7 +20,7 @@ repository-local `.venv` used by the daily-publication command and developer too
    python3.12 -m venv .venv
    ```
 
-3. Install runtime and developer dependencies:
+3. Install runtime and developer dependencies from the checkout:
 
    ```bash
    .venv/bin/pip install -r pip_requirements.txt -r pip_requirements-dev.txt
@@ -53,17 +54,22 @@ systemctl --user enable --now vosslab-daily-publication.timer
 
 See [`DAILY_BLOG_OPERATIONS.md`](DAILY_BLOG_OPERATIONS.md) for operating boundaries.
 
-## Verify installation
+## Verify install
 
-Verify the supported interpreter and the public command without collecting evidence,
-calling a model, or importing a post:
+This verified command checks the selected interpreter and its YAML dependency without
+collecting evidence, calling a model, or importing a post:
 
 ```bash
 source source_me.sh && python3 -c 'import sys, yaml; assert sys.version_info[:2] == (3, 12)'
+```
+
+Inspect the public command interface separately:
+
+```bash
 ./make_blog.py --help
 ```
 
-Run the controlled no-egress publication proof separately when validating a checkout:
+Run the controlled no-egress publication proof when validating a checkout:
 
 ```bash
 source source_me.sh && python3 tests/e2e/e2e_daily_publication.py

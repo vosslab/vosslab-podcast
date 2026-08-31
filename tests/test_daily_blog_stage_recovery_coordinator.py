@@ -14,8 +14,10 @@ import daily_blog.artifacts
 import daily_blog.editorial_stage_config
 import daily_blog.io_utils
 import daily_blog.publication_admission
+import daily_blog.projection
 import daily_blog.recovery
 import daily_blog.replication
+import daily_blog.repository_contracts
 import daily_blog.run_contracts
 import daily_blog.run_state
 import daily_blog.schema
@@ -42,11 +44,20 @@ def _candidate(ok: bool, root: pathlib.Path) -> daily_blog.replication.Replicate
 def _packet(
 	repository: str = "vosslab/recovery", report_date: str = "2026-08-23",
 ) -> daily_blog.schema.EvidencePacket:
+	activity = daily_blog.schema.RepositoryActivity(
+		repository, "https://github.com/" + repository, "/fixture/recovery",
+		"a" * 40, (), (), (), False,
+		(daily_blog.repository_contracts.RepositoryLifecycleEvent(
+			"repository_created", "2020-01-01T00:00:00Z", False, "fixture",
+		),),
+	)
 	item = daily_blog.schema.EvidenceItem.create(
 		"dated_changelog", repository, "a" * 40, "CHANGELOG.md", "b" * 40,
 		"A grounded recovery change.", "git show",
 	)
-	return daily_blog.schema.EvidencePacket.create(report_date, "America/Chicago", True, {}, [], [], [item])
+	return daily_blog.schema.EvidencePacket.create(
+		report_date, "America/Chicago", True, {}, [], [activity], [item],
+	)
 
 
 def _post(packet: daily_blog.schema.EvidencePacket, root: pathlib.Path, body: str) -> daily_blog.artifacts.CompletePost:
@@ -91,7 +102,23 @@ def _surface(
 	"""Build the exact final-post authority for one recovery fixture."""
 	canonical = tuple(sorted(packets, key=lambda item: item.packet_id))
 	repositories = tuple(sorted({item.repository for packet in canonical for item in packet.items}))
-	return daily_blog.publication_admission.build_surface(canonical, repositories, _LIMITS)
+	stories = tuple(daily_blog.artifacts.RepoStory.create(
+		packet.report_date, (packet,), packet.items[0].repository,
+		"Grounded story. <!-- evidence: " + packet.items[0].evidence_id + " -->",
+		(packet.items[0].evidence_id,),
+	) for packet in canonical)
+	evidence_ids = tuple(sorted(item.evidence_id for packet in canonical for item in packet.items))
+	outline = daily_blog.artifacts.DailyOutline.create(
+		canonical[0].report_date, canonical, repositories,
+		"Grounded outline. <!-- evidence: " + ", ".join(evidence_ids) + " -->",
+		evidence_ids,
+	)
+	context = daily_blog.projection.build_bounded_evidence_context(
+		canonical, _LIMITS, _LIMITS["context_chars"],
+	)
+	return daily_blog.publication_admission.build_surface(
+		canonical, repositories, context, (outline,) + stories,
+	)
 
 
 def _summary() -> daily_blog.replication.StepReliability:

@@ -249,17 +249,14 @@ def run_typed_stage5(coordinator: object, value: object) -> daily_blog.stage6.St
 	coordinator.route_cache.commit(cache_effects.drain())
 	coordinator.store.write_artifact("stage5_daily_outline.json", _stage5_artifact_payload(result))
 	recovery_sources = daily_blog.stage6.Stage6RecoverySources.from_stage5(value, result)
-	stage6_evidence_context = daily_blog.stage6.build_stage6_evidence_context(
+	publication_surface = daily_blog.stage6.build_stage6_publication_surface(
 		result.artifact, result.selected_stories,
-		tuple(
-			packet for packet in value.packets
-			if {item.repository for item in packet.items}.issubset(result.artifact.repositories)
-		),
+		value.packets,
 		dict(value.evidence_context.projection_limits),
 	)
 	stage6_value = daily_blog.stage6.Stage6Input(
-		result.artifact, result.selected_stories, value.packets, root, _stage5_output_path(coordinator),
-		recovery_sources, stage6_evidence_context,
+		result.artifact, result.selected_stories, root, _stage5_output_path(coordinator),
+		recovery_sources, publication_surface,
 	)
 	coordinator._complete("stage5_daily_outline", {
 		"artifact_id": result.artifact.artifact_id,

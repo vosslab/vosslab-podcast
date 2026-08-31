@@ -21,6 +21,7 @@ of an eligible artifact or an unsafe deterministic boundary is a typed pipeline 
 | [`pipeline/daily_blog/acquisition_workflow.py`](../pipeline/daily_blog/acquisition_workflow.py) | Acquisition coordinator | Roster, mirrors, activity, evidence, and projection |
 | [`pipeline/daily_blog/repository_editorial_workflow.py`](../pipeline/daily_blog/repository_editorial_workflow.py) | Repository editorial coordinator | Stage 3/4 repository material and shared route-budget results |
 | [`pipeline/daily_blog/publication_workflow.py`](../pipeline/daily_blog/publication_workflow.py) | Stages 5-8 | Daily outline, complete post, synthesis, and validation transitions |
+| [`pipeline/daily_blog/stage6.py`](../pipeline/daily_blog/stage6.py), [`pipeline/daily_blog/stage6_context.py`](../pipeline/daily_blog/stage6_context.py), [`pipeline/daily_blog/stage6_recovery.py`](../pipeline/daily_blog/stage6_recovery.py), and [`pipeline/daily_blog/stage_recovery_coordinator.py`](../pipeline/daily_blog/stage_recovery_coordinator.py) | Complete-post editorial boundary | Bounded Stage-6 context, replicated whole-post work, and typed lower-rung recovery |
 | [`pipeline/daily_blog/publication_finalization.py`](../pipeline/daily_blog/publication_finalization.py) | Finalization coordinator | Selected-post write, sealed bundle, import, and page verification |
 | [`pipeline/daily_blog/run_contracts.py`](../pipeline/daily_blog/run_contracts.py) and [`pipeline/daily_blog/run_state.py`](../pipeline/daily_blog/run_state.py) | Durable run record | Resumable bounded state, events, and terminal summaries |
 | `pipeline/daily_blog/prompt_registry/` | Prompt identity registry | Central immutable declarations and issued resource loads |
@@ -76,6 +77,8 @@ phase caching. Independent model calls use cache identities that allow compatibl
 be reused when later peers fail. The coordinator serializes durable state and shared cache effects,
 while route execution stays bounded and parallel inside the configured limits. Validated route results
 buffered during terminal Stage-6 recovery are committed before its typed fault leaves that boundary.
+Compatibility retains repository revision and ref-fingerprint facts while excluding mirror paths,
+refresh timestamps, and refresh outcomes that do not alter the model-visible task.
 
 ## Prompt and evidence trust boundaries
 
@@ -85,10 +88,14 @@ buffered during terminal Stage-6 recovery are committed before its typed fault l
 [`pipeline/daily_blog/evidence.py`](../pipeline/daily_blog/evidence.py) establish the source side.
 [`pipeline/daily_blog/projection.py`](../pipeline/daily_blog/projection.py) builds bounded editorial
 input. Stage-local artifacts resolve their cited evidence against their authoritative packet under a
-stage-owned ceiling. Final-post admission is stricter: `publication_admission.py` freezes one
-`PublicationSurface` from the exact Stage-6 survivor packet union before complete-post selection.
-It recomputes the matching aggregate packet and projection and keeps only those survivors' required
-assets. The full acquired roster remains provenance context, but it cannot expand final-post scope.
+stage-owned ceiling. Final-post admission is stricter:
+[`pipeline/daily_blog/publication_admission.py`](../pipeline/daily_blog/publication_admission.py)
+freezes one `PublicationSurface` from the exact Stage-6 survivor packets, bounded model context, and
+promoted Stage-5 outline and repository stories before complete-post selection. It derives the
+aggregate packet, allowed evidence and image paths, required repository coverage, sealed projection,
+and required assets from that one authority. Evidence identities already visible through a promoted
+source artifact remain in the sealed projection even when the bounded raw context omitted their
+excerpt. The full acquired roster remains provenance context, but it cannot expand final-post scope.
 Citations demonstrate grounding inside the frozen surface and cannot shrink its required repository
 coverage. A model scope marker remains an equality-checked assertion, never authority.
 
@@ -156,8 +163,8 @@ style, permanent-test criteria, and focused test commands are in
 
 ## Extension points
 
-- Add an evidence provider through the evidence schema and preserve its provenance through the
-  projection and bundle boundary.
+- Add an evidence provider through [`pipeline/daily_blog/evidence.py`](../pipeline/daily_blog/evidence.py)
+  and preserve its provenance through the projection and bundle boundary.
 - Add or change editorial stage behavior in its phase-owning module, retaining independent
   candidate generation and typed promotion semantics.
 - Change settings-owned concurrency, replication, rubric, or cache inputs without treating those

@@ -41,7 +41,7 @@ _SAFE_RELIABILITY_REASONS = frozenset({
 	"review_process_failure", "review_start_failure", "review_timeout", "review_unavailable",
 	"reviewer_unavailable",
 	"response_limit", "start_failure", "timeout", "upstream_unavailable",
-})
+}) | daily_blog.artifacts.ELIGIBILITY_REASONS
 
 
 @dataclasses.dataclass(frozen=True)

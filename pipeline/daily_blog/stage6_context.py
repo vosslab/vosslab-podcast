@@ -63,22 +63,3 @@ def recovery_frame(
 			"evidence": evidence}
 	return {"evidence": evidence, "repo_stories": [
 		daily_blog.schema.model_cache_artifact(item.to_dict()) for item in source_artifacts]}
-
-
-#============================================
-def build_recovery_evidence_context(
-	rung: daily_blog.recovery.RecoveryRung,
-	packets: tuple[daily_blog.schema.EvidencePacket, ...],
-	source_artifacts: tuple[daily_blog.artifacts.DailyOutline | daily_blog.artifacts.RepoStory, ...],
-	projection_limits: dict[str, int],
-) -> daily_blog.schema.BoundedEvidenceContext:
-	"""Select scoped exact evidence within one recovery frame's existing cap."""
-	available = min(
-		MAX_STAGE6_CONTEXT_CHARS - len(canonical_context(recovery_frame(rung, source_artifacts, {}))) + 2,
-		projection_limits["context_chars"],
-	)
-	if available <= 0:
-		raise RuntimeError("Stage 6 recovery artifact frame leaves no evidence capacity.")
-	context = daily_blog.projection.build_bounded_evidence_context(packets, projection_limits, available)
-	context.render_context(available)
-	return context

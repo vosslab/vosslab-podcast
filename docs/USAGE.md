@@ -1,13 +1,36 @@
 # Usage
 
-This repository collects evidence, runs the daily editorial stages, and imports one
-evidence-bound post for a date into the local daily-blog site.
+This repository has two command routes: a general GitHub-to-content runner for local
+drafts, and a date-owned daily-publication command that imports one evidence-bound
+post into the local daily-blog site.
 
 Load the repository environment before Python commands:
 
 ```bash
 source source_me.sh
 ```
+
+## General content pipeline
+
+Use the established runner when you want local drafts rather than a sealed,
+reader-visible daily publication:
+
+```bash
+source source_me.sh && python3 automation/run_local_pipeline.py --last-day
+source source_me.sh && python3 automation/run_local_pipeline.py --last-week
+```
+
+- `--last-day`, `--last-week`, and `--last-month` select a one-, seven-, or
+  30-day GitHub activity window; the first is the default.
+- `--no-api-calls` skips fetching and requires a cached `github_data_*.jsonl` input.
+- `--no-continue` regenerates cached outlines and drafts; `--depth 1` through
+  `--depth 4` selects the LLM generation depth.
+- `--settings PATH`, `--max-retries COUNT`, and `--retry-wait-seconds SECONDS`
+  override the documented runner defaults.
+
+The runner writes user-scoped artifacts under `out/<github_username>/`, including
+the fetched JSONL, `blog_post_*.md`, `bluesky_post-*.txt`, podcast text, and any
+generated MP3 files. It stops after fetch when the selected window has no commits.
 
 ## Daily publication
 
@@ -34,7 +57,8 @@ of the selected artifact; it does not create a second version of that date.
 
 The scheduled service runs `./make_blog.py --yesterday` at 04:00 America/Chicago.
 Systemd owns scheduling; Hermes executes configured editorial model routes inside a
-publication run.
+publication run. The systemd assets and operational setup are in
+[`DAILY_BLOG_OPERATIONS.md`](DAILY_BLOG_OPERATIONS.md).
 
 ## Controlled verification
 
@@ -59,24 +83,20 @@ corroboration, not a test prerequisite or a claim about synthetic prose quality.
   `out/<owner>/daily_blog/<report_date>/`, including `runs/<run_id>/run_state.json`,
   `summary.jsonl`, `post.md`, and `publication/bundle.json`.
 - The sealed bundle contains the validated selected post, its artifact identity, evidence,
-  repository roster, editorial projection, prompt-contract binding, activation receipt, and the
-  versioned source-safety policy identity.
-  Candidate and referee deliberation remains producer-owned run history. After descriptor
-  validation, the producer sends the immutable bundle snapshot to the sibling importer on standard
-  input; the importer does not consume a producer filesystem path.
+  repository roster, editorial projection, prompt-contract binding, activation receipt, and source-
+  safety policy identity. Candidate and referee deliberation remains producer-owned run history.
+- After descriptor validation, the producer sends the immutable bundle snapshot to the sibling
+  importer on standard input; the importer does not consume a producer filesystem path.
 - The local publisher records the imported date in
   `data/publications/<report_date>.json` as `vosslab.daily-blog.publication.v5`, retains its sealed
   bundle archive, and records the canonical reader-body digest. The producer's
   `import-receipt.v2` binds that record, installed post, and verified dated page.
 
-The current handoff is `vosslab.daily-blog.bundle.v8`. A candidate with unsafe reader-visible
-Markdown is ineligible before publication: links are limited to GitHub HTTPS targets or declared
-screenshots, while active raw HTML and ambiguous or disguised active constructs are rejected. The
-sealed identity is `publication_source_safety.v1` with an executable 35-case corpus and SHA-256
-`d50166736d79be7f7715cc0f7585fac71dfb2aecc1c631b10e01aeca2fb63c6b`. The publisher repeats this
-policy check using that identity. A cached bundle from a prior schema or policy is rebuilt; it is
-not upgraded in place. A historical publication-v3 record can only be inspected or replaced as an
-occupied date, not created by this command.
+The current handoff is `vosslab.daily-blog.bundle.v8`. Unsafe reader-visible Markdown is ineligible
+before publication, and the publisher repeats the sealed `publication_source_safety.v1` check. A
+cached bundle from a prior schema or policy is rebuilt rather than upgraded in place. See
+[`DAILY_BLOG_OPERATIONS.md`](DAILY_BLOG_OPERATIONS.md) for the complete producer-to-publisher
+contract.
 
 ## Terminal results
 

@@ -3066,3 +3066,98 @@ Next actions
    remains.
 2. Ordinary reliability monitoring and future editorial-parameter tuning are
    optional follow-on work, not acceptance gates.
+
+---
+Session Update: 2026-08-31 (Stage-6 survivor authority and Aug. 29 acceptance)
+
+Change
+- Rebuilt Stage 6 around one sealed, survivor-scoped `PublicationSurface`.
+  Prompt context, admissible evidence IDs and image paths, repository coverage,
+  source artifacts, mechanical admission, and the publisher projection now
+  share that authority.
+- Kept mechanically grounded writer and recovery drafts available to model
+  editors for presentation repair while limiting promotion to fully eligible
+  artifacts. Step reliability now retains bounded rejection categories and
+  counts, including recovery rungs, with migration of persisted v1 records.
+- Kept model-route cache identity stable across equivalent repository objects
+  by projecting operational mirror paths and refresh observations out of the
+  editorial identity. Approved prompt assets remained unchanged.
+
+Tests
+- The permanent offline suite passed: `pytest -q tests/` reported 3,691 passed
+  in 30.95 seconds. The focused Stage-6/reliability set passed 92 tests;
+  `git diff --check` and protected-asset checks also passed.
+- A one-time replay of all 15 cached complete-post responses from failed run
+  `20260831T054505Z-efb371c559` found that the old contract rejected all 15 for
+  packet provenance mismatch; the corrected survivor authority admitted all 15
+  mechanically and exposed remaining presentation findings for editorial work.
+- Exact live command `./make_blog.py -y -d 2026-08-29` completed as run
+  `20260831T130419Z-4b8a6550cd`. It survived partial model failure, imported a
+  9,202-byte Markdown post and sealed bundle, built the sibling site, and
+  verified the rendered page. Bundle SHA-256 is
+  `a096eec3da752c8739af3730d3198737daba519d144eef02e9b6a17bd3a3e218`;
+  rendered-page SHA-256 is
+  `1d241b87e26bb5f64f10081b20b449f1e15df481bf8e2d6ccd7d399e83c64fea`.
+
+Next actions
+1. No required Stage-6, publication, documentation, or test blocker remains.
+2. Future diagnosis can begin from the sealed Stage-5/Stage-6 input and reuse
+   cached model results instead of repeating earlier evidence acquisition.
+
+---
+Session Update: 2026-08-31 (six-pass Stage-6 code audit)
+
+Change
+- Ran six fresh independent review passes for plan conformance, permanent-test
+  quality, Python/repository style, documentation, legacy code, and comments.
+- Centralized writer/recovery rejection accounting in the stage-neutral
+  replication owner, removed one dead recovery property, deleted brittle
+  mirror-key shape assertions, corrected the survivor-asset docstring, and
+  added behavior coverage for category aggregation and durable v2 replay.
+- Updated architecture, file-format, and operations references for the exact
+  Stage-5 source/context authority, admitted evidence and image sets, bounded
+  rejection counts, and semantic model-cache identity.
+- Retained two design findings for explicit follow-up: validator-facing English
+  currently determines persisted rejection categories, and Stage-8 public APIs
+  still permit an omitted `PublicationSurface` even though production supplies
+  the correct surface.
+
+Tests
+- Audit reviewers reported focused passing subsets of 5, 59, and 127 tests.
+- Manager verification passed 609 focused code, style, line-limit, and Markdown
+  checks, then the complete permanent suite: 3,692 passed in 30.81 seconds.
+- `git diff --check` passed. Changed authored source files remain below 1,000
+  lines; `docs/CHANGELOG.md` remains below its 800-line rotation threshold.
+- Protected `docs/BLOG_CONTRACT.md` and approved prompt assets remained
+  unchanged.
+
+Next actions
+1. Move policy finding codes into the validation owner as structured values;
+   keep human repair text separate from persisted diagnostics.
+2. Make the Stage-8 and sealed-finalization boundary consume the mandatory
+   `PublicationSurface` instead of optional or detached authority components.
+
+---
+Session Update: 2026-08-31 (documentation-set refresh closeout)
+
+Change
+- Completed the `docset-updater`, `readme-docs`, and `screenshot-docs` refresh:
+  README advanced from 92 to 93 with all 6 of 6 acceptance gates; architecture,
+  install, usage, roadmap, TODO, troubleshooting, cookbook, development, FAQ,
+  file-format, and related-project documentation were refreshed.
+- AGENTS, central, and release documentation were intentional no-ops.
+- Dynamically captured screenshots from the verified 2026-08-29 release. An
+  independent visual review found a header defect; it was fixed and the
+  re-review accepted it. The stale Aug. 26 PNG was removed and remains
+  recoverable from Git history.
+
+Tests
+- Final full-suite verification passed: 3,692 tests in 32.35 seconds.
+  Local-only capture repeatability and hashes were verified: `3394ef...` and
+  `4b2f32...`.
+- `docs/BLOG_CONTRACT.md` remained unchanged at SHA-256 `306674...`; approved
+  prompt resources also remained unchanged.
+
+Next actions
+1. No required next action remains. Optional live-route corroboration is
+   non-gating.

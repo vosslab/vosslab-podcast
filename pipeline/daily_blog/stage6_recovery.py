@@ -136,8 +136,8 @@ def recover_complete_post(
 	)
 	review_reasons = () if review.work else ("review_unavailable",)
 	steps = (
-		_generation_reliability("6.1", writing),
-		_generation_reliability("6.2", editing, editor_reasons),
+		daily_blog.replication.generation_reliability("6.1", writing),
+		daily_blog.replication.generation_reliability("6.2", editing, editor_reasons),
 		_review_reliability(review, promotion, review_reasons),
 		_promotion_reliability(promotion, review.votes),
 	)
@@ -151,19 +151,6 @@ def _unique(items: collections.abc.Iterable[daily_blog.artifacts.EditorialArtifa
 	"""Return stable exact candidate identities without carrying author order."""
 	return tuple(sorted({item.artifact_id: item for item in items}.values(),
 		key=lambda item: (item.content_hash, item.artifact_id)))
-
-
-def _generation_reliability(step: str, result: daily_blog.replication.ReplicationResult,
-	reasons: tuple[str, ...] = ()) -> daily_blog.replication.StepReliability:
-	"""Summarize one bounded recovery generation mechanism."""
-	values = result.candidates
-	all_reasons = set(reasons) | {item.failure for item in values if item.failure}
-	if any(item.result.ok and (item.eligibility is None or not item.eligibility.eligible) for item in values):
-		all_reasons.add("ineligible_generation")
-	succeeded = sum(item.result.ok and item.eligibility is not None and item.eligibility.eligible for item in values)
-	return daily_blog.replication.StepReliability(step, "degraded" if all_reasons else "succeeded",
-		len(values), succeeded, len(values) - succeeded, sum(item.result.ok and item.result.resumed for item in values),
-		0, 0, "", tuple(sorted(all_reasons)))
 
 
 def _review_reliability(review: daily_blog.replication.ReviewResult, promotion: object,

@@ -102,9 +102,9 @@ out/<owner>/daily_blog/YYYY-MM-DD/runs/RUN_ID/
 
 The date directory also owns `summary.jsonl`, a bounded terminal receipt for each completed or
 failed run. Inspect `run_state.json` for phase status and selected artifact, `events.jsonl` for
-bounded lifecycle facts, and `summary.jsonl` for the terminal outcome, publication status, bundle
-digest, and verified-page digest. These records intentionally omit prompts, model responses,
-credentials, and raw external diagnostics.
+bounded lifecycle and bundle facts, and `summary.jsonl` for the terminal outcome, publication status,
+terminal run-record digest, and verified-page digest. These records intentionally omit prompts, model
+responses, credentials, and raw external diagnostics.
 
 Run state uses `vosslab.daily-blog.run.v11`. Each editorial summary carries an exact typed incumbent
 transition: observe, establish, editorial replacement, or publication repair. Replay validates the
@@ -115,8 +115,10 @@ transition in an existing run once, but it does not make that run the retry targ
 
 Hash-verified phase-cache entries reuse matching activity, evidence, projections, and successful
 route results. Failed route calls remain retryable, and compatible ordinal calls can be reused when
-the configured replication count changes. Cache reuse saves work; it cannot relax evidence,
-eligibility, identity, or publication validation.
+the configured replication count changes. Equivalent repository objects keep the same model/cache
+identity across mirror locations and refresh observations; revision and ref-fingerprint changes still
+invalidate that identity. Cache reuse saves work; it cannot relax evidence, eligibility, identity, or
+publication validation.
 
 Complete-post candidates reused from cache are admitted again against the current frozen
 `PublicationSurface` and final-post policy. A cached candidate that no longer meets that admission is
@@ -204,8 +206,9 @@ pipeline operation.
 ## Observability and reliability
 
 The terminal summary and event stream expose bounded counts for attempts, successes, failures,
-reuse, repairs, disagreements, and the selected artifact. They provide enough evidence to explain
-why a run was degraded without storing prose or sensitive diagnostics.
+reuse, repairs, disagreements, and the selected artifact. `run_state.json` and the stage reliability
+artifacts additionally retain bounded categorical rejection counts, without candidate, prompt, or
+provider prose, so operators can diagnose why eligible editorial work degraded.
 
 The read-only reliability reporter aggregates those receipts across runs. Its rates preserve raw
 numerators and denominators and report an absent population as `n/a`; it is advisory only. It does

@@ -12,8 +12,10 @@ import daily_blog.artifacts
 import daily_blog.editorial_stage_config
 import daily_blog.io_utils
 import daily_blog.publication_admission
+import daily_blog.projection
 import daily_blog.recovery
 import daily_blog.replication
+import daily_blog.repository_contracts
 import daily_blog.run_contracts
 import daily_blog.run_state
 import daily_blog.schema
@@ -42,12 +44,41 @@ def _candidate(ok: bool, root: pathlib.Path) -> daily_blog.replication.Replicate
 
 def _packet() -> daily_blog.schema.EvidencePacket:
 	"""Build one sealed evidence packet for a report date."""
+	activity = daily_blog.schema.RepositoryActivity(
+		"vosslab/recovery", "https://github.com/vosslab/recovery", "/fixture/recovery",
+		"a" * 40, (), (), (), False,
+		(daily_blog.repository_contracts.RepositoryLifecycleEvent(
+			"repository_created", "2020-01-01T00:00:00Z", False, "fixture",
+		),),
+	)
 	item = daily_blog.schema.EvidenceItem.create(
 		"dated_changelog", "vosslab/recovery", "a" * 40, "CHANGELOG.md", "b" * 40,
 		"A grounded recovery change.", "git show",
 	)
 	return daily_blog.schema.EvidencePacket.create(
-		"2026-08-23", "America/Chicago", True, {}, [], [], [item],
+		"2026-08-23", "America/Chicago", True, {}, [], [activity], [item],
+	)
+
+
+def _surface(
+	packet: daily_blog.schema.EvidencePacket,
+) -> daily_blog.publication_admission.PublicationSurface:
+	"""Build one exact survivor authority for coordinator fault fixtures."""
+	repository = packet.items[0].repository
+	evidence_id = packet.items[0].evidence_id
+	story = daily_blog.artifacts.RepoStory.create(
+		packet.report_date, (packet,), repository,
+		"Grounded story. <!-- evidence: " + evidence_id + " -->", (evidence_id,),
+	)
+	outline = daily_blog.artifacts.DailyOutline.create(
+		packet.report_date, (packet,), (repository,),
+		"Grounded outline. <!-- evidence: " + evidence_id + " -->", (evidence_id,),
+	)
+	context = daily_blog.projection.build_bounded_evidence_context(
+		(packet,), _LIMITS, _LIMITS["context_chars"],
+	)
+	return daily_blog.publication_admission.build_surface(
+		(packet,), (repository,), context, (outline, story),
 	)
 
 
@@ -72,9 +103,7 @@ def _input(
 ) -> daily_blog.stage_recovery_coordinator.StageRecoveryInput:
 	"""Build one no-artifact stage result with real source route counts."""
 	packet = _packet()
-	surface = daily_blog.publication_admission.build_surface(
-		(packet,), (packet.items[0].repository,), _LIMITS,
-	)
+	surface = _surface(packet)
 	return daily_blog.stage_recovery_coordinator.StageRecoveryInput(
 		packet.report_date, "stage4/no_artifact/recovery", daily_blog.artifacts.CompletePost,
 		daily_blog.artifacts.NoArtifact(daily_blog.artifacts.CompletePost, reason.value),

@@ -101,8 +101,8 @@ def input_value(tmp_path: Path) -> daily_blog.stage6.Stage6Input:
 		"Outline <!-- evidence: " + evidence_id + " -->", (evidence_id,),
 	)
 	return daily_blog.stage6.Stage6Input(
-		outline, (story,), (source,), str(tmp_path), str(tmp_path / "2026-08-23" / "post.md"),
-		recovery_sources(story, source), daily_blog.stage6.build_stage6_evidence_context(
+		outline, (story,), str(tmp_path), str(tmp_path / "2026-08-23" / "post.md"),
+		recovery_sources(story, source), daily_blog.stage6.build_stage6_publication_surface(
 			outline, (story,), (source,), _CONTEXT_LIMITS,
 		),
 	)
@@ -168,9 +168,11 @@ def two_repository_input(tmp_path: Path) -> tuple[daily_blog.stage6.Stage6Input,
 		stories, repo_outlines, packets, ranking, min(stories, key=lambda item: item.artifact_id).artifact_id,
 	)
 	return daily_blog.stage6.Stage6Input(
-		outline, stories, packets, str(tmp_path),
+		outline, stories, str(tmp_path),
 		str(tmp_path / first.report_date / "post.md"), recovery,
-		daily_blog.stage6.build_stage6_evidence_context(outline, stories, packets, _CONTEXT_LIMITS),
+		daily_blog.stage6.build_stage6_publication_surface(
+			outline, stories, packets, _CONTEXT_LIMITS,
+		),
 	), first_id
 
 
@@ -365,11 +367,8 @@ def test_stage6_policy_invalid_writer_degrades_while_valid_peer_is_promoted(tmp_
 		value, "policy-peer", config(tmp_path), daily_blog.agents.RouteBudget(50, 2), Runner(),
 	)
 	assert result.artifact.content.startswith("---\ndate: 2026-08-23\n---\n# valid-peer")
-	assert any(
-		candidate.eligibility is not None
-		and candidate.eligibility.reasons == ("publication_policy_mismatch",)
-		for candidate in result.generation.candidates
-	)
+	writer_counts = result.step_reliability[0].rejection_counts
+	assert writer_counts and result.reliability.rejection_counts == writer_counts
 
 
 #============================================
@@ -402,7 +401,8 @@ def test_stage6_editors_refine_grounded_writer_drafts_that_miss_body_policy(
 	assert result.editing.eligible and result.artifact in result.editing.eligible
 	assert all(
 		candidate.eligibility is not None
-		and candidate.eligibility.reasons == ("publication_policy_mismatch",)
+		and "publication_policy_mismatch" in candidate.eligibility.reasons
+		and set(candidate.eligibility.reasons) != {"publication_policy_mismatch"}
 		for candidate in result.generation.candidates
 	)
 

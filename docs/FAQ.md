@@ -17,12 +17,20 @@ publishes. Those identities travel in the sealed bundle, while prompt prose rema
 editorial material. Retired experiment, calibration, capture, attestation, and shadow-evaluation
 workflows are not operational commands. See [DAILY_BLOG_OPERATIONS.md](DAILY_BLOG_OPERATIONS.md).
 
+## What do producer and publisher own?
+
+`vosslab-podcast` owns collection, editorial work, run evidence, bundle sealing, and the import
+request. The sibling `vosslab-daily-blog` repository owns the MkDocs source, per-date archive and
+receipt, verified release, served-site pointer, and static service. The boundary is one validated,
+immutable bundle snapshot, not a producer filesystem path. See
+[DAILY_BLOG_OPERATIONS.md](DAILY_BLOG_OPERATIONS.md).
+
 ## How do I make one daily post?
 
 Run `./make_blog.py --yesterday` from the repository root, or select an explicit date with
-`./make_blog.py --date 2026-21-08`. The latter means August 21, 2026 and is normalized to
-`2026-08-21`. The command reports the canonical date before it starts and delegates one
-date-owned publication workflow. See [DAILY_BLOG_OPERATIONS.md](DAILY_BLOG_OPERATIONS.md).
+`./make_blog.py --date 2026-08-21`. The command reports the canonical date before it starts and
+delegates one date-owned publication workflow. See
+[DAILY_BLOG_OPERATIONS.md](DAILY_BLOG_OPERATIONS.md).
 
 ## Does a repeat replace the post?
 
@@ -32,12 +40,11 @@ An occupied explicit `--date` asks `Overwrite YYYY-MM-DD? [N/y]:`; only exact `y
 Use `-y` or `--yes` to authorize that explicit replacement noninteractively. This is replacement,
 not versioning. See [DAILY_BLOG_OPERATIONS.md](DAILY_BLOG_OPERATIONS.md).
 
-## Why can a new repository be missing?
+## Why is a repository missing?
 
-The August 26 `cancer-clicker` post was generated before authoritative roster discovery existed, so
-the uncached repository never reached activity, evidence, or headline selection. Current runs fetch
-a fresh validated GitHub owner roster and carry creation-day evidence into projection. If a new
-repository is missing now, inspect `repository_roster.json` first. See
+Current runs fetch a fresh validated GitHub owner roster and carry creation-day evidence into the
+projection. A repository must be public, eligible, and have attributed activity in the report
+window. Inspect the date's `repository_roster.json` before diagnosing a missing repository. See
 [CODE_ARCHITECTURE.md](CODE_ARCHITECTURE.md).
 
 ## What is an active repository today?
@@ -76,10 +83,12 @@ See [CODE_ARCHITECTURE.md](CODE_ARCHITECTURE.md).
 
 ## Where do generated outputs live?
 
-Generated artifacts are user-scoped below `out/<github_username>/`. Each current daily publication
-lives at `out/<user>/daily_blog/YYYY-MM-DD/publication/`; that date directory also retains bounded
-run receipts and diagnostics. The date is the publication identity and its `bundle_sha256` verifies
-the manifest. See
+Generated artifacts are owner-scoped below `out/<owner>/`. Each daily publication lives at
+`out/<owner>/daily_blog/<report_date>/`. Its `runs/<run_id>/` directory holds bounded run state and
+events, while `summary.jsonl` records terminal outcomes and `publication/` holds the sealed
+`bundle.json`, `evidence.json`, `editorial_projection.json`, `repository_roster.json`, selected
+`post.md`, and declared assets. The date is the publication identity; `bundle_sha256` verifies the
+manifest. See
 [OUT_DIRECTORY_ORGANIZATION_SPEC.md](OUT_DIRECTORY_ORGANIZATION_SPEC.md).
 
 ## What proves publication provenance?
@@ -107,12 +116,13 @@ reused.
 Legacy `publication.v3` is only an exact historical record reader for an existing occupied date;
 new imports create publication v5 records.
 
-## What is editorial degradation?
+## How do retries and degradation work?
 
-A route-level failure such as a timeout, malformed result, or failed candidate or review is an
-editorial degradation when an eligible grounded post survives and the page verifies. The pipeline
-keeps eligible whole artifacts, uses bounded editorial repair, and never mechanically assembles
-prose from fragments. A degraded publication is still a verified publication. See
+A route-level timeout, malformed result, or failed candidate or review uses its configured bounded
+retry and may leave other independent, eligible candidates available. The pipeline keeps eligible
+whole artifacts, uses bounded editorial repair, and never mechanically assembles prose from
+fragments. If an eligible grounded post is imported and its page verifies, the result is a
+`degraded` but successful publication. See
 [DAILY_BLOG_OPERATIONS.md](DAILY_BLOG_OPERATIONS.md).
 
 ## What is a pipeline fault?

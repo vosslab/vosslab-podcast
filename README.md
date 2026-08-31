@@ -1,94 +1,89 @@
 # Vosslab GitHub content pipeline
 
-An evidence-grounded local publishing pipeline that turns a maker's GitHub work into a readable
-daily blog post, social copy, podcast script, and optional audio, with each published claim tied to
-exact Git evidence.
+An evidence-grounded local publishing pipeline for makers who want GitHub activity turned into a
+readable daily work-log post, supporting social and podcast drafts, and optional audio, with
+published claims traceable to exact Git evidence.
 
-It treats a daily post as a small build story rather than a changelog dump. The general content
-route creates drafts from GitHub activity; the nine-stage daily-publication route preserves
-grounded editorial work across partial failures, promotes an eligible complete post, and proves the
-reader-visible result through a sealed producer-to-publisher handoff.
+## Turn a day of code into a build story
 
-## What makes a daily post trustworthy
+This is for a maker who wants readers to understand what changed, why it mattered, and what is
+actually supported by the work--not just receive a changelog-shaped list of commits. The pipeline
+collects verified repository activity, gives bounded editorial roles a shared evidence base, and
+publishes only an eligible complete post.
 
-The active production contract is `v4-three-examples-corpus-v2`, authorized by one immutable maker
-activation receipt. The receipt binds the selected editorial contract, prompt identity, and
-validation policy; production validates it rather than reopening a retired experiment or asking an
-operator to approve a run.
+- **Keep the evidence visible.** Exact Git activity becomes a bounded evidence packet and editorial
+  projection, so the resulting story can name its support rather than inventing a retrospective.
+- **Make a whole post, not a collage.** Independent editorial candidates and review preserve the
+  strongest eligible complete artifact; partial output is never stitched into reader-facing prose.
+- **Publish one coherent date.** `report_date` is the publication identity. A sealed bundle digest
+  proves integrity, while an authorized rerun replaces that date's current publication.
+- **Keep producer and publisher honest.** This repository owns evidence, editorial work, and sealed
+  handoff. The sibling local publisher independently validates the same bytes before it builds and
+  verifies the reader page.
 
-The daily route carries one `report_date` from verified repository intake through publication. It
-collects exact Git activity, assembles an evidence packet, makes a bounded editorial projection,
-runs independent editorial candidates and review, preserves the strongest eligible whole post, then
-validates, seals, imports, and verifies the reader page. An ordinary failed candidate or malformed
-review is editorial degradation: eligible peers continue. Invalid provenance, unsafe storage, or no
-eligible whole post is a typed pipeline fault; the system never assembles fallback prose from
-fragments.
+The active production contract is `v4-three-examples-corpus-v2`, selected by an immutable maker
+activation receipt. Candidate and referee deliberation stay in producer-owned run evidence; the
+publisher receives only the validated selected post and its sealed provenance.
 
-The publisher receives bundle `vosslab.daily-blog.bundle.v8`, not the candidate or referee
-deliberation. It independently checks the selected post, its `best_artifact_id`, evidence,
-projection, roster, activation, prompt identity, declared assets, source-safety policy identity,
-and manifest digest before making the date visible. The active identity is
-`publication_source_safety.v1` with executable 35-case corpus digest
-`d50166736d79be7f7715cc0f7585fac71dfb2aecc1c631b10e01aeca2fb63c6b`.
-Unsafe reader-visible Markdown is editorially
-ineligible before handoff and is independently rechecked by the publisher. Candidate and referee
-history remains producer-owned run evidence.
+## The reader-facing result
 
-## Reader-facing result
+The local Work Log presents a finished daily post as a readable field note, while provenance and
+publication receipts remain available behind it. The controlled proof below verifies that journey
+without relying on a model provider or network access.
 
-The local Work Log turns the sealed post into a reader-facing build story. These existing captures
-show the landing page and one published post; provenance and publication receipts remain available
-behind that readable surface.
+<!-- screenshots:begin (managed by screenshot-docs) -->
+![Vosslab Work Log landing page showing the field-notes feed](docs/screenshots/work_log_landing_page.png)
+![Vosslab Work Log field note titled Making the Next Decision Visible and Making Done Mean It](docs/screenshots/latest_work_log_post.png)
+<!-- screenshots:end -->
 
-![Vosslab Work Log landing page with its editorial header and field-notes lead story](docs/screenshots/work_log_landing_page.png)
-![Vosslab Work Log post with its editorial header and readable build-story layout](docs/screenshots/making_the_interface_tell_the_truth.png)
+## Quick start: prove the public path safely
 
-## A controlled proof of the public path
-
-The permanent controlled E2E uses disposable local producer and publisher roots, synthetic Git
-evidence, and a fail-closed local editorial responder. It exercises the root command, selected-post
-handoff, rendered-page verification, a same-date replacement, and a typed post-import fault without
-network or model access.
+The supported runtime is Bash with Python 3.12. From a prepared source checkout, load the
+repository environment and run the disposable, no-egress publication proof:
 
 ```bash
 source source_me.sh && python3 tests/e2e/e2e_daily_publication.py
 ```
 
-Expected result: `Daily publication E2E passed.` The test is evidence that the publication contract
-works; it does not claim that fixture prose is a live editorial-quality result.
+Expected result: `Daily publication E2E passed.` The proof creates disposable producer and publisher
+roots with deterministic evidence and editorial responses. It verifies initial publication,
+same-date replacement, and preservation after an injected page-verification failure--without
+credentials, a configured publisher checkout, live model access, or network access.
+
+For installation details, including the repository-local virtual environment and development
+dependencies, see [docs/INSTALL.md](docs/INSTALL.md).
 
 ## Publish a real report date
 
-With the local publisher, GitHub roster, and configured editorial routes ready, use the repository
-root command:
+Real publication needs the configured GitHub credential source, editorial route, and local sibling
+`vosslab-daily-blog` checkout. Once those are ready, use the repository-root command:
 
 ```bash
 ./make_blog.py --yesterday
 ./make_blog.py --date 2026-08-21
 ```
 
-The command owns the physical repository Python 3.12 runtime. `--yesterday` selects the preceding
-calendar day in the configured report timezone. The scheduled 04:00 America/Chicago invocation is
-noninteractive and automatically replaces the current publication for that same `report_date`; the
-date remains the identity, while a bundle digest is integrity evidence. An interactive terminal
-retains its explicit `Overwrite YYYY-MM-DD? [N/y]:` confirmation before replacing an occupied date.
+`--yesterday` is the noninteractive scheduled path and automatically replaces an occupied date.
+An interactive explicit date instead asks `Overwrite YYYY-MM-DD? [N/y]:`; use `--yes` when an
+explicit-date replacement must run unattended. The checked-in systemd user timer invokes the
+`--yesterday` form at 04:00 America/Chicago.
 
-The general GitHub-to-content route remains useful when a publishable, evidence-sealed work-log post
-is not needed:
+## What completes a day
 
-```bash
-source source_me.sh && python3 automation/run_local_pipeline.py --last-day
+The daily route moves from verified activity to a reader-visible page without losing its audit trail:
+
+```text
+GitHub activity -> exact evidence -> independent editorial work -> eligible whole post
+               -> sealed bundle -> publisher validation -> built and verified reader page
 ```
 
-It writes user-scoped drafts beneath `out/<github_username>/`. See
-[docs/USAGE.md](docs/USAGE.md) for its options and outputs.
+The producer sends `vosslab.daily-blog.bundle.v8`, binding the date, selected artifact, evidence,
+roster, editorial projection, prompt and activation identities, declared assets, source-safety
+policy, and digest. The publisher checks that sealed snapshot before making the date visible. Unsafe
+reader-visible Markdown is rejected before handoff and independently checked again by the publisher.
 
-## What a completed day leaves behind
-
-Each attempt has bounded run-state and event summaries, while the date-owned publication retains the
-selected post and sealed bundle. The publisher's receipt and page-verification receipt bind the same
-`report_date`, bundle digest, and selected artifact. This makes the important question inspectable:
-which evidence supports this published story, and which complete artifact reached readers?
+Each attempt keeps bounded run state and event summaries; a completed date retains the selected post,
+sealed bundle, and the receipts that connect the bundle to the verified page:
 
 ```text
 out/<owner>/daily_blog/<report_date>/
@@ -99,22 +94,34 @@ out/<owner>/daily_blog/<report_date>/
   post.md                        selected reader-facing post
 ```
 
+## Also useful: local content drafts
+
+When a date-owned, evidence-sealed Work Log post is not needed, the general GitHub-to-content route
+creates user-scoped drafts beneath `out/<github_username>/`:
+
+```bash
+source source_me.sh && python3 automation/run_local_pipeline.py --last-day
+```
+
+See [docs/USAGE.md](docs/USAGE.md) for its options, inputs, and outputs.
+
 ## Documentation routes
 
-- [docs/INSTALL.md](docs/INSTALL.md): local prerequisites and setup.
-- [docs/USAGE.md](docs/USAGE.md): general content and daily-publication commands.
-- [docs/CODE_ARCHITECTURE.md](docs/CODE_ARCHITECTURE.md): ownership and trust boundaries.
+- [docs/INSTALL.md](docs/INSTALL.md): create the required Python 3.12 environment and verify it.
+- [docs/USAGE.md](docs/USAGE.md): daily-publication commands, replacement behavior, and outputs.
+- [docs/DAILY_BLOG_OPERATIONS.md](docs/DAILY_BLOG_OPERATIONS.md): operating, schedule, recovery,
+  and investigation boundaries.
+- [docs/CODE_ARCHITECTURE.md](docs/CODE_ARCHITECTURE.md): component ownership and trust boundaries.
 - [docs/FILE_STRUCTURE.md](docs/FILE_STRUCTURE.md): commands, modules, prompts, tests, and output
   locations.
-- [docs/OUT_DIRECTORY_ORGANIZATION_SPEC.md](docs/OUT_DIRECTORY_ORGANIZATION_SPEC.md): durable
-  output and retention layout.
+- [docs/FILE_FORMATS.md](docs/FILE_FORMATS.md): durable records and producer-to-publisher schemas.
 - [docs/FAQ.md](docs/FAQ.md): concise operational answers.
-- [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md): supported setup, route, evidence, and
-  publication diagnosis.
+- [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md): setup, route, evidence, and publication
+  diagnosis.
 
-## Current boundary
+## Status and boundary
 
-This is a private local producer and publisher workflow. Live daily publication can use configured
-editorial routes and a local sibling MkDocs site; the controlled E2E is the unattended, no-egress
-verification path. Prompt resources and the protected human editorial contract are intentionally
-not restated here; their immutable identities are validated at the production boundary.
+This is a private local producer-and-publisher workflow. The controlled E2E is the unattended
+acceptance path; a live Hermes publication is optional corroboration, not a test prerequisite or
+evidence of editorial quality. Prompt resources and the protected human editorial contract remain
+outside this landing page and are validated by immutable identity at the production boundary.

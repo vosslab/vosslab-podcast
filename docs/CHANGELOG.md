@@ -1,3 +1,19 @@
+## 2026-08-31
+
+### Fixes and Maintenance
+
+- Refreshed the README and broad documentation set for the current survivor-scoped
+  `PublicationSurface`, reliability accounting, bounded rejections, and semantic cache boundary.
+- Retained grounded drafts and eligible incumbents through partial writer, editor,
+  reviewer, and Stage-7 failure.
+
+### Developer Tests and Notes
+
+- The latest-release screenshot harness refreshed the two managed 2026-08-29 README images.
+  Repeatable local-only capture and visual re-review passed.
+- The permanent offline suite passed 3,692 tests. Protected `docs/BLOG_CONTRACT.md`
+  and prompt assets remained unchanged.
+
 ## 2026-08-30
 
 ### Behavior or Interface Changes

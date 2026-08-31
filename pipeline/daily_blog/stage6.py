@@ -17,7 +17,6 @@ import daily_blog.editorial
 import daily_blog.io_utils
 import daily_blog.prompt_registry.definitions
 import daily_blog.prompt_registry.loader
-import daily_blog.projection
 import daily_blog.replication
 import daily_blog.recovery
 import daily_blog.routes
@@ -157,12 +156,10 @@ class Stage6Input:
 
 	daily_outline: daily_blog.artifacts.DailyOutline
 	repo_stories: tuple[daily_blog.artifacts.RepoStory, ...]
-	packets: tuple[daily_blog.schema.EvidencePacket, ...]
 	output_root: str
 	output_path: str
 	recovery_sources: Stage6RecoverySources
-	evidence_context: daily_blog.schema.BoundedEvidenceContext
-	publication_surface: daily_blog.publication_admission.PublicationSurface = dataclasses.field(init=False)
+	publication_surface: daily_blog.publication_admission.PublicationSurface
 
 	def __post_init__(self) -> None:
 		"""Fail closed before a prompt can observe ungrounded editorial state."""
@@ -175,31 +172,23 @@ class Stage6Input:
 		story_ids = tuple(item.artifact_id for item in self.repo_stories)
 		if story_ids != tuple(sorted(story_ids)) or len(set(story_ids)) != len(story_ids):
 			raise RuntimeError("Stage 6 RepoStory values must be identity-sorted and unique.")
-		if type(self.packets) is not tuple or not self.packets or any(
-			type(item) is not daily_blog.schema.EvidencePacket for item in self.packets
-		):
-			raise RuntimeError("Stage 6 requires authoritative EvidencePacket values.")
-		packet_ids = tuple(item.packet_id for item in self.packets)
-		if packet_ids != tuple(sorted(packet_ids)) or len(set(packet_ids)) != len(packet_ids):
-			raise RuntimeError("Stage 6 EvidencePacket values must be identity-sorted and unique.")
 		if type(self.output_root) is not str or not os.path.isabs(self.output_root):
 			raise RuntimeError("Stage 6 requires one trusted absolute output root.")
 		if type(self.output_path) is not str or not os.path.isabs(self.output_path):
 			raise RuntimeError("Stage 6 requires one trusted absolute output path.")
 		if type(self.recovery_sources) is not Stage6RecoverySources:
 			raise RuntimeError("Stage 6 requires exact recovery sources.")
-		if type(self.evidence_context) is not daily_blog.schema.BoundedEvidenceContext:
-			raise RuntimeError("Stage 6 requires one exact bounded evidence context.")
+		if type(self.publication_surface) is not daily_blog.publication_admission.PublicationSurface:
+			raise RuntimeError("Stage 6 requires one exact publication surface.")
+		expected_artifacts = tuple(sorted(
+			(self.daily_outline,) + self.repo_stories,
+			key=lambda item: item.artifact_id,
+		))
+		if self.publication_surface.source_artifacts != expected_artifacts:
+			raise RuntimeError("Stage 6 publication surface does not bind its editorial sources.")
 		if not os.path.isdir(os.path.realpath(self.output_root)):
 			raise RuntimeError("Stage 6 trusted output root must exist.")
 		self._validate_grounding()
-		daily_blog.projection.validate_bounded_evidence_context(
-			self.context_packets, self.evidence_context,
-		)
-		object.__setattr__(self, "publication_surface", daily_blog.publication_admission.build_surface(
-			self.context_packets, self.daily_outline.repositories,
-			dict(self.evidence_context.projection_limits),
-		))
 		if os.path.basename(self.output_path) != "post.md":
 			raise RuntimeError("Stage 6 output path must be the date-owned post.md destination.")
 		if os.path.basename(os.path.dirname(self.output_path)) != self.report_date:
@@ -212,16 +201,19 @@ class Stage6Input:
 		return self.daily_outline.report_date
 
 	@property
+	def packets(self) -> tuple[daily_blog.schema.EvidencePacket, ...]:
+		"""Return the sole survivor packet union used by Stage 6 and admission."""
+		return self.publication_surface.source_packets
+
+	@property
+	def evidence_context(self) -> daily_blog.schema.BoundedEvidenceContext:
+		"""Return the model-visible evidence projection owned by the publication surface."""
+		return self.publication_surface.evidence_context
+
+	@property
 	def context_packets(self) -> tuple[daily_blog.schema.EvidencePacket, ...]:
-		"""Return selected-scope packets exposed to the Stage 6 model frame only."""
-		scope = frozenset(self.daily_outline.repositories)
-		packets = tuple(
-			packet for packet in self.packets
-			if {item.repository for item in packet.items}.issubset(scope)
-		)
-		if not packets:
-			raise RuntimeError("Stage 6 selected scope has no authoritative evidence packets.")
-		return packets
+		"""Return the same survivor packets used by prompt context and admission."""
+		return self.packets
 
 	def _validate_grounding(self) -> None:
 		"""Require artifact, packet, repository, and date consistency at the seam."""
@@ -246,8 +238,9 @@ class Stage6Input:
 			raise RuntimeError("Stage 6 RepoStory repositories must exactly cover DailyOutline scope.")
 		if (
 			self.recovery_sources.report_date != self.report_date
-			or {item.packet_id for item in self.recovery_sources.packets}
-			!= {item.packet_id for item in self.packets}
+			or not {item.packet_id for item in self.packets}.issubset(
+				{item.packet_id for item in self.recovery_sources.packets}
+			)
 			or any(
 				story.artifact_id not in {item.artifact_id for item in self.recovery_sources.repo_stories}
 				for story in self.repo_stories
@@ -280,16 +273,33 @@ class Stage6Input:
 		if len(context) > MAX_STAGE6_CONTEXT_CHARS:
 			raise RuntimeError("Stage 6 typed evidence context exceeds its bounded limit.")
 		return context
-def build_stage6_evidence_context(
+
+
+#============================================
+def build_stage6_publication_surface(
 	daily_outline: daily_blog.artifacts.DailyOutline,
 	repo_stories: tuple[daily_blog.artifacts.RepoStory, ...],
 	packets: tuple[daily_blog.schema.EvidencePacket, ...],
 	projection_limits: dict[str, int],
-) -> daily_blog.schema.BoundedEvidenceContext:
-	"""Build a Stage-6-specific exact context within its complete prompt frame."""
-	return daily_blog.stage6_context.build_stage6_evidence_context(
-		daily_outline, repo_stories, packets, projection_limits,
+) -> daily_blog.publication_admission.PublicationSurface:
+	"""Build the only survivor-scoped evidence authority Stage 6 may consume."""
+	scope = frozenset(daily_outline.repositories)
+	survivor_packets = tuple(sorted((
+		packet for packet in packets
+		if {item.repository for item in packet.items}.issubset(scope)
+	), key=lambda item: item.packet_id))
+	context = daily_blog.stage6_context.build_stage6_evidence_context(
+		daily_outline, repo_stories, survivor_packets, projection_limits,
 	)
+	# ASVS 2.2.1 and 2.3.1: one validated value controls both the model frame
+	# and every later admission decision; the original packet union cannot leak in.
+	return daily_blog.publication_admission.build_surface(
+		survivor_packets, daily_outline.repositories, context,
+		(daily_outline,) + repo_stories,
+	)
+
+
+#============================================
 @dataclasses.dataclass(frozen=True)
 class CompletePostRecoveryInput:
 	"""One exact lower-rung source projection for independently authored Markdown."""
@@ -307,12 +317,9 @@ class CompletePostRecoveryInput:
 			daily_blog.recovery.RecoveryRung.REPOSITORY_STORY_MERGE,
 		}:
 			raise RuntimeError("Complete-post recovery rung is unsupported.")
-		context = daily_blog.stage6_context.build_recovery_evidence_context(
-			self.rung, self._context_packets, self.source_artifacts,
-			dict(self.stage6_input.evidence_context.projection_limits),
-		)
-		daily_blog.projection.validate_bounded_evidence_context(self._context_packets, context)
-		object.__setattr__(self, "evidence_context", context)
+		# Every recovery rung reuses the exact Stage 6 authority.  A lower path may
+		# change editorial source artifacts, but it cannot select new evidence.
+		object.__setattr__(self, "evidence_context", self.stage6_input.evidence_context)
 		self.render_context()
 
 	@property
@@ -367,15 +374,6 @@ class CompletePostRecoveryInput:
 		return min(
 			(item for item in stories if scores[item.content_hash] == best_score),
 			key=lambda item: item.artifact_id,
-		)
-
-	@property
-	def _context_packets(self) -> tuple[daily_blog.schema.EvidencePacket, ...]:
-		"""Keep lower-rung prompt/cache evidence within its trusted repository ceiling."""
-		scope = frozenset(self.repositories)
-		return tuple(
-			packet for packet in self.packets
-			if {item.repository for item in packet.items}.issubset(scope)
 		)
 
 	def render_context(self) -> str:
@@ -527,9 +525,10 @@ def _anonymous_posts(
 	candidates = [{
 		"alias": "candidate-" + str(index + 1),
 		"content": item.content,
-		"validation_issues": daily_blog.candidates.validate_complete_post_body(
-			item.content, value.publication_surface.packet,
-			value.publication_surface.projection,
+		"validation_issues": list(
+			daily_blog.publication_admission.complete_post_policy_issues(
+				item, value.publication_surface,
+			)
 		),
 	} for index, item in enumerate(_unique(items))]
 	rendered = json.dumps({"candidates": candidates}, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
@@ -562,20 +561,6 @@ def _request(value: Stage6Input, run_id: str, step: str, role: str, ordinal: str
 		repair_of=repair_of, input_hash=input_hash, contract_version=contract_version,
 		cache_input_hash=cache_input_hash,
 	)
-
-
-#============================================
-def _generation_reliability(step: str, result: daily_blog.replication.ReplicationResult,
-	reasons: collections.abc.Iterable[str] = ()) -> daily_blog.replication.StepReliability:
-	"""Summarize exactly one generation mechanism."""
-	values = result.candidates
-	all_reasons = set(reasons) | {item.failure for item in values if item.failure}
-	if any(item.result.ok and (item.eligibility is None or not item.eligibility.eligible) for item in values):
-		all_reasons.add("ineligible_generation")
-	succeeded = sum(item.result.ok and item.eligibility is not None and item.eligibility.eligible for item in values)
-	return daily_blog.replication.StepReliability(step, "degraded" if all_reasons else "succeeded",
-		len(values), succeeded, len(values) - succeeded, sum(item.result.resumed and item.result.ok for item in values),
-		0, 0, "", tuple(sorted(all_reasons)))
 
 
 #============================================
@@ -618,10 +603,15 @@ def _promotion_reliability(promotion: object, votes: collections.abc.Iterable[da
 def _aggregate(steps: tuple[daily_blog.replication.StepReliability, ...]) -> daily_blog.replication.StepReliability:
 	"""Summarize the current Stage 6 observations for publication consumers."""
 	reasons = tuple(sorted({reason for item in steps for reason in item.reasons}))
+	rejection_counts: dict[str, int] = {}
+	for item in steps:
+		for code, count in item.rejection_counts:
+			rejection_counts[code] = rejection_counts.get(code, 0) + count
 	return daily_blog.replication.StepReliability("stage6_complete_post", "degraded" if reasons else "succeeded",
 		sum(item.attempted for item in steps[:3]), sum(item.succeeded for item in steps[:3]),
 		sum(item.failed for item in steps[:3]), sum(item.reused for item in steps[:3]),
-		sum(item.repaired for item in steps[:3]), steps[2].disagreements, steps[3].best_artifact_id, reasons)
+		sum(item.repaired for item in steps[:3]), steps[2].disagreements, steps[3].best_artifact_id,
+		reasons, tuple(sorted(rejection_counts.items())))
 
 
 #============================================
@@ -880,7 +870,12 @@ def run_stage6(value: Stage6Input, run_id: str, config: daily_blog.config.DailyB
 		)
 		promotion = daily_blog.artifacts.NoArtifact(daily_blog.artifacts.CompletePost, category)
 		empty = daily_blog.replication.ReviewResult((), ())
-		steps = (_generation_reliability("6.1", writing), _generation_reliability("6.2", editing, ("upstream_unavailable",)),
+		editor_reasons = (
+			("editor_prompt_limit", "editor_unavailable") if editor_prompt_limited
+			else (("editor_unavailable",) if editor_source else ("upstream_unavailable",))
+		)
+		steps = (daily_blog.replication.generation_reliability("6.1", writing),
+			daily_blog.replication.generation_reliability("6.2", editing, editor_reasons),
 			_review_reliability(empty, promotion, ("upstream_unavailable",)), _promotion_reliability(promotion, ()))
 		return Stage6Result(
 			promotion=promotion, generation=writing, review=empty,
@@ -929,7 +924,8 @@ def run_stage6(value: Stage6Input, run_id: str, config: daily_blog.config.DailyB
 	editor_reasons = () if editor_peers else (("editor_prompt_limit", "editor_unavailable")
 		if editor_prompt_limited else (("editor_unavailable",) if editor_source else ("upstream_unavailable",)))
 	review_reasons = () if review.work else ("review_unavailable",)
-	steps = (_generation_reliability("6.1", writing), _generation_reliability("6.2", editing, editor_reasons),
+	steps = (daily_blog.replication.generation_reliability("6.1", writing),
+		daily_blog.replication.generation_reliability("6.2", editing, editor_reasons),
 		_review_reliability(review, promotion, review_reasons), _promotion_reliability(promotion, review.votes))
 	return Stage6Result(
 		promotion=promotion, generation=writing, review=review,

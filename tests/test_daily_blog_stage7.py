@@ -77,9 +77,9 @@ def _input(tmp_path: Path) -> daily_blog.stage6.Stage6Input:
 		packet.report_date, (packet,), ("owner/repository",),
 		"Outline <!-- evidence: " + item.evidence_id + " -->", (item.evidence_id,))
 	return daily_blog.stage6.Stage6Input(
-		outline, (story,), (packet,), str(tmp_path),
+		outline, (story,), str(tmp_path),
 		str(tmp_path / packet.report_date / "post.md"), _recovery_sources(story, packet),
-		daily_blog.stage6.build_stage6_evidence_context(
+		daily_blog.stage6.build_stage6_publication_surface(
 			outline, (story,), (packet,), _CONTEXT_LIMITS,
 		),
 	)

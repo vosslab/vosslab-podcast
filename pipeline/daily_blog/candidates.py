@@ -480,6 +480,9 @@ def validate_complete_post_body(
 	packet: daily_blog.schema.EvidencePacket,
 	projection: daily_blog.schema.EditorialProjection,
 	policy: daily_blog.prompt_registry.definitions.CandidateValidationPolicy | None = None,
+	*,
+	allowed_evidence_ids: tuple[str, ...] | None = None,
+	allowed_screenshot_paths: tuple[str, ...] | None = None,
 ) -> list[str]:
 	"""Validate authored final-post prose without trusting machine metadata.
 
@@ -502,7 +505,11 @@ def validate_complete_post_body(
 		+ "evidence_manifest: evidence.json\n"
 		+ "editorial_projection: editorial_projection.json\n---\n"
 	)
-	return validate_candidate(metadata + body, packet, projection, "stage-admission", policy)
+	return validate_candidate(
+		metadata + body, packet, projection, "stage-admission", policy,
+		allowed_evidence_ids=allowed_evidence_ids,
+		allowed_screenshot_paths=allowed_screenshot_paths,
+	)
 
 
 #============================================
@@ -512,6 +519,9 @@ def validate_candidate(
 	projection: daily_blog.schema.EditorialProjection,
 	run_id: str,
 	policy: daily_blog.prompt_registry.definitions.CandidateValidationPolicy | None = None,
+	*,
+	allowed_evidence_ids: tuple[str, ...] | None = None,
+	allowed_screenshot_paths: tuple[str, ...] | None = None,
 ) -> list[str]:
 	"""Return deterministic structural and evidence-provenance issues."""
 	policy = daily_blog.prompt_registry.editorial_contracts.resolve_validation_policy(policy)
@@ -567,7 +577,16 @@ def validate_candidate(
 	if not re.search(r"\b(?:I|my)\b", body, flags=re.IGNORECASE):
 		issues.append("Post body must use first-person work-log voice.")
 	packet_ids = {item.evidence_id for item in packet.items}
-	known_ids = {excerpt.evidence_id for excerpt in projection.excerpts}
+	if allowed_evidence_ids is None:
+		known_ids = {excerpt.evidence_id for excerpt in projection.excerpts}
+	else:
+		if (
+			type(allowed_evidence_ids) is not tuple
+			or tuple(sorted(set(allowed_evidence_ids))) != allowed_evidence_ids
+			or not set(allowed_evidence_ids).issubset(packet_ids)
+		):
+			raise RuntimeError("Candidate allowed evidence IDs are not a canonical packet subset.")
+		known_ids = set(allowed_evidence_ids)
 	used_ids = evidence_ids_in_post(body)
 	if not known_ids.issubset(packet_ids):
 		issues.append("Editorial projection contains evidence outside the authoritative packet.")
@@ -580,15 +599,14 @@ def validate_candidate(
 				issues.append("Every factual prose paragraph must cite projected evidence.")
 				break
 	primary_ids = {
-		excerpt.evidence_id
-		for excerpt in projection.excerpts
-		if excerpt.kind == "dated_changelog"
+		item.evidence_id for item in packet.items
+		if item.evidence_id in known_ids and item.kind == "dated_changelog"
 	}
 	if primary_ids and not used_ids.intersection(primary_ids):
 		issues.append("Post must cite dated changelog evidence when it is available.")
 	if not primary_ids and not used_ids:
 		issues.append("Post must cite at least one projected evidence item.")
-	projected_ids = {excerpt.evidence_id for excerpt in projection.excerpts}
+	projected_ids = known_ids
 	# ASVS 2.2.1: validate model-authored prose at its trusted producer boundary.
 	narrative_sections = narrative_prose_sections(body)
 	if policy.require_section_evidence and any(
@@ -614,12 +632,25 @@ def validate_candidate(
 		for item in packet.items
 		if item.kind == "screenshot" and item.evidence_id in projected_ids
 	]
-	approved_screenshot_paths = tuple(
-		item.publish_path for item in image_items if type(item.publish_path) is str
-	)
+	if allowed_screenshot_paths is None:
+		approved_screenshot_paths = tuple(
+			item.publish_path for item in image_items if type(item.publish_path) is str
+		)
+	else:
+		packet_screenshot_paths = {
+			item.publish_path for item in packet.items
+			if item.kind == "screenshot" and item.publish_path
+		}
+		if (
+			type(allowed_screenshot_paths) is not tuple
+			or tuple(sorted(set(allowed_screenshot_paths))) != allowed_screenshot_paths
+			or not set(allowed_screenshot_paths).issubset(packet_screenshot_paths)
+		):
+			raise RuntimeError("Candidate allowed screenshot paths are not a canonical packet subset.")
+		approved_screenshot_paths = allowed_screenshot_paths
 	if daily_blog.publication_source_safety.validate_post_source(post, approved_screenshot_paths):
 		issues.append("Post source contains an unsafe publication construct.")
 	for path in re.findall(r"!\[[^\]]*\]\(([^)]+)\)", body):
-		if path not in {item.publish_path for item in image_items}:
+		if path not in set(approved_screenshot_paths):
 			issues.append(f"Post embeds an image path outside projected evidence: {path}")
 	return issues

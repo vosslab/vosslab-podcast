@@ -57,16 +57,17 @@ def validate_bundle_asset_path(value: object) -> str:
 
 #============================================
 def model_cache_evidence(value: object) -> object:
-	"""Project evidence for model/cache use without host-local mirror locations.
+	"""Project stable repository facts for model prompts and route caching.
 
-	This does not alter the authoritative EvidencePacket v4 content or identity.
-	It is solely the portable editorial view used for prompts and route caching.
+	The authoritative EvidencePacket v4 retains mirror locations and refresh
+	observations. This portable view keeps the semantic inputs that affect model
+	work so equivalent repository objects can reuse the same result.
 	"""
 	if type(value) is dict:
 		return {
 			key: model_cache_evidence(item)
 			for key, item in value.items()
-			if key != "cache_path"
+			if key not in {"cache_path", "refresh_error", "refresh_result", "refreshed_at"}
 		}
 	if type(value) is list:
 		return [model_cache_evidence(item) for item in value]

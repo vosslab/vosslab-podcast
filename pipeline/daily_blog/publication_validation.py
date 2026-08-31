@@ -247,8 +247,8 @@ def validate_and_repair_complete_post(
 		or surface.source_packets != tuple(sorted(packets, key=lambda item: item.packet_id))
 	):
 		raise RuntimeError("Publication validation surface does not match the exact packet union.")
-	if surface is not None and daily_blog.candidates.validate_complete_post_body(
-		post.content, surface.packet, surface.projection,
+	if surface is not None and daily_blog.publication_admission.complete_post_policy_issues(
+		post, surface,
 	):
 		raise RuntimeError("Publication validation rejected complete post: publication_policy_mismatch")
 	body, existing_metadata = _body_and_metadata(post.content)

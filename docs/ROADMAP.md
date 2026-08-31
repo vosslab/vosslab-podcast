@@ -6,9 +6,10 @@ to priorities, not a release schedule. The authoritative execution record is
 
 ## Current baseline
 
-- M1 through M16 are accepted. They establish a nine-stage, evidence-grounded editorial route
+- The concluded M1 through M16 rebuild establishes a nine-stage, evidence-grounded editorial route
   with independent candidates, eligibility, review and promotion, incumbent preservation, and a
-  bounded recovery ladder.
+  bounded recovery ladder. Its durable closeout evidence lives in
+  [daily_blog_m16_closeout.md](active_plans/reports/daily_blog_m16_closeout.md).
 - The production prompt contract remains `v4-three-examples-corpus-v2`. Its maker brief and prompt
   prose are human-owned and unchanged. The registry mechanically resolves the active contract and
   its immutable resources.
@@ -21,23 +22,10 @@ to priorities, not a release schedule. The authoritative execution record is
 - Five self-generated, no-egress fixture cases already prove evidence-to-page integrity across
   quiet, busy, single-repository, screenshot-bearing, and degraded-dependency conditions. The
   durable validation record preserves the evidence and temporary-harness disposition.
-- M15 completed the direct-route migration: the publication-contract/storage boundary owned the
-  historical sealed bundle-v7 handoff, the `prompt_registry/` package owns immutable prompt identities through
-  its `definitions.py`, `loader.py`, and `editorial_contracts.py` leaf modules, retired experiment
-  and calibration routes are removed, and typed incumbent transitions make
-  replacement authority durable and source-derived. Its one aggregate E2E run passed 7/7. Its
-  one full-suite run is recorded truthfully as 3513 passed, 1 failed; the sole typed-transition
-  defect was then closed by the affected durable test and typing guard, which passed 206 tests.
-- M16 closed the operational record and archived superseded planning material while preserving the
-  human-owned [BLOG_CONTRACT.md](BLOG_CONTRACT.md). The independent final review passed all 64
-  Markdown-link tests, verified the archive and protected-contract digest, and found a clean diff
-  check.
-- M16 also completed a fixed-clock, no-egress public-command proof for
-  `report_date=2026-08-28`: two successful `make_blog.py --yesterday` invocations demonstrated
-  automatic same-date replacement and agreed on the terminal summary, historical sealed bundle-v7,
-  publication record, and rendered page identity and digests. This is fixture-backed integrity
-  evidence, not a live-model or prose-quality claim. A live model or network route remains
-  optional non-gating corroboration, not daily-blog backlog work.
+- The retired M15/M16 migration material is historical evidence, not current work. The M16
+  fixed-clock, no-egress public-command proof demonstrates automatic same-date replacement for
+  `report_date=2026-08-28`; it is fixture-backed integrity evidence, not a live-model or
+  prose-quality claim. Live model or network work remains optional corroboration.
 
 - The active v8 contract rejects unsafe reader-visible source as editorial ineligibility, carries
   `publication_source_safety.v1`'s executable 35-case SHA-256
@@ -54,3 +42,18 @@ to priorities, not a release schedule. The authoritative execution record is
   implementation faults; only the latter are pipeline faults.
 - Revise prompts only through explicit human approval of exact prose. Future prompt work uses the
   local prompt-engineering corpus and records a new immutable identity.
+
+## Future work
+
+- Consolidate the separately evolved strict-MkDocs preparation and verification helpers at the
+  producer-importer and presentation-publisher boundaries without merging their trust
+  responsibilities. Complete this only with a versioned interface, no-egress producer/publisher
+  tests, and a strict disposable build; neither interactive publication nor manual page review is a
+  gate.
+- Evolve a publication schema or source-safety policy only through a new immutable identity and a
+  portable executable corpus. Verify the producer and publisher independently from the same sealed
+  bytes, with automated migration and rendered-page checks.
+- Add operational or editorial coverage only for a demonstrated behavior gap. Keep completion
+  criteria deterministic, offline where practical, and runnable without credentials, calendar
+  waits, or human approval; record live-route observations as optional, provenance-labelled
+  corroboration.
