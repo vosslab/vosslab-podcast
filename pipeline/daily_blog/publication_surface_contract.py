@@ -32,7 +32,7 @@ def publication_surface_value(
 		"timezone": surface.packet.timezone,
 		"aggregate_packet_id": surface.packet.packet_id,
 		"source_packet_ids": list(packet.packet_id for packet in surface.source_packets),
-		"repositories": list(surface.repositories),
+		"repositories": list(surface.coverage_repositories),
 		"source_artifacts": [
 			{
 				"kind": type(artifact).__name__, "artifact_id": artifact.artifact_id,

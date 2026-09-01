@@ -291,6 +291,7 @@ class DailyPublicationOrchestrator:
 			surface = stage6_input.publication_surface
 			validated = daily_blog.publication_workflow.validate_selected_post(
 				self, stage7_result.artifact, surface,
+				recovery=stage6_result.recovery_generation is not None,
 			)
 			if validated.source_post is not stage7_result.artifact:
 				raise RuntimeError("Publication validation must retain the exact Stage 7 selected source post.")

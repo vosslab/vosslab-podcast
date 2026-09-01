@@ -16,10 +16,40 @@ import daily_blog.schema
 MAX_STAGE6_CONTEXT_CHARS = 60000
 STAGE6_CONTEXT_PROJECTION_VERSION = "stage6-survivor-fair-scale.v1"
 _SCALE_DENOMINATOR = 1000
+_RECOVERY_COMPONENT_CHARS = 28000
 
 
 class Stage6ContextCapacityError(RuntimeError):
 	"""Every survivor cannot fit inside the complete Stage 6 model frame."""
+
+
+#============================================
+@dataclasses.dataclass(frozen=True)
+class PublicationImage:
+	"""One sealed screenshot mapping, with a deliberately narrow model view."""
+
+	evidence_id: str
+	description: str
+	asset_path: str
+	publish_path: str
+
+	#============================================
+	def __post_init__(self) -> None:
+		"""Keep the sealed image authority typed and path-confined."""
+		if any(type(item) is not str or not item for item in (
+			self.evidence_id, self.description, self.asset_path, self.publish_path,
+		)):
+			raise RuntimeError("Publication image authority is invalid.")
+		daily_blog.schema.validate_bundle_asset_path(self.asset_path)
+
+	#============================================
+	def model_dict(self) -> dict[str, str]:
+		"""Return only screenshot fields safe and useful for an author."""
+		return {
+			"evidence_id": self.evidence_id,
+			"description": self.description,
+			"publish_path": self.publish_path,
+		}
 
 
 #============================================
@@ -34,8 +64,13 @@ class Stage6PromptContext:
 	"""Exact bounded artifact and evidence projections from one survivor authority."""
 
 	daily_outline_context: daily_blog.bounded_artifact_context.BoundedArtifactContext
+	recovery_daily_outline_context: daily_blog.bounded_artifact_context.BoundedArtifactContext
 	repo_story_context: daily_blog.bounded_artifact_context.BoundedArtifactContext
 	evidence_context: daily_blog.schema.BoundedEvidenceContext
+	recovery_repo_story_context: daily_blog.bounded_artifact_context.BoundedArtifactContext
+	recovery_evidence_context: daily_blog.schema.BoundedEvidenceContext
+	allowed_images: tuple[PublicationImage, ...]
+	coverage_repositories: tuple[str, ...]
 	shared_scale: int
 	context_id: str
 	model_context_id: str
@@ -46,8 +81,13 @@ class Stage6PromptContext:
 		return {
 			"projection_version": self.projection_version,
 			"daily_outline_context": self.daily_outline_context.to_dict(),
+			"recovery_daily_outline_context": self.recovery_daily_outline_context.to_dict(),
 			"repo_story_context": self.repo_story_context.to_dict(),
 			"evidence_context": self.evidence_context.to_dict(),
+			"recovery_repo_story_context": self.recovery_repo_story_context.to_dict(),
+			"recovery_evidence_context": self.recovery_evidence_context.to_dict(),
+			"allowed_images": [item.model_dict() for item in self.allowed_images],
+			"coverage_repositories": list(self.coverage_repositories),
 			"shared_scale": self.shared_scale,
 		}
 
@@ -56,8 +96,13 @@ class Stage6PromptContext:
 		return {
 			"projection_version": self.projection_version,
 			"daily_outline_model_context_id": self.daily_outline_context.model_context_id,
+			"recovery_daily_outline_model_context_id": self.recovery_daily_outline_context.model_context_id,
 			"repo_story_model_context_id": self.repo_story_context.model_context_id,
 			"evidence_model_context_id": self.evidence_context.model_context_id,
+			"recovery_repo_story_model_context_id": self.recovery_repo_story_context.model_context_id,
+			"recovery_evidence_model_context_id": self.recovery_evidence_context.model_context_id,
+			"allowed_images": [item.model_dict() for item in self.allowed_images],
+			"coverage_repositories": list(self.coverage_repositories),
 			"shared_scale": self.shared_scale,
 		}
 
@@ -92,6 +137,8 @@ class Stage6PromptContext:
 				self.evidence_context.render_context(self.evidence_context.context_chars),
 			),
 			"repo_stories": self._artifact_value(self.repo_story_context),
+			"available_images": [item.model_dict() for item in self.allowed_images],
+			"project_coverage": {"repositories": list(self.coverage_repositories)},
 		}
 
 	def render_context(self) -> str:
@@ -106,14 +153,16 @@ class Stage6PromptContext:
 	def render_recovery_context(self, rung: daily_blog.recovery.RecoveryRung) -> str:
 		"""Render one lower editorial path from the same bounded source authority."""
 		if rung is daily_blog.recovery.RecoveryRung.DAILY_OUTLINE_EXPANSION:
-			value = {"daily_outline": self._artifact_value(self.daily_outline_context)}
+			value = {"daily_outline": self._artifact_value(self.recovery_daily_outline_context)}
 		elif rung is daily_blog.recovery.RecoveryRung.REPOSITORY_STORY_MERGE:
-			value = {"repo_stories": self._artifact_value(self.repo_story_context)}
+			value = {"repo_stories": self._artifact_value(self.recovery_repo_story_context)}
 		else:
 			raise RuntimeError("Stage 6 recovery context rung is unsupported.")
 		value["evidence"] = json.loads(
-			self.evidence_context.render_context(self.evidence_context.context_chars),
+			self.recovery_evidence_context.render_context(self.recovery_evidence_context.context_chars),
 		)
+		value["project_coverage"] = {"repositories": list(self.coverage_repositories)}
+		value["available_images"] = [item.model_dict() for item in self.allowed_images]
 		context = canonical_context(value)
 		if len(context) > MAX_STAGE6_CONTEXT_CHARS:
 			raise Stage6ContextCapacityError(
@@ -126,6 +175,8 @@ class Stage6PromptContext:
 		daily_outline: daily_blog.artifacts.DailyOutline,
 		repo_stories: tuple[daily_blog.artifacts.RepoStory, ...],
 		packets: tuple[daily_blog.schema.EvidencePacket, ...],
+		recovery_repo_stories: tuple[daily_blog.artifacts.RepoStory, ...],
+		recovery_packets: tuple[daily_blog.schema.EvidencePacket, ...],
 	) -> None:
 		"""Prove every prompt projection is an exact slice of the survivor sources."""
 		if (
@@ -133,17 +184,41 @@ class Stage6PromptContext:
 			or type(self.shared_scale) is not int
 			or not 0 <= self.shared_scale <= _SCALE_DENOMINATOR
 			or self.daily_outline_context.artifact_kind != "daily_outline"
+			or self.recovery_daily_outline_context.artifact_kind != "daily_outline"
 			or self.repo_story_context.artifact_kind != "story"
+			or self.recovery_repo_story_context.artifact_kind != "story"
+			or type(self.allowed_images) is not tuple
+			or any(type(item) is not PublicationImage for item in self.allowed_images)
+			or tuple(sorted(self.allowed_images, key=lambda item: (
+				item.evidence_id, item.asset_path, item.publish_path,
+			))) != self.allowed_images
+			or len({item.evidence_id for item in self.allowed_images}) != len(self.allowed_images)
+			or len({item.asset_path for item in self.allowed_images}) != len(self.allowed_images)
+			or len({item.publish_path for item in self.allowed_images}) != len(self.allowed_images)
+			or type(self.coverage_repositories) is not tuple
+			or not self.coverage_repositories
+			or self.coverage_repositories != tuple(sorted(set(self.coverage_repositories)))
 		):
 			raise RuntimeError("Stage 6 prompt context is invalid.")
 		model_packet_ids = {
 			packet.packet_id: daily_blog.schema.model_cache_packet_identity(packet)
 			for packet in packets
 		}
+		recovery_packet_ids = {
+			packet.packet_id: daily_blog.schema.model_cache_packet_identity(packet)
+			for packet in recovery_packets
+		}
 		self.daily_outline_context.validate_against((daily_outline,), model_packet_ids)
+		self.recovery_daily_outline_context.validate_against((daily_outline,), model_packet_ids)
 		self.repo_story_context.validate_against(repo_stories, model_packet_ids)
+		self.recovery_repo_story_context.validate_against(recovery_repo_stories, recovery_packet_ids)
+		if not set(daily_outline.repositories).issubset(self.coverage_repositories):
+			raise RuntimeError("Stage 6 coverage must contain the narrative repository scope.")
 		daily_blog.projection.validate_bounded_evidence_context(
 			packets, self.evidence_context,
+		)
+		daily_blog.projection.validate_bounded_evidence_context(
+			recovery_packets, self.recovery_evidence_context,
 		)
 		if self.context_id != daily_blog.io_utils.hash_value(self.content_dict()):
 			raise RuntimeError("Stage 6 prompt context identity is inconsistent.")
@@ -159,6 +234,10 @@ def build_stage6_prompt_context(
 	daily_outline: daily_blog.artifacts.DailyOutline,
 	repo_stories: tuple[daily_blog.artifacts.RepoStory, ...],
 	packets: tuple[daily_blog.schema.EvidencePacket, ...],
+	recovery_repo_stories: tuple[daily_blog.artifacts.RepoStory, ...],
+	recovery_packets: tuple[daily_blog.schema.EvidencePacket, ...],
+	allowed_images: tuple[PublicationImage, ...],
+	coverage_repositories: tuple[str, ...],
 	projection_limits: dict[str, int],
 ) -> Stage6PromptContext:
 	"""Maximize one fair survivor view under the complete Stage 6 frame limit."""
@@ -167,12 +246,31 @@ def build_stage6_prompt_context(
 		or type(repo_stories) is not tuple or not repo_stories
 		or any(type(item) is not daily_blog.artifacts.RepoStory for item in repo_stories)
 		or type(packets) is not tuple or not packets
+		or type(recovery_repo_stories) is not tuple or not recovery_repo_stories
+		or any(type(item) is not daily_blog.artifacts.RepoStory for item in recovery_repo_stories)
+		or type(recovery_packets) is not tuple or not recovery_packets
+		or type(allowed_images) is not tuple
+		or any(type(item) is not PublicationImage for item in allowed_images)
+		or type(coverage_repositories) is not tuple
+		or not coverage_repositories
+		or coverage_repositories != tuple(sorted(set(coverage_repositories)))
 	):
 		raise RuntimeError("Stage 6 prompt context requires exact survivor sources.")
 	model_packet_ids = {
 		packet.packet_id: daily_blog.schema.model_cache_packet_identity(packet)
 		for packet in packets
 	}
+	recovery_packet_ids = {
+		packet.packet_id: daily_blog.schema.model_cache_packet_identity(packet)
+		for packet in recovery_packets
+	}
+	recovery_stories = daily_blog.bounded_artifact_context.BoundedArtifactContext.create(
+		recovery_repo_stories, _RECOVERY_COMPONENT_CHARS, "story", recovery_packet_ids,
+	)
+	recovery_evidence = daily_blog.projection.build_bounded_evidence_context(
+		recovery_packets, projection_limits,
+		min(_RECOVERY_COMPONENT_CHARS, projection_limits["context_chars"]),
+	)
 	full_evidence = daily_blog.projection.build_bounded_evidence_context(
 		packets, projection_limits,
 		min(MAX_STAGE6_CONTEXT_CHARS, projection_limits["context_chars"]),
@@ -180,17 +278,20 @@ def build_stage6_prompt_context(
 	full_outline = daily_blog.bounded_artifact_context.BoundedArtifactContext.create(
 		(daily_outline,), MAX_STAGE6_CONTEXT_CHARS, "daily_outline", model_packet_ids,
 	)
+	recovery_outline = daily_blog.bounded_artifact_context.BoundedArtifactContext.create(
+		(daily_outline,), _RECOVERY_COMPONENT_CHARS, "daily_outline", model_packet_ids,
+	)
 	full_stories = daily_blog.bounded_artifact_context.BoundedArtifactContext.create(
 		repo_stories, MAX_STAGE6_CONTEXT_CHARS, "story", model_packet_ids,
 	)
-	full = Stage6PromptContext(full_outline, full_stories, full_evidence, _SCALE_DENOMINATOR, "", "")
+	full = Stage6PromptContext(full_outline, recovery_outline, full_stories, full_evidence, recovery_stories, recovery_evidence, allowed_images, coverage_repositories, _SCALE_DENOMINATOR, "", "")
 	full = dataclasses.replace(
 		full,
 		context_id=daily_blog.io_utils.hash_value(full.content_dict()),
 		model_context_id=daily_blog.io_utils.hash_value(full.model_content_dict()),
 	)
 	if _fits_complete_frame(full):
-		full.validate_against(daily_outline, repo_stories, packets)
+		full.validate_against(daily_outline, repo_stories, packets, recovery_repo_stories, recovery_packets)
 		return full
 	minimum_outline = daily_blog.bounded_artifact_context.minimum_artifact_context(
 		(daily_outline,), "daily_outline", model_packet_ids, MAX_STAGE6_CONTEXT_CHARS,
@@ -247,7 +348,7 @@ def build_stage6_prompt_context(
 				packets, projection_limits, evidence_cap,
 			)
 			evidence_by_cap[evidence_cap] = evidence
-		value = Stage6PromptContext(outline, stories, evidence, scale, "", "")
+		value = Stage6PromptContext(outline, recovery_outline, stories, evidence, recovery_stories, recovery_evidence, allowed_images, coverage_repositories, scale, "", "")
 		return dataclasses.replace(
 			value,
 			context_id=daily_blog.io_utils.hash_value(value.content_dict()),
@@ -276,7 +377,7 @@ def build_stage6_prompt_context(
 			high = middle - 1
 		else:
 			low, best = middle, candidate
-	best.validate_against(daily_outline, repo_stories, packets)
+	best.validate_against(daily_outline, repo_stories, packets, recovery_repo_stories, recovery_packets)
 	return best
 
 

@@ -241,7 +241,7 @@ def test_stage5_uses_a_bounded_exact_context_for_only_surviving_repositories(
 def test_stage6_and_recovery_preserve_every_survivor_in_one_bounded_context(
 		tmp_path: pathlib.Path,
 ) -> None:
-	"""Primary and recovery routes share one genuinely trimmed survivor projection."""
+	"""Primary and recovery routes use bounded views from one survivor authority."""
 	packets = (_packet("vosslab/alpha", "a", "/one", "alpha-source"),)
 	limits = {**LIMITS, "context_chars": 6000, "excerpt_chars": 1000}
 	stage5_context = daily_blog.projection.build_bounded_evidence_context(
@@ -296,10 +296,14 @@ def test_stage6_and_recovery_preserve_every_survivor_in_one_bounded_context(
 	outline_id = context.daily_outline_context.model_context_id
 	story_id = context.repo_story_context.model_context_id
 	evidence_id = context.evidence_context.model_context_id
+	recovery_outline_id = context.recovery_daily_outline_context.model_context_id
+	recovery_story_id = context.recovery_repo_story_context.model_context_id
+	recovery_evidence_id = context.recovery_evidence_context.model_context_id
 	assert (
-		outline_id in primary and outline_id in daily_recovery
-		and story_id in primary and story_id in story_merge
-		and evidence_id in primary and evidence_id in daily_recovery and evidence_id in story_merge
+		outline_id in primary and recovery_outline_id in daily_recovery
+		and story_id in primary and recovery_story_id in story_merge
+		and evidence_id in primary
+		and recovery_evidence_id in daily_recovery and recovery_evidence_id in story_merge
 	)
 
 

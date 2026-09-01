@@ -14,6 +14,7 @@ import daily_blog.artifacts
 import daily_blog.editorial_stage_config
 import daily_blog.daily_outline_workflow
 import daily_blog.projection
+import daily_blog.publication_surface_contract
 import daily_blog.repository_contracts
 import daily_blog.schema
 import daily_blog.stage6
@@ -157,7 +158,13 @@ def test_bounded_context_retains_every_source_and_stage6_uses_only_declared_scop
 	surface = daily_blog.stage6.build_stage6_publication_surface(
 		result.artifact, result.selected_stories, source.packets,
 		dict(source.evidence_context.projection_limits),
+		survivor_stories=result.source_stories,
 	)
+	recovery_sources = daily_blog.stage6.Stage6RecoverySources.from_stage5(source, result)
+	stage6_input = daily_blog.stage6.Stage6Input(
+		str(tmp_path), str(tmp_path / source.report_date / "post.md"), recovery_sources, surface,
+	)
+	portable_surface = daily_blog.publication_surface_contract.publication_surface_value(surface)
 
 	reviewer_prompts = [prompt for role, prompt in runner.calls if role == "daily_outline_reviewer"]
 
@@ -170,7 +177,16 @@ def test_bounded_context_retains_every_source_and_stage6_uses_only_declared_scop
 	assert (
 		result.source_stories == source.repo_stories
 		and tuple(item.repositories[0] for item in result.selected_stories) == narrow
-		and surface.repositories == narrow
+		and surface.narrative_repositories == narrow
+		and surface.coverage_repositories == source.repositories
+		and tuple(item.repositories[0] for item in surface.repo_stories) == source.repositories
+		and tuple(item.repositories[0] for item in stage6_input.repo_stories) == narrow
+		and tuple(item.repositories[0] for item in recovery_sources.repo_stories) == source.repositories
+		and stage6_input.prompt_context.frame()["project_coverage"]["repositories"]
+		== list(source.repositories)
+		and portable_surface["repositories"] == list(source.repositories)
+		and "narrative_repositories" not in portable_surface
+		and "coverage_repositories" not in portable_surface
 	)
 
 

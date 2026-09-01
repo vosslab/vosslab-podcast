@@ -831,13 +831,13 @@ def test_orchestrator_records_publisher_preflight_as_an_operational_fault(
 
 	def stage6(*_args: object) -> object:
 		complete(orchestrator, "stage6_complete_post")
-		return types.SimpleNamespace(artifact=post)
+		return types.SimpleNamespace(artifact=post, recovery_generation=None)
 
 	def stage7(*_args: object) -> object:
 		complete(orchestrator, "stage7_final_synthesis")
 		return types.SimpleNamespace(artifact=post)
 
-	def validate(*_args: object) -> object:
+	def validate(*_args: object, **_kwargs: object) -> object:
 		complete(orchestrator, "publication_validation")
 		return types.SimpleNamespace(source_post=post, post=post)
 

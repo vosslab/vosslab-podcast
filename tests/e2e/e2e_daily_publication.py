@@ -41,17 +41,47 @@ SELECTED_ASSET_PATH = "assets/selected.png"
 UNSELECTED_ASSET_PATH = "assets/unselected.png"
 SELECTED_PUBLISH_PATH = f"../../assets/publications/{REPORT_DATE}/selected.png"
 UNSELECTED_PUBLISH_PATH = f"../../assets/publications/{REPORT_DATE}/unselected.png"
+PUBLISHER_READER_FILES = (
+	pathlib.PurePosixPath("index.md"),
+	pathlib.PurePosixPath("status.md"),
+	pathlib.PurePosixPath("stylesheets/extra.css"),
+)
+
+
+#============================================
+def _publisher_copy_ignores(directory: str, names: list[str]) -> set[str]:
+	"""Exclude mutable and generated publisher state from the controlled copy."""
+	ignored = set(shutil.ignore_patterns(
+		".git", ".venv", "generated", "site", "data", "__pycache__",
+	)(directory, names))
+	if pathlib.Path(directory) == PUBLISHER_ROOT:
+		# ASVS 15.2.2: the E2E exercises the real publisher runtime without
+		# multiplying its unbounded historical reader corpus in every stage.
+		ignored.add("docs")
+	return ignored
+
+
+#============================================
+def _initialize_reader_source(root: pathlib.Path) -> None:
+	"""Create the fixed minimal MkDocs source surface used by this E2E."""
+	docs_source = PUBLISHER_ROOT / "docs"
+	docs_target = root / "docs"
+	# ASVS 5.3.2: every copied path is an internal constant beneath the two
+	# trusted repository roots; no external filename controls a destination.
+	for relative in PUBLISHER_READER_FILES:
+		source = docs_source.joinpath(*relative.parts)
+		destination = docs_target.joinpath(*relative.parts)
+		destination.parent.mkdir(parents=True, exist_ok=True)
+		shutil.copy2(source, destination)
+	shutil.copytree(docs_source / "assets" / "brand", docs_target / "assets" / "brand")
+	(docs_target / "blog" / "posts").mkdir(parents=True)
 
 
 #============================================
 def _initialize_publisher(root: pathlib.Path) -> None:
 	"""Copy the tracked publisher into a disposable import target."""
-	shutil.copytree(PUBLISHER_ROOT, root, ignore=shutil.ignore_patterns(
-		".git", ".venv", "generated", "site", "data", "__pycache__",
-	))
-	prior_post = root / "docs" / "blog" / "posts" / (REPORT_DATE + ".md")
-	if prior_post.exists():
-		prior_post.unlink()
+	shutil.copytree(PUBLISHER_ROOT, root, ignore=_publisher_copy_ignores)
+	_initialize_reader_source(root)
 	(root / "data" / "publications").mkdir(parents=True)
 	(root / "data" / "publication_bundles").mkdir()
 	(root / "generated" / "staging").mkdir(parents=True)

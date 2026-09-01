@@ -213,6 +213,7 @@ def validate_and_repair_complete_post(
 	approved_output_root: str,
 	generator_run: str,
 	surface: daily_blog.publication_admission.PublicationSurface,
+	recovery: bool = False,
 ) -> PublicationValidationResult:
 	"""Return one eligible post with canonical publisher metadata.
 
@@ -252,7 +253,9 @@ def validate_and_repair_complete_post(
 	# ASVS 2.3.1: Stage 8 is a defense-in-depth admission boundary.  Earlier
 	# editorial paths retain grounded drafts for repair; only a fully reviewed,
 	# readable post may cross into the publisher-owned workflow.
-	if daily_blog.publication_admission.complete_post_policy_issues(post, surface):
+	if type(recovery) is not bool:
+		raise RuntimeError("Publication validation recovery scope is invalid.")
+	if daily_blog.publication_admission.complete_post_policy_issues(post, surface, recovery=recovery):
 		raise RuntimeError("Publication validation rejected complete post: publication_policy_mismatch")
 	body, existing_metadata = _body_and_metadata(post.content)
 	titles = tuple(match.group("title") for match in H1_RE.finditer(body))

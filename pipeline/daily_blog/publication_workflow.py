@@ -125,8 +125,8 @@ def _stage5_artifact_payload(result: daily_blog.daily_outline_workflow.DailyOutl
 		"artifact_id": artifact.artifact_id,
 		"content_hash": artifact.content_hash,
 		"artifact": artifact.to_dict(),
-		"source_story_ids": [item.artifact_id for item in result.source_stories],
-		"selected_story_ids": [item.artifact_id for item in result.selected_stories],
+		"coverage_story_ids": [item.artifact_id for item in result.source_stories],
+		"narrative_story_ids": [item.artifact_id for item in result.selected_stories],
 		"promoted_ranking_id": "" if promoted is None else promoted.promotion_id,
 		"promoted_ranking_hash": "" if promoted is None else promoted.ranking_content_sha256,
 		"eligible_candidate_ids": sorted(item.artifact_id for item in result.generation.eligible),
@@ -255,6 +255,7 @@ def run_typed_stage5(coordinator: object, value: object) -> daily_blog.stage6.St
 		result.artifact, result.selected_stories,
 		value.packets,
 		dict(value.evidence_context.projection_limits),
+		survivor_stories=result.source_stories,
 	)
 	coordinator.store.write_artifact(
 		"stage6_prompt_context.json", publication_surface.stage6_prompt_context.to_dict(),
@@ -265,7 +266,8 @@ def run_typed_stage5(coordinator: object, value: object) -> daily_blog.stage6.St
 	coordinator._complete("stage5_daily_outline", {
 		"artifact_id": result.artifact.artifact_id,
 		"content_hash": result.artifact.content_hash,
-		"selected_story_ids": [item.artifact_id for item in result.selected_stories],
+		"narrative_story_ids": [item.artifact_id for item in result.selected_stories],
+		"coverage_story_ids": [item.artifact_id for item in result.source_stories],
 		"stage5_repository_context_id": value.repository_context.context_id,
 		"stage5_repository_context_model_id": value.repository_context.model_context_id,
 		"stage6_prompt_context_id": publication_surface.stage6_prompt_context.context_id,
@@ -562,7 +564,7 @@ def _recover_stage6(
 	recovered = recovery.run(daily_blog.stage_recovery_coordinator.StageRecoveryInput(
 		value.report_date, "stage6/complete_post/recovery", daily_blog.artifacts.CompletePost,
 		result.promotion, result.generation, result.step_reliability, value.packets,
-		value.daily_outline.repositories,
+		value.publication_surface.coverage_repositories,
 		os.path.realpath(value.output_root), value.publication_surface,
 		prompt_identities, rubric_identities,
 		daily_blog.recovery.RecoveryIncumbent(
@@ -634,18 +636,23 @@ def validate_selected_post(
 	coordinator: object,
 	post: daily_blog.artifacts.CompletePost,
 	surface: daily_blog.publication_admission.PublicationSurface,
+	*,
+	recovery: bool,
 ) -> daily_blog.publication_validation.PublicationValidationResult:
 	"""Apply Stage 8 and advance the coordinator's sole best-artifact pointer."""
 	if type(post) is not daily_blog.artifacts.CompletePost:
 		raise RuntimeError("Publication validation requires an exact Stage 7 selected CompletePost.")
 	if type(surface) is not daily_blog.publication_admission.PublicationSurface:
 		raise RuntimeError("Publication validation requires one exact publication surface.")
+	if type(recovery) is not bool:
+		raise RuntimeError("Publication validation requires an explicit recovery scope.")
 	packets = surface.source_packets
 	phase_input = {
 		"before_artifact_id": post.artifact_id,
 		"content_hash": post.content_hash,
 		"packet_ids": [item.packet_id for item in packets],
 		"report_date": coordinator.report_date,
+		"recovery": recovery,
 	}
 	coordinator._start("publication_validation", phase_input)
 	result = daily_blog.publication_validation.validate_and_repair_complete_post(
@@ -655,6 +662,7 @@ def validate_selected_post(
 		approved_output_root=os.path.abspath(coordinator.config.output_root),
 		generator_run=coordinator.run_id,
 		surface=surface,
+		recovery=recovery,
 	)
 	daily_blog.publication_validation.validate_result_for_inputs(
 		result, source_post=post, report_date=coordinator.report_date, packets=packets,
@@ -665,6 +673,7 @@ def validate_selected_post(
 		"before_artifact_id": result.before_artifact_id,
 		"after_artifact_id": result.after_artifact_id,
 		"content_hash": result.post.content_hash,
+		"recovery": recovery,
 		"reasons": list(result.reasons),
 	}
 	coordinator.store.write_artifact("publication_validation.json", value)

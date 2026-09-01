@@ -232,7 +232,7 @@ class StageRecoveryCoordinator:
 			)
 		if value.publication_surface is not None and (
 			value.publication_surface.source_packets != value.packets
-			or value.publication_surface.repositories != value.allowed_repositories
+			or value.publication_surface.coverage_repositories != value.allowed_repositories
 			or value.publication_surface.packet.report_date != value.report_date
 		):
 			raise daily_blog.recovery.RecoveryConfigurationError(
@@ -295,10 +295,21 @@ class StageRecoveryCoordinator:
 			)
 		if not require_publication_eligibility:
 			return
-		if value.publication_surface is None or not daily_blog.publication_admission.complete_post_eligibility(
-			artifact, value.publication_surface, value.trusted_output_root,
-		).eligible:
+		if not self._complete_post_eligible(value, artifact):
 			raise daily_blog.recovery.RecoveryConfigurationError("Stage recovery artifact is not mechanically eligible.")
+
+	def _complete_post_eligible(
+		self,
+		value: StageRecoveryInput,
+		artifact: daily_blog.artifacts.CompletePost,
+	) -> bool:
+		"""Apply the exact admission scope owned by this recovery stage."""
+		if value.publication_surface is None:
+			return False
+		return daily_blog.publication_admission.complete_post_eligibility(
+			artifact, value.publication_surface, value.trusted_output_root,
+			recovery=value.stage_key == "stage6/complete_post/recovery",
+		).eligible
 
 	def _validate_source_candidate(
 		self,
@@ -334,6 +345,7 @@ class StageRecoveryCoordinator:
 			)
 		recomputed = daily_blog.publication_admission.complete_post_eligibility(
 			candidate.artifact, value.publication_surface, value.trusted_output_root,
+			recovery=value.stage_key == "stage6/complete_post/recovery",
 		)
 		if candidate.eligibility != recomputed:
 			raise daily_blog.recovery.RecoveryConfigurationError(
@@ -384,12 +396,7 @@ class StageRecoveryCoordinator:
 	def _eligible(self, value: StageRecoveryInput, artifact: daily_blog.artifacts.EditorialArtifact) -> bool:
 		"""Apply final-post policy while retaining a grounded story incumbent."""
 		if type(artifact) is daily_blog.artifacts.CompletePost:
-			return (
-				value.publication_surface is not None
-				and daily_blog.publication_admission.complete_post_eligibility(
-					artifact, value.publication_surface, value.trusted_output_root,
-				).eligible
-			)
+			return self._complete_post_eligible(value, artifact)
 		return daily_blog.artifacts.evaluate_eligibility(
 			artifact, value.packets, (), value.allowed_repositories,
 		).eligible

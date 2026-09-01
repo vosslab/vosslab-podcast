@@ -60,17 +60,32 @@ eligible synthesis wins its direct comparison.
 
 Stage 6 is a bounded editorial subflow: it freezes one survivor-scoped `PublicationSurface`, then
 uses that same authority for writer and editor context, evidence citations, repository coverage,
-screenshots, and final admission. Replicated authors create whole-post candidates; eligible grounded
-work survives partial route loss; editors return bounded feedback for those candidates; and promotion
-selects only an eligible whole post. If its normal author/editor path exhausts, its two
-recovery rungs request a whole post from the retained daily outline and then from retained repository
-stories. The retained strongest story remains provenance only and is never assembled into a post.
+screenshots, recovery, and final admission. The promoted daily outline defines the narrative scope;
+only those selected repository stories receive full primary prose context. The surface separately
+retains every usable repository survivor as coverage scope and renders its canonical repository roster
+in `project_coverage`. Routine work therefore remains visible and recoverable without being forced
+into the article body.
+
+Screenshot evidence cited by the promoted outline or its selected narrative stories is resolved to
+one exact evidence ID, bundle asset path, and publication path on the surface. Primary, recovery, and
+Stage 7 model frames expose only the evidence ID, a short filename-derived description, and the exact
+`publish_path`; local asset paths remain private to bundle transfer. A model may use an available
+image when it strengthens the post, but image use is not required. Uncited screenshots remain outside
+the admitted image set and bundle.
+
+Replicated authors create whole-post candidates; eligible grounded work survives partial route loss;
+editors return bounded feedback for those candidates; and promotion selects only an eligible whole
+post. If its normal narrative-scoped author/editor path exhausts, its two recovery rungs request a
+whole post from the retained daily outline and then from the full retained repository-story catalog.
+The retained strongest story remains provenance only and is never assembled into a post. Stage 7 and
+publication validation retain the recovery scope when recovery produced the incumbent.
 
 Stage 5 first projects every retained repository story and outline into fair bounded frames. Direct
-outline reviews use pair-specific story, outline, and evidence projections. Stage 6 then seals one
-prompt context from the winning outline, retained stories, and survivor evidence; its full primary
-and recovery frames each fit within 60,000 characters. Inspect `stage5_repository_context.json` and
-`stage6_prompt_context.json` for the source and semantic cache identities used by those requests.
+outline reviews use pair-specific story, outline, and evidence projections. Stage 6 then derives its
+narrative and coverage views from the same retained source catalog and seals both on one prompt
+context. Its full primary and recovery frames each fit within 60,000 characters. Inspect
+`stage5_repository_context.json` and `stage6_prompt_context.json` for the narrative, coverage, image,
+source, and semantic cache identities used by those requests.
 
 The user-facing terminal meanings are:
 
@@ -129,10 +144,12 @@ name that historical phase. New records and receipts use the current phase set.
 Hash-verified phase-cache entries reuse matching activity, evidence, projections, and successful
 route results. Failed route calls remain retryable, and compatible ordinal calls can be reused when
 the configured replication count changes. Model-cache identity describes the semantic editorial
-request: selected commits, activity, evidence, prompts, and editorial inputs. Mirror locations,
+request: selected commits, activity, evidence, prompts, narrative scope, rendered coverage scope,
+and selected screenshot evidence-to-publication mappings. Mirror locations, refresh observations,
 default-branch observations, and ref fingerprints do not invalidate matching work by themselves.
-Changed selected evidence or commits does invalidate it. Cache reuse saves work; it cannot relax
-evidence, eligibility, identity, or publication validation.
+Changed selected evidence, narrative scope, image mapping, or commits does invalidate the affected
+editorial work. Cache reuse saves work; it cannot relax evidence, eligibility, identity, or
+publication validation.
 
 Complete-post candidates reused from cache are admitted again against the current frozen
 `PublicationSurface` and final-post policy. A cached candidate that no longer meets that admission is
@@ -157,8 +174,8 @@ revision, source-safety policy identity, and hashes. The surface records the exa
 aggregate and source packet identities, repositories, source-artifact attestations, projected
 evidence IDs, and the one-to-one evidence ID, asset path, and published image-path entries. Bundle
 assets exactly equal those selected image entries; screenshots that remain in aggregate evidence but
-are outside the surface are not transferred or published. Candidate and referee topology remains
-producer-side diagnostic state; it is not publisher input.
+were not cited or otherwise selected by the narrative artifacts are not transferred or published.
+Candidate and referee topology remains producer-side diagnostic state; it is not publisher input.
 
 The producer sends that validated snapshot through one bounded hash-bound standard-input envelope;
 the publisher never reopens a producer bundle path. It first invokes the publisher's no-write

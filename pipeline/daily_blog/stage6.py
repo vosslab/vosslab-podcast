@@ -189,8 +189,8 @@ class Stage6Input:
 
 	@property
 	def repo_stories(self) -> tuple[daily_blog.artifacts.RepoStory, ...]:
-		"""Return the only survivor stories, owned by the publication surface."""
-		return self.publication_surface.repo_stories
+		"""Return the normal-generation narrative stories owned by the surface."""
+		return self.publication_surface.narrative_repo_stories
 
 	@property
 	def packets(self) -> tuple[daily_blog.schema.EvidencePacket, ...]:
@@ -224,17 +224,15 @@ class Stage6Input:
 			if story.report_date != self.report_date:
 				raise RuntimeError("Stage 6 RepoStory report date does not match DailyOutline.")
 			repositories.update(story.repositories)
-		if repositories != set(self.daily_outline.repositories):
+		if repositories != set(self.publication_surface.narrative_repositories):
 			raise RuntimeError("Stage 6 RepoStory repositories must exactly cover DailyOutline scope.")
 		if (
 			self.recovery_sources.report_date != self.report_date
 			or not {item.packet_id for item in self.packets}.issubset(
 				{item.packet_id for item in self.recovery_sources.packets}
 			)
-			or any(
-				story.artifact_id not in {item.artifact_id for item in self.recovery_sources.repo_stories}
-				for story in self.repo_stories
-			)
+			or tuple(sorted(self.recovery_sources.repo_stories, key=lambda item: item.artifact_id))
+			!= tuple(sorted(self.publication_surface.repo_stories, key=lambda item: item.artifact_id))
 		):
 			raise RuntimeError("Stage 6 recovery sources must contain the exact Stage 6 provenance.")
 		probe_evidence_ids = (self.daily_outline.evidence_ids[0],)
@@ -261,18 +259,19 @@ def build_stage6_publication_surface(
 	repo_stories: tuple[daily_blog.artifacts.RepoStory, ...],
 	packets: tuple[daily_blog.schema.EvidencePacket, ...],
 	projection_limits: dict[str, int],
+	*,
+	survivor_stories: tuple[daily_blog.artifacts.RepoStory, ...] | None = None,
 ) -> daily_blog.publication_admission.PublicationSurface:
 	"""Build the only survivor-scoped evidence authority Stage 6 may consume."""
-	scope = frozenset(daily_outline.repositories)
-	survivor_packets = tuple(sorted((
-		packet for packet in packets
-		if {item.repository for item in packet.items}.issubset(scope)
-	), key=lambda item: item.packet_id))
-	# ASVS 2.2.1 and 2.3.1: one validated value controls both the model frame
-	# and every later admission decision; the original packet union cannot leak in.
+	coverage_repositories = tuple(sorted({
+		item.repository for packet in packets for item in packet.items
+	}))
+	# ASVS 2.2.1 and 2.3.1: one surface retains full coverage authority while
+	# its narrative artifacts and prompt frame remain promoted-outline scoped.
+	all_stories = repo_stories if survivor_stories is None else survivor_stories
 	return daily_blog.publication_admission.build_surface(
-		survivor_packets, daily_outline.repositories, projection_limits,
-		(daily_outline,) + repo_stories,
+		packets, coverage_repositories, projection_limits,
+		(daily_outline,) + all_stories,
 	)
 
 
@@ -296,7 +295,9 @@ class CompletePostRecoveryInput:
 			raise RuntimeError("Complete-post recovery rung is unsupported.")
 		# Every recovery rung reuses the exact Stage 6 authority.  A lower path may
 		# change editorial source artifacts, but it cannot select new evidence.
-		object.__setattr__(self, "evidence_context", self.stage6_input.evidence_context)
+		object.__setattr__(
+			self, "evidence_context", self.stage6_input.prompt_context.recovery_evidence_context,
+		)
 		self.render_context()
 
 	@property
@@ -312,7 +313,7 @@ class CompletePostRecoveryInput:
 	@property
 	def repositories(self) -> tuple[str, ...]:
 		"""Return the exact target scope for the requested recovery editorial path."""
-		return self.stage6_input.publication_surface.repositories
+		return self.stage6_input.publication_surface.coverage_repositories
 
 	@property
 	def source_artifacts(self) -> tuple[daily_blog.artifacts.DailyOutline | daily_blog.artifacts.RepoStory, ...]:
@@ -325,8 +326,8 @@ class CompletePostRecoveryInput:
 	def strongest_story_within_scope(self) -> daily_blog.artifacts.RepoStory:
 		"""Return the ranked fallback story without crossing the promoted outline scope.
 
-		The full Stage-5 strongest story remains retained on recovery_sources for
-		terminal provenance; a recovery path may only expose selected repositories.
+		Recovery paths use the surface-owned full survivor catalog. The ranking
+		remains recovery metadata, not a second story authority.
 		"""
 		stories = tuple(
 			item for item in self.source_artifacts
@@ -334,8 +335,7 @@ class CompletePostRecoveryInput:
 		)
 		if not stories:
 			stories = tuple(
-				item for item in self.stage6_input.recovery_sources.repo_stories
-				if item.repositories[0] in self.stage6_input.publication_surface.repositories
+			item for item in self.stage6_input.publication_surface.repo_stories
 			)
 		scores = dict(self.stage6_input.recovery_sources.promoted_ranking.scores)
 		best_score = max(scores[item.content_hash] for item in stories)

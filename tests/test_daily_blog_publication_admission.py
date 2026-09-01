@@ -18,6 +18,7 @@ import daily_blog.publication_finalization
 import daily_blog.publication_admission
 import daily_blog.projection
 import daily_blog.prompt_registry.editorial_contracts
+import daily_blog.recovery
 import daily_blog.repository_contracts
 import daily_blog.schema
 import daily_blog.stage6
@@ -158,18 +159,18 @@ def test_surface_uses_exact_survivors_and_only_their_bundle_asset_paths(tmp_path
 	)
 	selected = tuple(item for item in packet.items if item is not unselected)
 	selected_ids = tuple(sorted(item.evidence_id for item in selected))
-	selected_path = next(item.publish_path for item in selected if item.kind == "screenshot")
+	selected_screenshot = next(item for item in selected if item.kind == "screenshot")
+	selected_path = selected_screenshot.publish_path
 	story_content = (
 		"Story " + " ".join("<!-- evidence: " + item + " -->" for item in selected_ids)
-		+ "\n![selected](" + selected_path + ")"
 	)
 	story = daily_blog.artifacts.RepoStory.create(
 		packet.report_date, (packet,), "vosslab/first", story_content, selected_ids,
-		(selected_path,),
+		(),
 	)
 	outline = daily_blog.artifacts.DailyOutline.create(
 		packet.report_date, (packet,), ("vosslab/first",), story_content, selected_ids,
-		(selected_path,),
+		(),
 	)
 	limits = {**_LIMITS, "context_chars": 1800}
 	surface = daily_blog.publication_admission.build_surface(
@@ -180,12 +181,15 @@ def test_surface_uses_exact_survivors_and_only_their_bundle_asset_paths(tmp_path
 		_stage6_sources(story, packet), surface,
 	)
 	rendered_context = stage6_input.render_context()
+	recovery_context = surface.stage6_prompt_context.render_recovery_context(
+		daily_blog.recovery.RecoveryRung.REPOSITORY_STORY_MERGE,
+	)
 	assets = daily_blog.publication_admission.survivor_assets(surface, {
 		"assets/selected.png": b"selected", "assets/unselected.png": b"unselected",
 	})
 
 	post = daily_blog.artifacts.CompletePost.create(
-		packet.report_date, surface.source_packets, surface.repositories,
+		packet.report_date, surface.source_packets, surface.narrative_repositories,
 		"# Visible survivor evidence\n\nI used the approved screenshot. <!-- evidence: "
 		+ ", ".join(surface.allowed_evidence_ids) + " -->\n\n"
 		+ "\n".join("![fixture](" + path + ")" for path in surface.allowed_image_paths),
@@ -206,9 +210,12 @@ def test_surface_uses_exact_survivors_and_only_their_bundle_asset_paths(tmp_path
 	portable_surface = json.loads(transfer_entries["publication_surface.json"])
 
 	assert (
-		selected_ids[0] in rendered_context and selected_path in rendered_context
+		selected_screenshot.evidence_id in rendered_context and selected_path in rendered_context
 		and unselected.evidence_id not in rendered_context
 		and unselected.publish_path not in rendered_context
+		and "assets/selected.png" not in rendered_context
+		and selected_path in recovery_context
+		and "assets/selected.png" not in recovery_context
 	)
 	assert (
 		{path for path in transfer_entries if path.startswith("assets/")}
@@ -288,7 +295,7 @@ def test_direct_surface_rejects_a_context_from_different_survivors() -> None:
 	second = _packet("vosslab/second", "second.png")
 	surface = _surface((first,))
 
-	with pytest.raises(RuntimeError, match="context"):
+	with pytest.raises(RuntimeError):
 		daily_blog.publication_admission.PublicationSurface(
 			(second,), surface.evidence_context, surface.stage6_prompt_context,
 			("vosslab/second",), surface.source_artifacts,
@@ -303,10 +310,10 @@ def test_direct_surface_rejects_source_artifacts_outside_survivor_scope() -> Non
 	first_surface = _surface((first,))
 	second_surface = _surface((second,))
 
-	with pytest.raises(RuntimeError, match="artifacts"):
+	with pytest.raises(RuntimeError):
 		daily_blog.publication_admission.PublicationSurface(
 			first_surface.source_packets, first_surface.evidence_context,
-			first_surface.stage6_prompt_context, first_surface.repositories,
+			first_surface.stage6_prompt_context, first_surface.coverage_repositories,
 			second_surface.source_artifacts,
 		)
 

@@ -56,10 +56,10 @@ def recover_complete_post(
 		raise RuntimeError("Stage 6 recovery writer prompt exceeds its configured limit.")
 	route_runner = runner if runner is not None else daily_blog.routes.CommandRouteRunner()
 	mechanical = lambda item: daily_blog.publication_admission.complete_post_mechanical_eligibility(
-		item, value.stage6_input.publication_surface, value.stage6_input.output_root,
+		item, value.stage6_input.publication_surface, value.stage6_input.output_root, recovery=True,
 	)
 	eligible = lambda item: daily_blog.publication_admission.complete_post_eligibility(
-		item, value.stage6_input.publication_surface, value.stage6_input.output_root,
+		item, value.stage6_input.publication_surface, value.stage6_input.output_root, recovery=True,
 	)
 	writing = daily_blog.replication.replicate(
 		writer_requests, route_runner, budget, daily_blog.artifacts.CompletePost,

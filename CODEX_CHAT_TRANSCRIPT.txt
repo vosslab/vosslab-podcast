@@ -3266,3 +3266,135 @@ Tests
 Next actions
 1. No required test-policy cleanup remains; no additional test family is
    planned.
+
+---
+Session Update: 2026-08-31 (editorial spotlight and selected-image authority)
+
+Change
+- Separated the Stage-5 narrative scope from full survivor coverage without
+  changing approved prompts, rubrics, BLOG_CONTRACT, Hermes routing, portable
+  publication-surface v1, or bundle v9. Normal Stage 6 receives the promoted
+  narrative stories and compact full roster; recovery owns the complete
+  survivor catalog through Stage 7 and publication validation.
+- Resolved screenshots cited by the promoted outline or selected narrative
+  stories into one exact surface-owned evidence, asset, and publish-path map.
+  Normal, recovery, and Stage 7 frames expose only evidence ID, a short
+  filename-derived description, and publish path. Image use remains optional;
+  uncited screenshots stay outside the bundle.
+- Bound narrative, coverage, selected-image, and recovery context into semantic
+  route identity while retaining refresh-only mirror reuse. Kept the existing
+  producer/publisher schema because its import, staging, archive, article, and
+  page validation already consume the exact selected image map.
+- Updated DAILY_BLOG_OPERATIONS.md and CHANGELOG.md. The changelog rotation tool
+  moved the 2026-08-26 through 2026-08-29 blocks into CHANGELOG-2026-08b.md.
+
+Tests
+- Prescribed focused tests passed 23 cases. Expanded related Stage 5 through
+  Stage 8 verification passed, and the complete permanent producer suite passed
+  3,750 tests in 35.08 seconds after two stale existing fixtures were updated
+  for the new typed recovery views. The controlled producer-to-publisher E2E
+  was initially recorded as passed here, but a later exact rerun disproved that
+  claim; the correction is recorded in the session update below.
+- Existing bundle/admission checks passed 27 tests; the unchanged sibling
+  publisher passed 44 focused import, article-projection, and deployment tests.
+  Independent scope, image, cache/recovery, publisher, and permanent-test-rule
+  reviewers approved the integrated boundaries.
+- A temporary in-memory replay of archived August 25 run
+  20260831T211539Z-c60846358a resolved four cited screenshots from an outline
+  with no pre-embedded image paths, exposed every publish path to Stage 6,
+  kept every local asset path out of the model frame, and excluded three
+  uncited screenshots. The probe was removed; the counts are one-time evidence,
+  not permanent gates.
+- Protected BLOG_CONTRACT and all five approved prompt/rubric hashes remained
+  byte-identical. Changed authored Python files remain below 1,000 lines, and
+  git diff --check passed before documentation closeout.
+- Live run 20260901T000547Z-81288cc26f stopped at mirror_refresh because the
+  sandbox could not write /home/vosslab/repo-mirrors. The requested external
+  write escalation was rejected pending explicit user authorization; no
+  publisher import occurred during that attempt.
+
+Next actions
+1. Obtain explicit user approval to rerun
+   `source source_me.sh && ./make_blog.py -y -d 2026-08-25` with write access to
+   `/home/vosslab/repo-mirrors` and the configured sibling publisher checkout.
+2. Inspect the resulting run, post, selected image availability, bundle,
+   imported record, and verified page. Record actual model image choice
+   separately from backend availability.
+3. Run final documentation/full-suite checks on the unchanged tree, complete
+   the publication-integrity review, and move the active plan to docs/archive/
+   with git mv only after all acceptance criteria pass.
+
+---
+Session Update: 2026-08-31 (live editorial spotlight acceptance)
+
+Change
+- Reran `source source_me.sh && ./make_blog.py -y -d 2026-08-25` after explicit
+  approval for mirror, Hermes, sibling-publication, rebuild, and verification
+  writes. Run `20260901T005316Z-b8907d6ec5` completed with degraded outcome
+  through the existing recovery paths and replaced the August 25 publication.
+- Kept narrative quality and image use qualitative. The live outline retained
+  all 10 surviving repositories; Stage 6 received four cited optional image
+  records; the article selected one. No count, wording, topology, or mandatory
+  image-use gate was added.
+- The published article gives sustained treatment to curriculum adoption,
+  maintained syllabus authority, and durable chemical-object identity, then
+  treats the remaining repository work compactly and lists the full coverage
+  roster.
+
+Tests and evidence
+- Best artifact: `artifact-e6be644d0fadc79c8a6966d8`; sealed bundle SHA-256:
+  `05412ec6ee562ad6fbc20b4e81ca4f170c23edae43dc87413b458c757daecc19`.
+- The producer and sibling Markdown SHA-256 values match at
+  `69b22a7d0a647a9d264f876fb6709ab16f97a8152c596a6281eff1cbe8d07463`.
+  Every selected asset also matches its installed sibling byte-for-byte.
+- The sibling import status is `replaced`; the rebuilt page at
+  `generated/releases/2026-08-25/blog/2026/08/25/a-preview-is-a-promise/index.html`
+  verified at SHA-256
+  `0a6bfeffa1dfbd1ff258010c5c2faf46c363c56ede967bcfe5591be52f7288b2`.
+
+Closeout
+- A fresh post-live publication-integrity review approved the complete chain.
+  It confirmed all six sealed producer artifacts match the sibling archive,
+  all four selected assets match the producer, archive, and installed bytes,
+  and all three unselected screenshots remain absent from the bundle,
+  publisher, and rendered page.
+- Final permanent verification passed all 3,760 tests in 34.49 seconds.
+- Every acceptance criterion passed, and the completed plan moved with
+  `git mv` to
+  `docs/archive/daily_blog_editorial_spotlight_and_screenshot_plan.md`.
+
+Next actions
+1. None for this plan.
+
+---
+Session Update: 2026-08-31 (controlled replacement E2E correction)
+
+Change
+- Reproduced the manager-reported contradiction with the exact command
+  `source source_me.sh && python3 tests/e2e/e2e_daily_publication.py`: the first
+  controlled import succeeded and the same-date replacement failed during
+  `site_import` with `staged_build_failed`.
+- Preserved one disposable checkout long enough to inspect the publisher-local
+  diagnostic. The underlying failure was `ENOSPC` while copying the sibling's
+  growing `docs/` screenshot corpus into another staged source tree; the
+  ordinary strict MkDocs build passed, and no production replacement or
+  editorial assertion failed.
+- Narrowed only the E2E fixture. It still copies and executes the real publisher
+  runtime, but constructs a fixed minimal MkDocs reader source from trusted
+  publisher files instead of multiplying unrelated historical posts and
+  screenshots. Production code and publisher code remain unchanged. The fixed
+  file-copy boundary uses only internal constant paths (ASVS 5.3.2) and bounds
+  the resource-demanding test fixture (ASVS 15.2.2).
+
+Tests
+- The exact controlled E2E now passes first import, same-date replacement with
+  `status=replaced`, rendered-page verification, selected-image transfer, and
+  the intentional post-import page-verification failure scenario.
+- Python compilation and 1,972 focused ASCII, typing, indentation, Pyflakes,
+  shebang, source-size, and whitespace checks passed.
+- The earlier statement that this E2E had already passed was false and is
+  explicitly superseded by this correction; no stochastic output or model
+  call-count gate was added.
+
+Next actions
+1. None for this correction.

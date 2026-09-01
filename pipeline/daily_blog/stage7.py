@@ -17,6 +17,7 @@ import daily_blog.io_utils
 import daily_blog.prompt_registry.definitions
 import daily_blog.prompt_registry.loader
 import daily_blog.replication
+import daily_blog.recovery
 import daily_blog.routes
 import daily_blog.schema
 import daily_blog.stage6
@@ -59,6 +60,26 @@ class Stage7Input:
 			raise RuntimeError("Stage 7 incumbent disappeared after input validation.")
 		return artifact
 
+	@property
+	def recovery_scope(self) -> bool:
+		"""Tell downstream admission whether Stage 6 selected recovery material."""
+		return self.stage6_result.recovery_generation is not None
+
+	@property
+	def allowed_repositories(self) -> tuple[str, ...]:
+		"""Return the exact narrative or full-coverage scope selected by Stage 6."""
+		if self.recovery_scope:
+			return self.stage6_input.publication_surface.coverage_repositories
+		return self.stage6_input.publication_surface.narrative_repositories
+
+	def render_context(self) -> str:
+		"""Render the matching bounded Stage-6 evidence frame for Stage 7."""
+		if self.recovery_scope:
+			return self.stage6_input.prompt_context.render_recovery_context(
+				daily_blog.recovery.RecoveryRung.REPOSITORY_STORY_MERGE,
+			)
+		return self.stage6_input.render_context()
+
 	def identity_dict(self) -> dict[str, object]:
 		"""Return cache-safe exact Stage 6 input/result provenance."""
 		return {
@@ -76,6 +97,8 @@ class Stage7Input:
 			"output_path": self.stage6_input.output_path,
 			"incumbent_id": self.incumbent.content_hash,
 			"incumbent_hash": self.incumbent.content_hash,
+			"recovery_scope": self.recovery_scope,
+			"stage6_prompt_context": self.stage6_input.prompt_context.cache_identity(),
 		}
 
 	def model_identity_dict(self) -> dict[str, object]:
@@ -192,6 +215,7 @@ def _eligible(value: Stage7Input, item: daily_blog.artifacts.EditorialArtifact) 
 		return daily_blog.artifacts.EligibilityResult(False, ("invalid_machine_metadata",))
 	return daily_blog.publication_admission.complete_post_eligibility(
 		item, value.stage6_input.publication_surface, value.stage6_input.output_root,
+		recovery=value.recovery_scope,
 	)
 
 
@@ -242,7 +266,7 @@ def _matches_stage6_target(value: Stage7Input, item: object) -> bool:
 		item.report_date == stage6.report_date
 		and item.packet_ids == tuple(packet.packet_id for packet in stage6.packets)
 		and bool(item.repositories)
-		and set(item.repositories).issubset(stage6.daily_outline.repositories)
+		and set(item.repositories).issubset(value.allowed_repositories)
 		and item.publication_id == stage6.report_date
 		and item.output_path == stage6.output_path
 		and _eligible(value, item).eligible
@@ -308,12 +332,8 @@ def _canonical(value: object, maximum: int, label: str) -> str:
 def _review_facts(value: Stage7Input, maximum: int) -> str:
 	"""Project only bounded Stage 6 vote identities and statuses."""
 	artifacts = (value.incumbent,) + tuple(
-		item.artifact for item in value.stage6_result.generation.candidates
-		if item.artifact is not None
-	)
-	artifacts += tuple(
-		item.artifact for item in value.stage6_result.editing.candidates
-		if item.artifact is not None
+		item.artifact for stream in _stage6_generation_streams(value.stage6_result)
+		for item in stream.candidates if item.artifact is not None
 	)
 	aliases = {item.artifact_id: item.content_hash for item in artifacts}
 	votes = [{"review_id": vote.review_id, "first_artifact_id": aliases.get(vote.first_artifact_id, ""),
@@ -353,13 +373,12 @@ def _prompt_data(value: Stage7Input, alternatives: tuple[daily_blog.artifacts.Co
 		limits["alternatives_chars"], "alternatives")
 	if limits["evidence_chars"] < value.stage6_input.evidence_context.context_chars:
 		raise RuntimeError("Stage 7 evidence budget cannot retain the Stage 6 bounded context.")
-	evidence = value.stage6_input.evidence_context.render_context(
-		value.stage6_input.evidence_context.context_chars,
-	)
+	evidence = value.render_context()
 	rubric = _canonical({"version": identity["rubric_version"], "text": templates["rubric"]},
 		limits["rubric_chars"], "rubric")
 	provenance = _canonical({"stage6_input": value.model_identity_dict(), "stage6_input_identity": daily_blog.io_utils.hash_value(value.model_identity_dict()),
 		"prompt": identity, "model_context_id": value.stage6_input.evidence_context.model_context_id,
+		"recovery_scope": value.recovery_scope,
 		"alternative_ids": [item.content_hash for item in alternatives]},
 		limits["provenance_chars"], "provenance")
 	review_facts = _review_facts(value, limits["review_facts_chars"])
@@ -368,7 +387,8 @@ def _prompt_data(value: Stage7Input, alternatives: tuple[daily_blog.artifacts.Co
 		prompt_set,
 	), {"alternatives": [item.content_hash for item in alternatives], "review_facts": review_facts,
 		"prompt": identity, "rubric_version": identity["rubric_version"],
-		"model_context_id": value.stage6_input.evidence_context.model_context_id}
+		"model_context_id": value.stage6_input.evidence_context.model_context_id,
+		"recovery_scope": value.recovery_scope}
 
 
 #============================================
@@ -406,7 +426,7 @@ def _parse_synthesis_candidate(
 	try:
 		candidate = daily_blog.final_synthesis_prompts.parse_final_synthesis_complete_post(
 			result.text, value.report_date, value.stage6_input.packets,
-			value.stage6_input.daily_outline.repositories, value.stage6_input.output_path,
+		value.allowed_repositories, value.stage6_input.output_path,
 			value.stage6_input.output_root,
 		)
 		if not _matches_stage6_target(value, candidate):
@@ -514,7 +534,7 @@ def run_stage7(value: Stage7Input, run_id: str, config: daily_blog.config.DailyB
 
 	def build(left: daily_blog.artifacts.EditorialArtifact, right: daily_blog.artifacts.EditorialArtifact,
 		assignment: daily_blog.replication.ReviewAssignment) -> daily_blog.replication.ReviewWork:
-		prompt = templates["referee"].format(rubric=templates["rubric"], evidence_json=value.stage6_input.render_context(),
+		prompt = templates["referee"].format(rubric=templates["rubric"], evidence_json=value.render_context(),
 			candidate_a=left.content, candidate_b=right.content)
 		request = _request(value, run_id, "7_2", "reviewer",
 			f"{assignment.pair_index}_{assignment.reviewer_index}_{assignment.display_order}", stage.reviewer_route,

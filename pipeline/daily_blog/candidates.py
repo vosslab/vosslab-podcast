@@ -359,6 +359,7 @@ def _validate_final_house_style(
 	packet: daily_blog.schema.EvidencePacket,
 	projection: daily_blog.schema.EditorialProjection,
 	policy: daily_blog.prompt_registry.definitions.CandidateValidationPolicy,
+	coverage_repositories: tuple[str, ...] | None = None,
 ) -> list[str]:
 	"""Validate the objective publication shape shared by final editorial candidates."""
 	issues = []
@@ -436,7 +437,9 @@ def _validate_final_house_style(
 		and _policy_word_count(coverage_blocks[0], policy) > policy.coverage_maximum_words
 	):
 		issues.append("Project coverage exceeds its compact visible word budget.")
-	if policy.coverage_repository_scope == "all_packet_activity":
+	if coverage_repositories is not None:
+		repositories = list(coverage_repositories)
+	elif policy.coverage_repository_scope == "all_packet_activity":
 		repositories = [activity.repository for activity in packet.activity]
 	elif policy.coverage_repository_scope == "projected_repositories":
 		repositories = [card.repository for card in projection.repositories]
@@ -483,6 +486,7 @@ def validate_complete_post_body(
 	*,
 	allowed_evidence_ids: tuple[str, ...] | None = None,
 	allowed_screenshot_paths: tuple[str, ...] | None = None,
+	coverage_repositories: tuple[str, ...] | None = None,
 ) -> list[str]:
 	"""Validate authored final-post prose without trusting machine metadata.
 
@@ -509,6 +513,7 @@ def validate_complete_post_body(
 		metadata + body, packet, projection, "stage-admission", policy,
 		allowed_evidence_ids=allowed_evidence_ids,
 		allowed_screenshot_paths=allowed_screenshot_paths,
+		coverage_repositories=coverage_repositories,
 	)
 
 
@@ -522,6 +527,7 @@ def validate_candidate(
 	*,
 	allowed_evidence_ids: tuple[str, ...] | None = None,
 	allowed_screenshot_paths: tuple[str, ...] | None = None,
+	coverage_repositories: tuple[str, ...] | None = None,
 ) -> list[str]:
 	"""Return deterministic structural and evidence-provenance issues."""
 	policy = daily_blog.prompt_registry.editorial_contracts.resolve_validation_policy(policy)
@@ -571,7 +577,9 @@ def validate_candidate(
 		issues.append("Post body must contain exactly one excerpt marker.")
 	if marker_count == policy.required_excerpt_marker_count:
 		# ASVS 2.2.1: validate model-authored structure against predefined publication limits.
-		issues.extend(_validate_final_house_style(body, packet, projection, policy))
+		issues.extend(_validate_final_house_style(
+			body, packet, projection, policy, coverage_repositories,
+		))
 	if FENCE_RE.search(body):
 		issues.append("Post body contains a fenced payload.")
 	if not re.search(r"\b(?:I|my)\b", body, flags=re.IGNORECASE):

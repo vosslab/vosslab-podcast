@@ -188,6 +188,7 @@ def _contracted_story_recovery_input(tmp_path: pathlib.Path) -> daily_blog.stage
 		str(tmp_path), str(tmp_path / daily_outline.report_date / "post.md"), sources,
 		daily_blog.stage6.build_stage6_publication_surface(
 			daily_outline, (selected,), packets, _CONTEXT_LIMITS,
+			survivor_stories=stories,
 		),
 	)
 	return daily_blog.stage6.CompletePostRecoveryInput(
@@ -240,15 +241,16 @@ def test_recovery_sources_canonicalize_multirepository_pairs_and_stable_ties() -
 
 
 #============================================
-def test_story_recovery_contracts_sources_to_the_promoted_daily_outline(
+def test_story_recovery_reaches_the_full_surface_owned_survivor_catalog(
 		tmp_path: pathlib.Path,
 ) -> None:
-	"""A lower recovery rung cannot re-expand a contracted promoted outline."""
+	"""A lower recovery rung can use a routine survivor outside normal narrative scope."""
 	value = _contracted_story_recovery_input(tmp_path)
 
-	assert value.repositories == ("vosslab/a",)
-	assert value.strongest_story_within_scope.repositories == ("vosslab/a",)
-	assert "vosslab/z" not in value.render_context()
+	assert value.stage6_input.repo_stories[0].repositories == ("vosslab/a",)
+	assert value.repositories == ("vosslab/a", "vosslab/z")
+	assert value.strongest_story_within_scope.repositories == ("vosslab/z",)
+	assert "vosslab/z" in value.render_context()
 
 
 #============================================
