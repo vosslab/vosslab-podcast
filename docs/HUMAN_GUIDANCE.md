@@ -10,6 +10,8 @@ origin belongs there too. Rules: [REPO_STYLE.md](REPO_STYLE.md).
 
 ## System design
 
+- LLMs are stochastic, random, and do not always follow the rules
+
 - This is pre-production: improve foundational schemas, contracts, abstractions, and ownership
   boundaries directly instead of carrying legacy support.
 - Prioritize the long term and adaptability. Keep responsibilities explicit and components replaceable;
