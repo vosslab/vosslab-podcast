@@ -41,9 +41,15 @@ replacement is verified.
 
 ## Pipeline and outcomes
 
-The current pipeline has nine operator-visible stages:
+Before the nine editorial/publication stages, Step 0 searches GitHub for commits in every repository
+owned by the configured account on the `report_date`. It writes `daily_commits.md` in the run
+directory before any model work. Commit-message previews use only the first line and are capped at
+160 characters; exact Git objects remain the evidence authority.
 
-1. Discover the repository roster and refresh exact local mirrors.
+The current pipeline then has nine operator-visible stages:
+
+1. Discover the repository roster and refresh exact local mirrors only for repositories named by
+   Step 0.
 2. Locate date-bounded Git activity and assemble evidence packets.
 3. Produce and promote repository outlines.
 4. Produce and promote repository stories.
@@ -74,11 +80,25 @@ image when it strengthens the post, but image use is not required. Uncited scree
 the admitted image set and bundle.
 
 Replicated authors create whole-post candidates; eligible grounded work survives partial route loss;
-editors return bounded feedback for those candidates; and promotion selects only an eligible whole
-post. If its normal narrative-scoped author/editor path exhausts, its two recovery rungs request a
-whole post from the retained daily outline and then from the full retained repository-story catalog.
-The retained strongest story remains provenance only and is never assembled into a post. Stage 7 and
-publication validation retain the recovery scope when recovery produced the incumbent.
+editors receive candidate-local positive repair objectives with authorized evidence and artifact
+identities; and promotion selects only an eligible whole post. If its normal narrative-scoped
+author/editor path exhausts, its two recovery rungs request a whole post from the retained daily
+outline and then from the full retained repository-story catalog. The retained strongest story
+remains provenance only and is never assembled into a post. Stage 7 and publication validation
+retain the recovery scope when recovery produced the incumbent.
+
+Citation density, section shape, coverage presentation, and other authored-body preferences are
+editorial repair guidance, not publication gates. A complete post can be admitted when its typed
+provenance, evidence references, repository scope, output path, and image paths are mechanically
+valid. This keeps model variability from turning house-style preferences into pipeline faults.
+
+Stage 6 constructs one finite maximum attempt plan before route dispatch. It admits the primary rung,
+the two recovery rungs, the configured fresh-batch count, and same-request transport retry capacity.
+Each batch materializes only the generation and candidate-dependent review work whose inputs exist,
+in maximum-plan order. Every review is bound to the two candidate hashes it sees, and every review
+repair names the materialized review and response it repairs. The plan accepts one through three fresh
+batches. The current `fresh_batch_count: 1` is provisional until the bounded stochastic comparison
+produces its one-time result receipt; configuration then records the evidence-selected fixed count.
 
 Stage 5 first projects every retained repository story and outline into fair bounded frames. Direct
 outline reviews use pair-specific story, outline, and evidence projections. Stage 6 then derives its
@@ -123,23 +143,26 @@ Each run is stored under:
 out/<owner>/daily_blog/YYYY-MM-DD/runs/RUN_ID/
 ```
 
-The date directory also owns `summary.jsonl`, a bounded terminal receipt for each completed or
-failed run. Inspect `run_state.json` for phase status and selected artifact, `events.jsonl` for
-bounded lifecycle and bundle facts, and `summary.jsonl` for the terminal outcome, publication status,
-terminal run-record digest, and verified-page digest. These records intentionally omit prompts, model
-responses, credentials, and raw external diagnostics.
+The date directory also owns `summary.jsonl`, a bounded terminal receipt for each completed or failed
+run. Inspect `summary.jsonl` first for the terminal outcome, authoritative Stage-6 attempt summary,
+publication status, terminal run-record digest, and verified-page digest. Then inspect
+`daily_commits.md` for Step 0's account-wide date inventory, `run_state.json` for phase state,
+selected artifact, and the response-free Stage-6 ledger, and `events.jsonl` for bounded lifecycle and
+bundle facts. These records intentionally omit prompts, model responses, credentials, and raw
+external diagnostics.
 
-Run state uses `vosslab.daily-blog.run.v12`. Each editorial summary carries an exact typed incumbent
+Run state uses `vosslab.daily-blog.run.v13`. Each editorial summary carries an exact typed incumbent
 transition: observe, establish, editorial replacement, or publication repair. Replay validates the
 transition chain and `best_artifact_id`; stage names are observability labels, never authority to
-replace a post. Each production retry creates a new auditable run and reuses only compatible
-phase and route-cache work. `RunStore.reopen()` is reconciliation-only: it can resolve a pending
-transition in an existing run once, but it does not make that run the retry target.
+replace a post. The v13 record also stores the complete materialized Stage-6 attempt ledger and its
+derived summary. Each production retry creates a new auditable run and reuses only compatible phase
+and route-cache work. `RunStore.reopen()` is reconciliation-only: it can resolve a pending transition
+in an existing run once, but it does not make that run the retry target.
 
-Run v12 proceeds from evidence assembly to repository editorial; the survivor-scoped surface now
-owns editorial projection. The reader narrowly migrates compatible retained v11 records with the
-retired `editorial_projection` phase, and terminal-summary replay preserves failure receipts that
-name that historical phase. New records and receipts use the current phase set.
+Run v13 proceeds from evidence assembly to repository editorial; the survivor-scoped surface owns
+editorial projection. Mutable run state and terminal-summary receipts from another schema are
+regeneration-required. Production readers and writers use only the current phase set; inspect older
+internal JSON through a disposable diagnostic reader when historical analysis requires it.
 
 Hash-verified phase-cache entries reuse matching activity, evidence, projections, and successful
 route results. Failed route calls remain retryable, and compatible ordinal calls can be reused when
@@ -147,9 +170,14 @@ the configured replication count changes. Model-cache identity describes the sem
 request: selected commits, activity, evidence, prompts, narrative scope, rendered coverage scope,
 and selected screenshot evidence-to-publication mappings. Mirror locations, refresh observations,
 default-branch observations, and ref fingerprints do not invalidate matching work by themselves.
-Changed selected evidence, narrative scope, image mapping, or commits does invalidate the affected
+Changes to selected evidence, narrative scope, image mapping, or commits invalidate the affected
 editorial work. Cache reuse saves work; it cannot relax evidence, eligibility, identity, or
 publication validation.
+
+Stage-6 route reuse also requires the exact materialized v2 cache witness. It binds the planned slot,
+prompt digest, ordered candidate hashes, positive feedback-envelope digest, review-repair source and
+response digests, and route execution contract. Same-request transport retries retain that semantic
+slot; a new fresh batch receives a different planned identity.
 
 Complete-post candidates reused from cache are admitted again against the current frozen
 `PublicationSurface` and final-post policy. A cached candidate that no longer meets that admission is
@@ -240,10 +268,13 @@ pipeline operation.
 
 ## Observability and reliability
 
-The terminal summary and event stream expose bounded counts for attempts, successes, failures,
-reuse, repairs, disagreements, and the selected artifact. `run_state.json` and the stage reliability
-artifacts additionally retain bounded categorical rejection counts, without candidate, prompt, or
-provider prose, so operators can diagnose why eligible editorial work degraded.
+The terminal summary exposes the authoritative bounded Stage-6 attempt projection: materialized
+planned slots, fresh and cached dispatch, promotion skips, physical calls, transport outcomes,
+admission gates, completed or rejected reviews, rejection reasons, selection, and final exhaustion.
+`run_state.json` retains the exact response-free ledger behind those counts. The
+`daily_publication.stage6_attempt_reliability_persisted` event repeats only bounded scalar lifecycle
+facts; use `summary.jsonl` for the terminal result. Candidate, prompt, reviewer-response, and provider
+prose remain outside all three records.
 
 The read-only reliability reporter aggregates those receipts across runs. Its rates preserve raw
 numerators and denominators and report an absent population as `n/a`; it is advisory only. It does
@@ -260,8 +291,10 @@ source source_me.sh && python3 tests/e2e/e2e_daily_publication.py
 ```
 
 This proves producer-to-publisher integrity and recovery behavior, not that fixture prose establishes
-live editorial quality. A live route or network run is optional corroboration and must record its
-provenance and an unavailable or `not_run` disposition when it is not performed.
+live editorial quality. Bounded live stochastic comparisons are one-time release evidence: record the
+fixed evidence and prompt identities, admitted plan capacity, every observed attempt, marginal
+eligibility yield, selected default, and final explicit-date publication receipt. Keep those
+experiments and their exact-topology checks outside permanent pytest.
 
 Permanent offline tests protect stable contracts. Exact-Git and mirror E2Es separately protect their
 own infrastructure boundaries. Temporary implementation harnesses, historical shadow evaluation,

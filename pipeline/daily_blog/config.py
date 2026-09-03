@@ -42,8 +42,6 @@ DAILY_BLOG_SETTING_KEYS = {
 	"daily_outline",
 	"editorial_reliability",
 	"final_synthesis",
-	"identity_emails",
-	"identity_names",
 	"logging",
 	"mirror_cache_root",
 	"projection_limits",
@@ -125,8 +123,6 @@ class DailyBlogConfig:
 	report_timezone: str
 	daily_blog_repository: str
 	mirror_cache_root: str
-	identity_names: tuple[str, ...]
-	identity_emails: tuple[str, ...]
 	author_routes: tuple[daily_blog.editorial_stage_config.RoleRoute, ...]
 	referee_route: daily_blog.editorial_stage_config.RoleRoute
 	collection_limits: dict[str, int]
@@ -246,25 +242,6 @@ def load_config(settings_path: str = "settings.yaml", output_root: str = "out") 
 		["daily_blog", "mirror_cache_root"],
 		"/home/vosslab/repo-mirrors",
 	)
-	default_name = pipeline_settings.get_github_identity_login(settings)
-	identity_names = daily_blog.editorial_stage_config._string_list(
-		pipeline_settings.get_nested_value(
-			settings,
-			["daily_blog", "identity_names"],
-			[default_name],
-		),
-		"daily_blog.identity_names",
-	)
-	identity_emails = daily_blog.editorial_stage_config._string_list(
-		pipeline_settings.get_nested_value(
-			settings,
-			["daily_blog", "identity_emails"],
-			pipeline_settings.get_github_allowed_emails(settings),
-		),
-		"daily_blog.identity_emails",
-	)
-	if not identity_names and not identity_emails:
-		raise RuntimeError("Daily-blog attribution requires identity_names or identity_emails.")
 	author_routes, referee_route = daily_blog.editorial_stage_config._load_routes(settings)
 	config = DailyBlogConfig(
 		settings_path=resolved_path,
@@ -273,8 +250,6 @@ def load_config(settings_path: str = "settings.yaml", output_root: str = "out") 
 		report_timezone=report_timezone,
 		daily_blog_repository=os.path.abspath(daily_blog_repository),
 		mirror_cache_root=os.path.abspath(mirror_cache_root),
-		identity_names=identity_names,
-		identity_emails=identity_emails,
 		author_routes=author_routes,
 		referee_route=referee_route,
 		collection_limits=_load_limits(

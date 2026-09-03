@@ -12,10 +12,13 @@ from collections.abc import Callable, Iterator
 
 # local repo modules
 import daily_blog.io_utils
+import daily_blog.attempt_ledger
+import daily_blog.recovery
+import daily_blog.replication
 import daily_blog.run_contracts
 
 
-TERMINAL_SUMMARY_SCHEMA_VERSION = "vosslab.daily-blog.terminal-summary.v1"
+TERMINAL_SUMMARY_SCHEMA_VERSION = "vosslab.daily-blog.terminal-summary.v2"
 MAX_EVENT_LINE_BYTES = 4096
 MAX_SUMMARY_LINE_BYTES = 16384
 # The authoritative record is a retained, inspectable artifact. Keep every
@@ -37,6 +40,7 @@ _SUMMARY_FIELDS = frozenset({
 	"schema_version", "summary_id", "terminal_record_sha256", "report_date", "run_id",
 	"created_at", "completed_at", "state", "outcome", "best_artifact_id",
 	"failure_phase", "terminal_fault_category", "operational_failure_kind",
+	"terminal_fault_subtype", "terminal_fault_owner", "attempt_summary",
 	"publication_completed", "verified_page_sha256", "incumbent_replacement_count",
 	"editorial_steps",
 })
@@ -161,11 +165,6 @@ def _report_date(value: object) -> str:
 	return value
 
 
-# Immutable v1 receipts written during run v11 may name this retired phase.
-# Runtime writers continue to emit only the current ``LEGAL_PHASES`` set.
-HISTORICAL_TERMINAL_FAILURE_PHASES = frozenset({"editorial_projection"})
-
-
 def validate_terminal_summary(value: object) -> dict[str, object]:
 	"""Return a normalized exact terminal-summary copy or reject unsafe input."""
 	if type(value) is not dict or set(value) != _SUMMARY_FIELDS:
@@ -186,10 +185,20 @@ def validate_terminal_summary(value: object) -> dict[str, object]:
 		"failure_phase": _opaque(value["failure_phase"], "Terminal failure phase", True),
 		"terminal_fault_category": _opaque(value["terminal_fault_category"], "Terminal fault category", True),
 		"operational_failure_kind": _opaque(value["operational_failure_kind"], "Operational failure kind", True),
+		"terminal_fault_subtype": _opaque(value["terminal_fault_subtype"], "Terminal fault subtype", True),
+		"terminal_fault_owner": _opaque(value["terminal_fault_owner"], "Terminal fault owner", True),
 		"publication_completed": value["publication_completed"],
 		"verified_page_sha256": _sha256(value["verified_page_sha256"], "Verified page identity", True),
 		"incumbent_replacement_count": value["incumbent_replacement_count"],
 	}
+	if type(value["attempt_summary"]) is not dict:
+		raise RuntimeError("Terminal summary attempt reliability is invalid.")
+	if value["attempt_summary"]:
+		result["attempt_summary"] = daily_blog.attempt_ledger.AttemptReliabilitySummary.from_dict(
+			value["attempt_summary"],
+		).to_dict()
+	else:
+		result["attempt_summary"] = {}
 	if result["summary_id"] != daily_blog.io_utils.sha256_text(
 		f"{result['run_id']}:{result['terminal_record_sha256']}",
 	):
@@ -214,6 +223,19 @@ def validate_terminal_summary(value: object) -> dict[str, object]:
 		daily_blog.run_contracts.TERMINAL_FAULT_KINDS
 	):
 		raise RuntimeError("Terminal fault category is invalid.")
+	if bool(result["terminal_fault_subtype"]) != bool(result["terminal_fault_owner"]):
+		raise RuntimeError("Terminal fault subtype and owner must be paired.")
+	if result["terminal_fault_subtype"]:
+		try:
+			fault = daily_blog.recovery.TerminalFaultDigest(
+				daily_blog.recovery.TerminalFaultCategory(result["terminal_fault_category"]),
+				daily_blog.recovery.TerminalFaultSubtype(result["terminal_fault_subtype"]),
+				result["terminal_fault_owner"],
+			)
+		except (TypeError, ValueError, daily_blog.recovery.RecoveryConfigurationError) as error:
+			raise RuntimeError("Terminal fault subtype is invalid.") from error
+		if fault.category.value != result["terminal_fault_category"]:
+			raise RuntimeError("Terminal fault subtype conflicts with category.")
 	if result["operational_failure_kind"] and result["operational_failure_kind"] not in (
 		daily_blog.run_contracts.OPERATIONAL_FAILURE_KINDS
 	):
@@ -228,10 +250,9 @@ def validate_terminal_summary(value: object) -> dict[str, object]:
 			raise RuntimeError("Failed terminal summary has an invalid outcome.")
 		if bool(result["terminal_fault_category"]) == bool(result["operational_failure_kind"]):
 			raise RuntimeError("Failed terminal summary must have one failure classification.")
-		if (
-			result["failure_phase"] not in daily_blog.run_contracts.LEGAL_PHASES
-			and result["failure_phase"] not in HISTORICAL_TERMINAL_FAILURE_PHASES
-		):
+		if result["operational_failure_kind"] and result["terminal_fault_subtype"]:
+			raise RuntimeError("Operational failure cannot retain a terminal subtype.")
+		if result["failure_phase"] not in daily_blog.run_contracts.LEGAL_PHASES:
 			raise RuntimeError("Failed terminal summary requires its failure phase.")
 	if result["publication_completed"] != bool(result["verified_page_sha256"]):
 		raise RuntimeError("Terminal summary publication facts are inconsistent.")

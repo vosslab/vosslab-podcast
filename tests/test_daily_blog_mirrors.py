@@ -107,8 +107,6 @@ def test_per_date_lock_rejects_overlapping_publication_owner(tmp_path: pathlib.P
 		report_timezone="America/Chicago",
 		daily_blog_repository=str(tmp_path / "publisher"),
 		mirror_cache_root=str(tmp_path / "mirrors"),
-		identity_names=("Author",),
-		identity_emails=(),
 		author_routes=(
 			daily_blog.editorial_stage_config.RoleRoute("one", ("fake",)),
 			daily_blog.editorial_stage_config.RoleRoute("two", ("fake",)),

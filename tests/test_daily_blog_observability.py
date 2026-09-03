@@ -29,7 +29,9 @@ def _fixed_clock(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 #============================================
-def _completed_record(run_id: str, created_at: str = FIXED_TIME) -> daily_blog.run_contracts.RunRecord:
+def _completed_record(
+	run_id: str, created_at: str = FIXED_TIME,
+) -> daily_blog.run_contracts.RunRecord:
 	"""Return a small terminal record with the publication facts summaries require."""
 	record = daily_blog.run_contracts.RunRecord.create(run_id, REPORT_DATE, created_at)
 	for phase in daily_blog.run_contracts.LEGAL_PHASES:
@@ -64,31 +66,6 @@ def _failed_record(run_id: str, created_at: str = FIXED_TIME) -> daily_blog.run_
 
 
 #============================================
-def _historical_projection_failure_summary() -> dict[str, object]:
-	"""Return one canonical retained receipt from the retired v11 phase set."""
-	record_sha256 = "b" * 64
-	return {
-		"schema_version": daily_blog.observability.TERMINAL_SUMMARY_SCHEMA_VERSION,
-		"summary_id": daily_blog.io_utils.sha256_text("run-failure:" + record_sha256),
-		"terminal_record_sha256": record_sha256,
-		"report_date": REPORT_DATE,
-		"run_id": "run-failure",
-		"created_at": FIXED_TIME,
-		"completed_at": FIXED_TIME,
-		"state": "failed",
-		"outcome": "failed",
-		"best_artifact_id": "",
-		"failure_phase": "editorial_projection",
-		"terminal_fault_category": "",
-		"operational_failure_kind": "runtime_error",
-		"publication_completed": False,
-		"verified_page_sha256": "",
-		"incumbent_replacement_count": 0,
-		"editorial_steps": [],
-	}
-
-
-#============================================
 def _store(tmp_path: pathlib.Path, run_id: str) -> daily_blog.run_state.RunStore:
 	"""Create one store under the stable test date."""
 	return daily_blog.run_state.RunStore(str(tmp_path), OWNER, REPORT_DATE, run_id)
@@ -99,32 +76,21 @@ def test_terminal_summaries_are_idempotent_and_bind_terminal_facts(
 	tmp_path: pathlib.Path,
 	monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-	"""Receipt replay preserves valid retired phases and appends exactly once."""
+	"""Repeated finalization preserves one exact current terminal receipt."""
 	_fixed_clock(monkeypatch)
 	success_store = _store(tmp_path, "run-success")
-	pathlib.Path(success_store.summary_path).write_text(
-		json.dumps(
-			_historical_projection_failure_summary(), ensure_ascii=True,
-			separators=(",", ":"), sort_keys=True,
-		) + "\n",
-		encoding="utf-8",
-	)
 	success = _completed_record("run-success")
 	success_store.save(success)
 	success_store.finalize_summary(success)
+	first_receipt = pathlib.Path(success_store.summary_path).read_bytes()
 	success_store.finalize_summary(success)
-	receipts = [
-		daily_blog.observability.parse_terminal_summary_line(line)
-		for line in pathlib.Path(success_store.summary_path).read_text(encoding="utf-8").splitlines()
-	]
-	by_run = {item["run_id"]: item for item in receipts}
-	assert len([item for item in receipts if item["run_id"] == "run-success"]) == 1
-	assert (
-		by_run["run-success"]["publication_completed"]
-		and by_run["run-success"]["verified_page_sha256"] == "d" * 64
-		and by_run["run-failure"]["operational_failure_kind"] == "runtime_error"
-		and by_run["run-failure"]["failure_phase"] == "editorial_projection"
+	second_receipt = pathlib.Path(success_store.summary_path).read_bytes()
+	receipt = daily_blog.observability.parse_terminal_summary_line(
+		second_receipt.decode("utf-8").strip(),
 	)
+
+	assert second_receipt == first_receipt
+	assert receipt["verified_page_sha256"] == "d" * 64
 
 
 #============================================
@@ -258,6 +224,7 @@ def test_observability_rejects_diagnostic_data_outside_its_bounded_contract(
 		"completed_at": FIXED_TIME, "state": "failed", "outcome": "failed",
 		"best_artifact_id": "", "failure_phase": "repository_discovery",
 		"terminal_fault_category": "unknown_fault", "operational_failure_kind": "",
+		"terminal_fault_subtype": "", "terminal_fault_owner": "", "attempt_summary": {},
 		"publication_completed": False, "verified_page_sha256": "",
 		"incumbent_replacement_count": 0, "editorial_steps": [],
 	}

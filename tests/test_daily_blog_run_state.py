@@ -27,18 +27,6 @@ def editorial_summary(
 
 
 #============================================
-def test_v1_reliability_summary_replays_without_synthetic_rejection_counts() -> None:
-	"""Existing resumable runs migrate to the bounded rejection-count schema."""
-	value = editorial_summary("legacy").to_dict()
-	value.pop("rejection_counts")
-	value["schema_version"] = daily_blog.replication.LEGACY_EDITORIAL_RELIABILITY_SCHEMA_VERSION
-	restored = daily_blog.replication.StepReliability.from_dict(value)
-
-	assert restored.rejection_counts == ()
-	assert restored.schema_version == daily_blog.replication.EDITORIAL_RELIABILITY_SCHEMA_VERSION
-
-
-#============================================
 def test_v2_rejection_counts_survive_run_record_round_trip() -> None:
 	"""Categorical rejection facts remain available after durable state replay."""
 	record = daily_blog.run_contracts.RunRecord.create("run-rejections", "2026-08-23", CREATED_AT)
@@ -75,33 +63,6 @@ def test_v11_run_record_replays_typed_incumbent_transitions() -> None:
 	)
 	restored = daily_blog.run_contracts.RunRecord.from_dict(record.to_dict())
 	assert restored.best_artifact_id == third
-
-
-#============================================
-def test_v11_record_reader_resumes_after_the_retired_global_projection_phase() -> None:
-	"""An unopened v11 run resumes at the first survivor-scoped editorial phase."""
-	current = daily_blog.run_contracts.RunRecord.create("run-v11-reader", "2026-08-23", CREATED_AT)
-	legacy = current.to_dict()
-	legacy["schema_version"] = "vosslab.daily-blog.run.v11"
-	legacy["editorial_projection"] = {"projection_id": "obsolete"}
-	legacy_phases = {}
-	for name, phase in legacy["phases"].items():
-		if name in {
-			"repository_discovery", "mirror_refresh", "activity_location", "evidence_assembly",
-		}:
-			phase = {**phase, "status": "completed"}
-		if name == "repository_editorial":
-			legacy_phases["editorial_projection"] = {
-				"status": "pending", "started_at": "", "completed_at": "", "input_hash": "",
-				"output_hash": "", "reused": False, "failure": "",
-			}
-		legacy_phases[name] = phase
-	legacy["phases"] = legacy_phases
-	restored = daily_blog.run_contracts.RunRecord.from_dict(legacy)
-	restored.start_phase("repository_editorial", "a" * 64)
-
-	assert restored.schema_version == daily_blog.run_contracts.RUN_SCHEMA_VERSION
-	assert restored.phases["repository_editorial"].status == "running"
 
 
 #============================================
@@ -166,15 +127,6 @@ def test_v11_rejects_transition_stream_with_wrong_replayed_final_identity() -> N
 	value = record.to_dict()
 	value["best_artifact_id"] = "artifact-fedcba987654321001234567"
 	with pytest.raises(RuntimeError):
-		daily_blog.run_contracts.RunRecord.from_dict(value)
-
-
-#============================================
-def test_v11_rejects_public_reopen_of_v10_record() -> None:
-	"""A legacy public record requires an explicit offline migration."""
-	value = daily_blog.run_contracts.RunRecord.create("run-v10", "2026-08-23", CREATED_AT).to_dict()
-	value["schema_version"] = "vosslab.daily-blog.run.v10"
-	with pytest.raises(RuntimeError, match="requires an offline migration"):
 		daily_blog.run_contracts.RunRecord.from_dict(value)
 
 

@@ -12,7 +12,6 @@ import pytest
 import daily_blog.agents
 import daily_blog.artifacts
 import daily_blog.config
-import daily_blog.complete_post_editor_prompts
 import daily_blog.daily_outline_workflow
 import daily_blog.daily_outline_prompts
 import daily_blog.editorial
@@ -29,6 +28,8 @@ import daily_blog.repository_contracts
 import daily_blog.route_cache
 import daily_blog.schema
 import daily_blog.stage6
+import daily_blog.stage6_attempt_plan
+import daily_blog.stage6_primary
 import daily_blog.stage7
 
 
@@ -77,6 +78,108 @@ def _result(request: daily_blog.agents.RouteRequest, text: str = "eligible") -> 
 def _cache(tmp_path: pathlib.Path) -> daily_blog.route_cache.RouteResultCache:
 	"""Return a disposable coordinator-owned PhaseCache adapter."""
 	return daily_blog.route_cache.RouteResultCache(daily_blog.locks.PhaseCache(str(tmp_path)))
+
+
+#============================================
+def _stage6_request(
+	materialization: daily_blog.stage6_attempt_plan.MaterializedStage6AttemptPlan,
+	attempt: daily_blog.stage6_attempt_plan.PlannedStage6Attempt, *, candidate_input: str = "candidate",
+	feedback_envelope: str = "", repair_response: str = "", contract_version: str = "contract-v1",
+) -> daily_blog.agents.RouteRequest:
+	"""Materialize one planned Stage 6 request with digest-only cache witnesses."""
+	route = daily_blog.editorial_stage_config.RoleRoute("route_" + attempt.role, ("fixture",))
+	route_contract_sha256 = daily_blog.io_utils.hash_value({
+		"route": dataclasses.asdict(route), "model": "openai-codex", "model_options": [],
+		"contract_version": contract_version,
+	})
+	prompt = "prompt for " + attempt.semantic_identity
+	candidate_identities = () if attempt.role in {"writer", "reviewer", "reviewer_repair"} else (
+		daily_blog.io_utils.sha256_text(candidate_input),
+	)
+	identity = daily_blog.route_cache.build_stage6_cache_identity(
+		materialization, attempt, prompt=prompt, candidate_identities=candidate_identities,
+		feedback_envelope_sha256=(
+			"" if not feedback_envelope else daily_blog.io_utils.sha256_text(feedback_envelope)
+		),
+		repair_response=repair_response, route_name=route.name,
+		route_contract_sha256=route_contract_sha256,
+	)
+	return daily_blog.agents.RouteRequest(
+		attempt.semantic_identity, attempt.stage, route, prompt, "/disposable/route-work",
+		role=attempt.role, contract_version=contract_version,
+		cache_input_hash=daily_blog.io_utils.sha256_text("logical stage6 input"),
+		repair_of=attempt.repair_of_identity,
+		stage6_cache_identity=identity,
+	)
+
+
+#============================================
+def _planned_attempt(
+	role: str, *, batch_index: int = 0,
+) -> tuple[
+	daily_blog.stage6_attempt_plan.Stage6AttemptPlan,
+	daily_blog.stage6_attempt_plan.PlannedStage6Attempt,
+]:
+	"""Return one canonical attempt rather than hand-assembling cache coordinates."""
+	policy = daily_blog.stage6_attempt_plan.Stage6AttemptPolicy(2, 2, 1, 0, batch_index + 1)
+	plan = daily_blog.stage6_attempt_plan.build_stage6_attempt_plan(policy)
+	return plan, next(item for item in plan.attempts if (
+		item.rung == "primary" and item.batch_index == batch_index and item.role == role
+	))
+
+
+#============================================
+def _materialized_attempt(
+	role: str, *, batch_index: int = 0,
+) -> tuple[
+	daily_blog.stage6_attempt_plan.MaterializedStage6AttemptPlan,
+	daily_blog.stage6_attempt_plan.PlannedStage6Attempt,
+]:
+	"""Return one exact materialized Stage 6 slot with its required witnesses."""
+	plan, template = _planned_attempt(role, batch_index=batch_index)
+	if role in {"reviewer", "reviewer_repair"}:
+		first = daily_blog.io_utils.sha256_text("first peer")
+		second = daily_blog.io_utils.sha256_text("second peer")
+		if first > second:
+			first, second = second, first
+		repair_sources = (() if role == "reviewer" else (template.repair_of_identity,))
+		materialization = plan.materialize(
+			"primary", batch_index, (), (
+				daily_blog.stage6_attempt_plan.Stage6CandidatePairBinding(
+					"primary", batch_index, template.pair_index, first, second,
+				),
+			), repair_sources,
+		)
+	else:
+		materialization = plan.materialize(
+			"primary", batch_index, (template.semantic_identity,), (),
+		)
+	attempt = next(item for item in materialization.attempts if item.semantic_identity == template.semantic_identity)
+	return materialization, attempt
+
+
+#============================================
+def _primary_stage6_writer_request(
+	value: daily_blog.stage6.Stage6Input,
+	config: daily_blog.editorial_stage_config.CompletePostConfig,
+	snapshot: daily_blog.editorial.PromptContractSnapshot,
+	working_directory: str,
+) -> daily_blog.agents.RouteRequest:
+	"""Build one current planned primary writer request for portability checks."""
+	plan = daily_blog.stage6_attempt_plan.build_stage6_attempt_plan(config.stage6_attempt_policy)
+	attempt = next(item for item in plan.attempts if (
+		item.rung == "primary" and item.batch_index == 0 and item.role == "writer"
+		and item.replica_index == 1
+	))
+	materialization = plan.materialize("primary", 0, (attempt.semantic_identity,))
+	logical_run = "stage6-" + daily_blog.io_utils.sha256_text(value.render_context())[:24]
+	prompt = daily_blog.editorial.render_author_prompt(
+		value, logical_run + "-batch-1-writer-1", config.prompt_limits["writer_chars"], snapshot=snapshot,
+	)
+	return daily_blog.stage6_execution.build_request(
+		value, "execution-run", attempt, materialization, config.writer_route, prompt,
+		config, snapshot.contract.prompt_version, working_directory=working_directory,
+	)
 
 
 #============================================
@@ -334,17 +437,7 @@ def _real_stage_requests(
 	)
 	post_config = daily_blog.editorial_stage_config.CompletePostConfig()
 	resolved = daily_blog.editorial.resolve_snapshot(None, None, None)
-	post_prompts = daily_blog.prompt_registry.loader.load_prompt_set(
-		daily_blog.prompt_registry.definitions.COMPLETE_POST_EDITOR_PROMPT_SET,
-	)
-	stage6 = daily_blog.stage6._request(
-		stage6_input, "execution-run", "6_1", "writer", "1", post_config.writer_route,
-		daily_blog.editorial.render_author_prompt(
-			stage6_input, "stage6-" + daily_blog.io_utils.sha256_text(stage6_input.render_context())[:24] + "-writer-1",
-			post_config.prompt_limits["writer_chars"], snapshot=resolved,
-		), post_config, str(root), resolved.contract.prompt_version,
-		daily_blog.complete_post_editor_prompts.complete_post_editor_prompt_identity(post_prompts),
-	)
+	stage6 = _primary_stage6_writer_request(stage6_input, post_config, resolved, str(root))
 	incumbent = daily_blog.artifacts.CompletePost.create(
 		"2026-08-29", packets, daily_outline.repositories,
 		_valid_post_body(packets, evidence_ids), evidence_ids,
@@ -384,6 +477,129 @@ def test_validated_effect_resumes_and_changed_input_does_not_reuse(tmp_path: pat
 
 	assert cache.load(dataclasses.replace(request, working_directory="/other/host")) is not None
 	assert cache.load(_request(prompt="meaningfully changed input")) is None
+
+
+#============================================
+def test_route_cache_requires_a_digest_logical_input_before_persistence(tmp_path: pathlib.Path) -> None:
+	"""A caller path cannot become a durable generic cache identity field."""
+	cache = _cache(tmp_path)
+	request = dataclasses.replace(_request(), cache_input_hash="/raw/path")
+
+	with pytest.raises(daily_blog.route_cache.RouteCacheIntegrityError):
+		cache.commit((daily_blog.route_cache.RouteCacheEffect(request, _result(request)),))
+
+
+#============================================
+def test_stage6_cache_reuses_only_the_same_materialized_candidate_witness(tmp_path: pathlib.Path) -> None:
+	"""A Stage 6 result reuses across relocation only when its candidate input matches."""
+	cache = _cache(tmp_path)
+	request = _stage6_request(*_materialized_attempt("editor"), candidate_input="first candidate")
+	cache.commit((daily_blog.route_cache.RouteCacheEffect(request, _result(request)),))
+	resumed = dataclasses.replace(request, working_directory="/relocated/work")
+	changed = _stage6_request(*_materialized_attempt("editor"), candidate_input="second candidate")
+
+	assert (cache.load(resumed) is not None, cache.load(changed)) == (True, None)
+
+
+#============================================
+def test_stage6_cache_distinguishes_fresh_batch_slots(tmp_path: pathlib.Path) -> None:
+	"""The immutable planned batch coordinate prevents reuse as false diversity."""
+	cache = _cache(tmp_path)
+	first = _stage6_request(*_materialized_attempt("writer"))
+	cache.commit((daily_blog.route_cache.RouteCacheEffect(first, _result(first)),))
+	second_batch = _stage6_request(*_materialized_attempt("writer", batch_index=1))
+
+	assert cache.load(second_batch) is None
+
+
+#============================================
+def test_stage6_editor_feedback_changes_the_semantic_cache_key(tmp_path: pathlib.Path) -> None:
+	"""Closed positive feedback is part of the editor's materialized input."""
+	cache = _cache(tmp_path)
+	first = _stage6_request(*_materialized_attempt("editor"), feedback_envelope="use grounded evidence")
+	cache.commit((daily_blog.route_cache.RouteCacheEffect(first, _result(first)),))
+	changed = _stage6_request(*_materialized_attempt("editor"), feedback_envelope="use concrete implementation detail")
+
+	assert cache.load(changed) is None
+
+
+#============================================
+def test_stage6_repair_response_changes_the_semantic_cache_key(tmp_path: pathlib.Path) -> None:
+	"""Review repair caches only the materialized response it was asked to improve."""
+	cache = _cache(tmp_path)
+	materialization, attempt = _materialized_attempt("reviewer_repair")
+	first = _stage6_request(materialization, attempt, repair_response="first review response")
+	cache.commit((daily_blog.route_cache.RouteCacheEffect(first, _result(first)),))
+	changed = _stage6_request(materialization, attempt, repair_response="revised review response")
+
+	assert cache.load(changed) is None
+
+
+#============================================
+def test_stage6_route_contract_changes_the_semantic_cache_key(tmp_path: pathlib.Path) -> None:
+	"""Cache reuse requires the same validated route execution contract."""
+	cache = _cache(tmp_path)
+	first = _stage6_request(*_materialized_attempt("writer"))
+	cache.commit((daily_blog.route_cache.RouteCacheEffect(first, _result(first)),))
+	changed = _stage6_request(*_materialized_attempt("writer"), contract_version="contract-v2")
+
+	assert cache.load(changed) is None
+
+
+#============================================
+def test_stage6_identity_requires_the_role_materialized_by_its_planned_slot() -> None:
+	"""An editor cache witness requires the actual candidate it consumes."""
+	materialization, attempt = _materialized_attempt("editor")
+	with pytest.raises(daily_blog.route_cache.RouteCacheIntegrityError):
+		daily_blog.route_cache.build_stage6_cache_identity(
+			materialization, attempt, prompt="grounded prompt", route_name="safe_route",
+			route_contract_sha256="a" * 64,
+		)
+
+
+#============================================
+def test_stage6_identity_rejects_unsafe_route_names() -> None:
+	"""A materialized Stage 6 witness preserves only a bounded route label."""
+	materialization, attempt = _materialized_attempt("writer")
+	with pytest.raises(daily_blog.route_cache.RouteCacheIntegrityError):
+		daily_blog.route_cache.build_stage6_cache_identity(
+			materialization, attempt, prompt="grounded prompt", route_name="unsafe-route",
+			route_contract_sha256="a" * 64,
+		)
+
+
+#============================================
+def test_stage6_identity_requires_membership_in_its_active_plan() -> None:
+	"""A slot from another policy or batch cannot witness this active run."""
+	materialization, _active_attempt = _materialized_attempt("writer")
+	_foreign_plan, foreign_attempt = _planned_attempt("writer", batch_index=1)
+	with pytest.raises(daily_blog.route_cache.RouteCacheIntegrityError, match="materialized"):
+		daily_blog.route_cache.build_stage6_cache_identity(
+			materialization, foreign_attempt, prompt="grounded prompt", route_name="safe_route",
+			route_contract_sha256="a" * 64,
+		)
+
+
+#============================================
+def test_stage6_review_identity_derives_its_pair_from_materialization() -> None:
+	"""A review cache witness accepts only the materialization's displayed pair."""
+	materialization, attempt = _materialized_attempt("reviewer")
+	with pytest.raises(daily_blog.route_cache.RouteCacheIntegrityError, match="materialized"):
+		daily_blog.route_cache.build_stage6_cache_identity(
+			materialization, attempt, prompt="grounded prompt", candidate_identities=("a" * 64, "b" * 64),
+			route_name="safe_route", route_contract_sha256="a" * 64,
+		)
+	identity = daily_blog.route_cache.build_stage6_cache_identity(
+		materialization, attempt, prompt="grounded prompt", route_name="safe_route",
+		route_contract_sha256="a" * 64,
+	)
+
+	assert identity.actual_candidate_input_sha256 == identity.candidate_input_sha256(
+		materialization.candidate_pair_bindings[0].canonical_key
+	)
+
+
+#============================================
 
 
 def test_multi_repository_requests_resume_after_root_relocation_but_changed_evidence_misses(

@@ -84,7 +84,7 @@ def _config(root: Path) -> daily_blog.config.DailyBlogConfig:
 	)
 	return daily_blog.config.DailyBlogConfig(
 		"settings.yaml", str(root), "owner", "America/Chicago", str(root),
-		str(root / "mirrors"), (), (), (route,), route, {}, {}, {},
+		str(root / "mirrors"), (route,), route, {}, {}, {},
 		daily_blog.config.EditorialReliabilityConfig(2, 1, 1, 16),
 		daily_outline=daily_outline,
 	)

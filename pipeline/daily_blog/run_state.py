@@ -14,6 +14,7 @@ import uuid
 # local repo modules
 import daily_blog.schema
 import daily_blog.io_utils
+import daily_blog.attempt_ledger
 import daily_blog.run_contracts
 import daily_blog.replication
 import daily_blog.observability
@@ -52,6 +53,18 @@ class RunStore:
 			"transition_artifact_id",
 			"transition_kind",
 			"transition_prior_artifact_id",
+		}),
+		"daily_publication.stage6_attempt_reliability_persisted": frozenset({
+			"schema_version", "planned", "fresh", "cache", "skipped",
+			"current_physical_calls", "transport_success", "transport_failure",
+			"parsed", "mechanical", "policy", "selected", "exhausted",
+			"dispatched", "reviewed", "rejected",
+			"reason_route_start_failure", "reason_route_timeout",
+			"reason_route_process_failure", "reason_route_empty_response",
+			"reason_response_parse_failure", "reason_mechanical_ineligible",
+			"reason_citation_density_mismatch", "reason_presentation_policy_mismatch",
+			"reason_evidence_grounding_mismatch", "reason_image_authority_mismatch",
+			"reason_review_rejected",
 		}),
 		"daily_publication.phase_completed": frozenset({"phase", "reused"}),
 		"daily_publication.phase_failed": frozenset({"failure_kind", "phase"}),
@@ -240,12 +253,12 @@ class RunStore:
 			return self._read_regular_json_at(run_fd, name, maximum_bytes)
 
 	#============================================
-	def _atomic_write_json_at(self, directory_fd: int, name: str, value: object) -> None:
-		"""Durably replace one direct JSON child through the held parent."""
+	def _atomic_write_bytes_at(self, directory_fd: int, name: str, payload: bytes) -> None:
+		"""Durably replace one direct regular-file child through the held parent."""
 		self._direct_name(name)
-		payload = json.dumps(value, ensure_ascii=True, indent=2, sort_keys=True).encode("ascii") + b"\n"
 		temporary = f".{name}.{uuid.uuid4().hex}.tmp"
 		try:
+			# ASVS 5.3.2: create and replace only below the already held run directory.
 			flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
 			with os.fdopen(os.open(temporary, flags, 0o600, dir_fd=directory_fd), "wb") as handle:
 				if not stat.S_ISREG(os.fstat(handle.fileno()).st_mode):
@@ -261,6 +274,12 @@ class RunStore:
 			except FileNotFoundError:
 				pass
 			raise
+
+	#============================================
+	def _atomic_write_json_at(self, directory_fd: int, name: str, value: object) -> None:
+		"""Durably replace one direct JSON child through the held parent."""
+		payload = json.dumps(value, ensure_ascii=True, indent=2, sort_keys=True).encode("ascii") + b"\n"
+		self._atomic_write_bytes_at(directory_fd, name, payload)
 
 	#============================================
 	def _unlink_optional_at(self, directory_fd: int, name: str) -> None:
@@ -358,6 +377,8 @@ class RunStore:
 			daily_blog.run_contracts.validate_incumbent_transition(
 				summary, transition, prior_artifact_id,
 			)
+		if event == "daily_publication.stage6_attempt_reliability_persisted":
+			self._validate_stage6_attempt_reliability_event(details)
 		if "failure_kind" in details:
 			failure_kind = details["failure_kind"]
 			if failure_kind not in daily_blog.run_contracts.FAILURE_KINDS:
@@ -400,6 +421,26 @@ class RunStore:
 		if "outcome" in details and event.endswith("run_completed"):
 			if details["outcome"] not in {"succeeded", "degraded"}:
 				raise RuntimeError("Daily-publication run outcome is unsupported.")
+
+	#============================================
+	def _validate_stage6_attempt_reliability_event(self, details: dict[str, object]) -> None:
+		"""Reconcile one scalar Stage 6 summary event through its canonical contract."""
+		if details["schema_version"] != "vosslab.daily-blog.stage6-attempt-summary-event.v1":
+			raise RuntimeError("Stage 6 attempt summary event schema is invalid.")
+		reasons = tuple(
+			(code, details["reason_" + code])
+			for code in sorted(daily_blog.attempt_ledger.ATTEMPT_REASON_CODES - {""})
+			if details["reason_" + code]
+		)
+		value = {
+			name: details[name]
+			for name in (
+				"planned", "fresh", "cache", "skipped", "current_physical_calls",
+				"transport_success", "transport_failure", "parsed", "mechanical",
+				"policy", "selected", "exhausted", "dispatched", "reviewed", "rejected",
+			)
+		} | {"reason_counts": [{"code": code, "count": count} for code, count in reasons]}
+		daily_blog.attempt_ledger.AttemptReliabilitySummary.from_dict(value)
 
 	#============================================
 	def _event_line(self, event: str, details: dict[str, object]) -> str:
@@ -722,9 +763,12 @@ class RunStore:
 		value = record.to_dict()
 		record_hash = daily_blog.io_utils.hash_value(value)
 		failure = value["failure"]
+		typed_fault = value["terminal_fault"]
 		failure_kind = failure.get("kind", "") if value["state"] == "failed" else ""
-		terminal_fault = failure_kind if failure_kind in daily_blog.run_contracts.TERMINAL_FAULT_KINDS else ""
-		operational_kind = "" if terminal_fault else failure_kind
+		terminal_category = failure_kind if failure_kind in daily_blog.run_contracts.TERMINAL_FAULT_KINDS else ""
+		operational_kind = "" if terminal_category else failure_kind
+		fault_subtype = typed_fault.get("subtype", "") if typed_fault else ""
+		fault_owner = typed_fault.get("owner", "") if typed_fault else ""
 		bundle = value["publication_bundle"]
 		verification = bundle.get("page_verification", {}) if type(bundle) is dict else {}
 		page_sha = verification.get("rendered_page_sha256", "") if type(verification) is dict else ""
@@ -744,8 +788,11 @@ class RunStore:
 			"state": value["state"], "outcome": value["outcome"],
 			"best_artifact_id": value["best_artifact_id"],
 			"failure_phase": failure.get("phase", "") if value["state"] == "failed" else "",
-			"terminal_fault_category": terminal_fault,
+			"terminal_fault_category": terminal_category,
 			"operational_failure_kind": operational_kind,
+			"terminal_fault_subtype": fault_subtype,
+			"terminal_fault_owner": fault_owner,
+			"attempt_summary": value["attempt_summary"],
 			"publication_completed": bool(page_sha),
 			"verified_page_sha256": page_sha,
 			"incumbent_replacement_count": sum(
@@ -885,3 +932,12 @@ class RunStore:
 			self._atomic_write_json_at(run_fd, name, value)
 		path = os.path.join(self.run_dir, name)
 		return path
+
+	#============================================
+	def write_document(self, name: str, value: str) -> str:
+		"""Write one stable local Markdown document inside this run."""
+		if os.path.basename(name) != name or not name.endswith(".md") or type(value) is not str:
+			raise RuntimeError("Run documents must use one direct Markdown filename and text value.")
+		with self._layout_descriptors(create=False) as (_, _, run_fd):
+			self._atomic_write_bytes_at(run_fd, name, value.encode("utf-8"))
+		return os.path.join(self.run_dir, name)

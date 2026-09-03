@@ -34,7 +34,6 @@ import daily_blog.publication_state
 import daily_blog.publication_workflow
 import daily_blog.repository_editorial_workflow
 import daily_blog.repository_contracts
-import daily_blog.roster_snapshots
 import daily_blog.schema
 
 
@@ -285,7 +284,7 @@ def _path_record_config(tmp_path: pathlib.Path) -> daily_blog.config.DailyBlogCo
 	return daily_blog.config.DailyBlogConfig(
 		settings_path="settings.yaml", output_root=str(tmp_path), output_owner="vosslab",
 		report_timezone="America/Chicago", daily_blog_repository=str(tmp_path / "publisher"),
-		mirror_cache_root=str(tmp_path / "mirrors"), identity_names=("Maker",), identity_emails=(),
+		mirror_cache_root=str(tmp_path / "mirrors"),
 		author_routes=(daily_blog.editorial_stage_config.RoleRoute("author-a", ("fixture",)),
 			daily_blog.editorial_stage_config.RoleRoute("author-b", ("fixture",))),
 		referee_route=daily_blog.editorial_stage_config.RoleRoute("referee", ("fixture",)),
@@ -519,67 +518,6 @@ def test_publication_inspection_rejects_a_symlinked_archive_intermediate(
 	inspection = daily_blog.publication_state.inspect_publication(config, "2026-08-26")
 
 	assert inspection.state == "invalid"
-
-
-#============================================
-def test_run_state_keeps_roster_snapshot_logical_while_loader_receives_absolute_path(
-	tmp_path: pathlib.Path,
-	monkeypatch: pytest.MonkeyPatch,
-) -> None:
-	"""The verified snapshot stays physical only at the roster-loader boundary."""
-	config = _path_record_config(tmp_path)
-	roster = _path_record_roster()
-	snapshot_path = tmp_path / "vosslab" / "daily_blog_repository_rosters" / roster.roster_id
-	identity = {"roster_id": roster.roster_id}
-	received: list[str] = []
-	item = daily_blog.schema.EvidenceItem.create(
-		"commit_metadata", "vosslab/example", "a" * 40, "", "", "A grounded change.", "fixture",
-	)
-	packet = daily_blog.schema.EvidencePacket.create(
-		"2026-08-26", "America/Chicago", True, {}, [], [], [item],
-	)
-	runtime = daily_blog.publication_workflow.PublicationRuntime(
-		mirror_refresh=lambda *_args: [],
-		activity_locator=lambda *_args: [],
-		evidence_assembler=lambda *_args: (packet, {}),
-	)
-	orchestrator = daily_blog.orchestrator.DailyPublicationOrchestrator(
-		config, "2026-08-26", repository_loader=lambda *_args: roster, runtime=runtime,
-	)
-	monkeypatch.setattr(
-		daily_blog.roster_snapshots, "write_repository_roster_snapshot",
-		lambda *_args: (str(snapshot_path), identity),
-	)
-
-	def load_snapshot(
-		_root: str, _owner: str, path: str,
-	) -> tuple[daily_blog.repository_contracts.RepositoryRoster, dict]:
-		received.append(path)
-		return roster, identity
-
-	monkeypatch.setattr(daily_blog.roster_snapshots, "load_repository_roster_snapshot", load_snapshot)
-
-	def start(_phase: str, value: object) -> str:
-		return daily_blog.io_utils.hash_value(value)
-
-	def complete(_phase: str, value: object, _reused: bool) -> str:
-		orchestrator.store.save(orchestrator.record)
-		return daily_blog.io_utils.hash_value(value)
-
-	coordinator = daily_blog.acquisition_workflow.AcquisitionCoordinator(
-		daily_blog.acquisition_workflow.AcquisitionDependencies(
-			orchestrator.config, orchestrator.runtime, orchestrator.report_date,
-			orchestrator.prompt_contract, orchestrator.generator_revision,
-			orchestrator.repository_loader, orchestrator.refresh_mirrors,
-			orchestrator.store, orchestrator.record, orchestrator.cache,
-			start, complete,
-		)
-	)
-	coordinator.acquire()
-	saved = json.loads(pathlib.Path(orchestrator.store.record_path).read_text(encoding="utf-8"))
-
-	assert pathlib.Path(received[0]).is_absolute()
-	assert not pathlib.PurePosixPath(saved["repository_roster"]["snapshot_path"]).is_absolute()
 
 
 #============================================

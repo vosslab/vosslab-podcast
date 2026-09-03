@@ -20,6 +20,73 @@ import daily_blog.recovery
 import daily_blog.schema
 
 
+_PROJECTION_FAULT_OWNER = "daily_blog.multi_repository_coordinator.project_repository_packets"
+
+
+class RepositoryProjectionFault(RuntimeError):
+	"""Expose one fixed, safe diagnosis for rejected packet projection."""
+
+	def __init__(self, terminal_fault: daily_blog.recovery.TerminalFaultDigest) -> None:
+		if (
+			type(terminal_fault) is not daily_blog.recovery.TerminalFaultDigest
+			or terminal_fault.category is not daily_blog.recovery.TerminalFaultCategory.IMPLEMENTATION_DEFECT
+			or terminal_fault.owner != _PROJECTION_FAULT_OWNER
+		):
+			raise RuntimeError("Repository projection terminal fault is invalid.")
+		super().__init__("Repository projection failed.")
+		self.terminal_fault = terminal_fault
+
+
+def _projection_structural_facts(
+	packet: object, include_missing: bool,
+) -> tuple[tuple[str, int], ...]:
+	"""Return bounded counts without retaining packet contents or repository labels."""
+	items = packet.items if type(packet) is daily_blog.schema.EvidencePacket else ()
+	activity = packet.activity if type(packet) is daily_blog.schema.EvidencePacket else ()
+	mirrors = packet.mirrors if type(packet) is daily_blog.schema.EvidencePacket else ()
+	repositories = {
+		item.repository for item in items
+		if type(item) is daily_blog.schema.EvidenceItem and type(item.repository) is str
+	}
+	activity_repositories = {
+		item.repository for item in activity
+		if type(item) is daily_blog.schema.RepositoryActivity and type(item.repository) is str
+	}
+	mirror_repositories = {
+		item.to_dict().get("repository") for item in mirrors
+		if hasattr(item, "to_dict") and type(item.to_dict()) is dict
+	}
+	values = {
+		"activity_count": len(activity),
+		"evidence_repository_count": len(repositories),
+		"mirror_count": len(mirrors),
+	}
+	if include_missing:
+		values["missing_activity_count"] = len(repositories - activity_repositories)
+		values["missing_mirror_count"] = len(repositories - mirror_repositories)
+	return tuple(sorted(values.items()))
+
+
+def _projection_fault(
+	packet: object, subtype: daily_blog.recovery.TerminalFaultSubtype,
+	*, include_missing: bool,
+) -> RepositoryProjectionFault:
+	"""Build the sole typed projection failure without exception diagnostics."""
+	return RepositoryProjectionFault(daily_blog.recovery.TerminalFaultDigest(
+		daily_blog.recovery.TerminalFaultCategory.IMPLEMENTATION_DEFECT,
+		subtype, _PROJECTION_FAULT_OWNER,
+		_projection_structural_facts(packet, include_missing),
+	))
+
+
+def _invalid_projection_fault(packet: object) -> RepositoryProjectionFault:
+	"""Classify every local packet-structure invariant under one safe subtype."""
+	return _projection_fault(
+		packet, daily_blog.recovery.TerminalFaultSubtype.PROJECTION_PACKET_INVALID,
+		include_missing=False,
+	)
+
+
 @dataclasses.dataclass(frozen=True)
 class RepositoryJobInput:
 	"""Immutable capabilities granted to one non-durable repository job."""
@@ -74,6 +141,7 @@ class RepositoryJobResult:
 	outline: daily_blog.artifacts.RepoOutline | None
 	story: daily_blog.artifacts.RepoStory | None
 	terminal_fault: daily_blog.recovery.TerminalFaultCategory | None = None
+	terminal_fault_digest: daily_blog.recovery.TerminalFaultDigest | None = None
 
 	def __post_init__(self) -> None:
 		if (
@@ -87,6 +155,11 @@ class RepositoryJobResult:
 			raise RuntimeError("Repository editorial job result is invalid.")
 		if self.terminal_fault is not None and type(self.terminal_fault) is not daily_blog.recovery.TerminalFaultCategory:
 			raise RuntimeError("Repository editorial job result terminal fault is invalid.")
+		if self.terminal_fault_digest is not None and (
+			type(self.terminal_fault_digest) is not daily_blog.recovery.TerminalFaultDigest
+			or self.terminal_fault is not self.terminal_fault_digest.category
+		):
+			raise RuntimeError("Repository editorial job result terminal fault digest is invalid.")
 		if self.outline_result is None:
 			if any(item is not None for item in (self.story_result, self.outline, self.story)) or self.terminal_fault is None:
 				raise RuntimeError("Repository editorial failed job result is invalid.")
@@ -129,9 +202,10 @@ class RepositoryJobResult:
 
 def _failed_job_result(
 	value: RepositoryJobInput, fault: daily_blog.recovery.TerminalFaultCategory,
+	digest: daily_blog.recovery.TerminalFaultDigest | None = None,
 ) -> RepositoryJobResult:
 	"""Record one bounded rejected worker outcome without retaining diagnostics."""
-	return RepositoryJobResult(value.repository, value.packet, None, None, None, None, fault)
+	return RepositoryJobResult(value.repository, value.packet, None, None, None, None, fault, digest)
 
 
 #============================================
@@ -145,6 +219,21 @@ def _terminal_fault_from_error(error: Exception) -> daily_blog.recovery.Terminal
 	)):
 		return daily_blog.recovery.TerminalFaultCategory.CONFIGURATION
 	return daily_blog.recovery.TerminalFaultCategory.IMPLEMENTATION_DEFECT
+
+
+def _terminal_fault_digest_from_error(
+	error: Exception,
+) -> daily_blog.recovery.TerminalFaultDigest | None:
+	"""Keep an upstream safe diagnosis or classify an untyped worker defect."""
+	if isinstance(error, daily_blog.recovery.PipelineFaultError):
+		return error.fault.terminal_fault
+	if isinstance(error, (daily_blog.agents.EditorialTerminalError, daily_blog.recovery.RecoveryConfigurationError)):
+		return None
+	return daily_blog.recovery.TerminalFaultDigest(
+		daily_blog.recovery.TerminalFaultCategory.IMPLEMENTATION_DEFECT,
+		daily_blog.recovery.TerminalFaultSubtype.IMPLEMENTATION_UNCLASSIFIED,
+		"daily_blog.multi_repository_coordinator._terminal_fault_from_error",
+	)
 
 
 #============================================
@@ -198,6 +287,7 @@ class RepositoryEditorialJoin:
 	packets: tuple[daily_blog.schema.EvidencePacket, ...]
 	cache_effects: tuple[daily_blog.route_cache.RouteCacheEffect, ...]
 	terminal_fault: daily_blog.recovery.TerminalFaultCategory | None = None
+	terminal_fault_digest: daily_blog.recovery.TerminalFaultDigest | None = None
 
 	def __post_init__(self) -> None:
 		if (
@@ -226,70 +316,87 @@ class RepositoryEditorialJoin:
 			raise RuntimeError("Repository editorial join values conflict with job results.")
 		if self.terminal_fault is not None and type(self.terminal_fault) is not daily_blog.recovery.TerminalFaultCategory:
 			raise RuntimeError("Repository editorial join terminal fault is invalid.")
+		if self.terminal_fault_digest is not None and (
+			type(self.terminal_fault_digest) is not daily_blog.recovery.TerminalFaultDigest
+			or self.terminal_fault is not self.terminal_fault_digest.category
+		):
+			raise RuntimeError("Repository editorial join terminal fault digest is invalid.")
 
 
 def _validate_projection_set(packet: daily_blog.schema.EvidencePacket, projected: tuple[daily_blog.schema.EvidencePacket, ...]) -> None:
 	"""Verify one frozen local packet set covers exact global evidence once."""
 	if type(packet) is not daily_blog.schema.EvidencePacket or type(projected) is not tuple:
-		raise RuntimeError("Repository projections require exact packet values.")
+		raise _invalid_projection_fault(packet)
 	if any(type(item) is not daily_blog.schema.EvidencePacket for item in projected):
-		raise RuntimeError("Repository projections require exact local packets.")
+		raise _invalid_projection_fault(packet)
 	if len({item.packet_id for item in projected}) != len(projected):
-		raise RuntimeError("Repository projections cannot repeat packet identities.")
+		raise _invalid_projection_fault(packet)
 	global_ownership = {}
 	for item in packet.items:
 		if item.evidence_id in global_ownership:
-			raise RuntimeError("Global evidence identities cannot repeat.")
+			raise _invalid_projection_fault(packet)
 		global_ownership[item.evidence_id] = item.repository
 	local_ownership = {}
 	repositories: set[str] = set()
 	for local in projected:
-		daily_blog.schema.EvidencePacket.from_dict(local.to_dict())
+		try:
+			daily_blog.schema.EvidencePacket.from_dict(local.to_dict())
+		except (RuntimeError, TypeError, ValueError, KeyError):
+			raise _invalid_projection_fault(packet) from None
 		if local.report_date != packet.report_date or local.timezone != packet.timezone or not local.items:
-			raise RuntimeError("Repository projection date or evidence is invalid.")
+			raise _invalid_projection_fault(packet)
 		repository = local.activity[0].repository if len(local.activity) == 1 else ""
 		if len(local.mirrors) != 1 or not repository or repository in repositories:
-			raise RuntimeError("Repository projection scope is invalid.")
+			raise _invalid_projection_fault(packet)
 		if {item.repository for item in local.items} != {repository} or local.mirrors[0].to_dict()["repository"] != repository:
-			raise RuntimeError("Repository projection local membership conflicts.")
+			raise _invalid_projection_fault(packet)
 		repositories.add(repository)
 		for item in local.items:
 			if item.evidence_id in local_ownership:
-				raise RuntimeError("Repository projections repeat evidence ownership.")
+				raise _invalid_projection_fault(packet)
 			local_ownership[item.evidence_id] = repository
 	if local_ownership != global_ownership:
-		raise RuntimeError("Repository projections do not cover the global evidence exactly.")
+		raise _invalid_projection_fault(packet)
 
 
 def project_repository_packets(packet: daily_blog.schema.EvidencePacket) -> tuple[daily_blog.schema.EvidencePacket, ...]:
 	"""Create exact one-repository packets from complete frozen global evidence."""
 	if type(packet) is not daily_blog.schema.EvidencePacket:
-		raise RuntimeError("Repository projection requires an exact EvidencePacket.")
-	daily_blog.schema.EvidencePacket.from_dict(packet.to_dict())
+		raise _invalid_projection_fault(packet)
+	try:
+		packet = daily_blog.schema.EvidencePacket.from_dict(packet.to_dict())
+	except (RuntimeError, TypeError, ValueError, KeyError):
+		raise _invalid_projection_fault(packet) from None
 	activities = {item.repository: item for item in packet.activity}
 	if len(activities) != len(packet.activity):
-		raise RuntimeError("Repository projection activity identities cannot repeat.")
+		raise _invalid_projection_fault(packet)
 	mirrors: dict[str, object] = {}
 	for mirror in packet.mirrors:
 		value = mirror.to_dict()
 		repository = value["repository"]
 		if type(repository) is not str or not repository or repository in mirrors:
-			raise RuntimeError("Repository projection mirror identities are invalid.")
+			raise _invalid_projection_fault(packet)
 		mirrors[repository] = value
 	by_repository: dict[str, list[daily_blog.schema.EvidenceItem]] = {}
 	for item in packet.items:
 		by_repository.setdefault(item.repository, []).append(item)
 	if not set(by_repository).issubset(activities) or not set(by_repository).issubset(mirrors):
-		raise RuntimeError("Repository projection source scope is incomplete.")
+		raise _projection_fault(
+			packet, daily_blog.recovery.TerminalFaultSubtype.PROJECTION_SOURCE_SCOPE_INCOMPLETE,
+			include_missing=True,
+		)
 	values = []
 	for repository in sorted(by_repository, key=str.casefold):
 		items = by_repository[repository]
-		local = daily_blog.schema.EvidencePacket.create(
-			packet.report_date, packet.timezone, packet.complete,
-			packet.collection_limits.to_dict(), [mirrors[repository]],
-			[activities[repository]], items,
-		)
-		verified = daily_blog.schema.EvidencePacket.from_dict(local.to_dict())
+		try:
+			local = daily_blog.schema.EvidencePacket.create(
+				packet.report_date, packet.timezone, packet.complete,
+				packet.collection_limits.to_dict(), [mirrors[repository]],
+				[activities[repository]], items,
+			)
+			verified = daily_blog.schema.EvidencePacket.from_dict(local.to_dict())
+		except (RuntimeError, TypeError, ValueError, KeyError):
+			raise _invalid_projection_fault(packet) from None
 		if (
 			len(verified.activity) != 1 or len(verified.mirrors) != 1
 			or not verified.items
@@ -297,9 +404,11 @@ def project_repository_packets(packet: daily_blog.schema.EvidencePacket) -> tupl
 			or verified.activity[0].repository != repository
 			or verified.mirrors[0].to_dict()["repository"] != repository
 		):
-			raise RuntimeError("Repository projection did not preserve strict local scope.")
+			raise _invalid_projection_fault(packet)
 		values.append(verified)
-	return tuple(values)
+	projected = tuple(values)
+	_validate_projection_set(packet, projected)
+	return projected
 
 
 def _run_job(value: RepositoryJobInput) -> RepositoryJobResult:
@@ -382,6 +491,7 @@ def run_repository_editorial(
 	results = []
 	accepted_buffers = []
 	terminal_faults: set[daily_blog.recovery.TerminalFaultCategory] = set()
+	terminal_fault_digests: list[daily_blog.recovery.TerminalFaultDigest] = []
 	if jobs:
 		with concurrent.futures.ThreadPoolExecutor(max_workers=min(len(jobs), budget.maximum_parallel_calls)) as executor:
 			futures = {
@@ -396,8 +506,11 @@ def run_repository_editorial(
 					accepted_buffers.append(buffer)
 				except Exception as error:
 					fault = _terminal_fault_from_error(error)
-					results.append(_failed_job_result(item, fault))
+					digest = _terminal_fault_digest_from_error(error)
+					results.append(_failed_job_result(item, fault, digest))
 					terminal_faults.add(fault)
+					if digest is not None:
+						terminal_fault_digests.append(digest)
 	ordered = tuple(sorted(results, key=lambda item: item.repository.casefold()))
 	if len({item.repository for item in ordered}) != len(ordered):
 		raise RuntimeError("Repository editorial results cannot repeat a repository.")
@@ -410,4 +523,11 @@ def run_repository_editorial(
 	outlines = tuple(sorted((item.outline for item in pairs if item.outline is not None), key=lambda item: item.artifact_id))
 	effects = _canonical_effects(cache, accepted_buffers)
 	terminal_fault = _worst_terminal_fault(terminal_faults)
-	return RepositoryEditorialJoin(ordered, stories, outlines, packets, effects, terminal_fault)
+	matching_digests = tuple(sorted({
+		item for item in terminal_fault_digests
+		if terminal_fault is not None and item.category is terminal_fault
+	}, key=lambda item: (item.subtype.value, item.owner, item.structural_facts)))
+	terminal_fault_digest = matching_digests[0] if len(matching_digests) == 1 else None
+	return RepositoryEditorialJoin(
+		ordered, stories, outlines, packets, effects, terminal_fault, terminal_fault_digest,
+	)

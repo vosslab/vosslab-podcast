@@ -12,17 +12,13 @@ import daily_blog.artifacts
 import daily_blog.io_utils
 
 
-EDITORIAL_RELIABILITY_SCHEMA_VERSION = "vosslab.daily-blog.editorial-reliability.v2"
-LEGACY_EDITORIAL_RELIABILITY_SCHEMA_VERSION = "vosslab.daily-blog.editorial-reliability.v1"
+EDITORIAL_RELIABILITY_SCHEMA_VERSION = "vosslab.daily-blog.editorial-reliability.v3"
 MAX_REJECTION_CODES = 64
 REJECTION_CODE_RE = re.compile(r"[a-z][a-z0-9_]{0,63}\Z")
 STEP_OUTCOMES = frozenset({"succeeded", "degraded"})
 REVIEW_FAILURES = frozenset({
 	"timeout", "start_failure", "process_failure", "empty_response", "invalid_verdict",
 })
-
-
-#============================================
 @dataclasses.dataclass(frozen=True)
 class StepReliability:
 	"""One factual bounded summary for a subjective editorial step."""
@@ -90,17 +86,8 @@ class StepReliability:
 	#============================================
 	@classmethod
 	def from_dict(cls, value: dict) -> "StepReliability":
-		"""Restore current or legacy reliability state from durable JSON."""
+		"""Restore only the current reliability summary shape."""
 		fields = {field.name for field in dataclasses.fields(cls)}
-		legacy_fields = fields - {"rejection_counts"}
-		if (
-			type(value) is dict
-			and set(value) == legacy_fields
-			and value.get("schema_version") == LEGACY_EDITORIAL_RELIABILITY_SCHEMA_VERSION
-			and type(value.get("reasons")) is list
-		):
-			value = {**value, "rejection_counts": [],
-				"schema_version": EDITORIAL_RELIABILITY_SCHEMA_VERSION}
 		if (
 			type(value) is not dict
 			or set(value) != fields
@@ -132,6 +119,7 @@ class ReplicatedCandidate:
 	artifact: daily_blog.artifacts.EditorialArtifact | None
 	eligibility: daily_blog.artifacts.EligibilityResult | None
 	failure: str = ""
+	mechanical_eligibility: daily_blog.artifacts.EligibilityResult | None = None
 
 
 @dataclasses.dataclass(frozen=True)
@@ -331,7 +319,9 @@ def replicate(
 				raise RuntimeError("Replication cache eligibility must return EligibilityResult.")
 			if cache_decision.eligible and not result.resumed and cache_accept is not None:
 				cache_accept(request, result)
-			observations.append(ReplicatedCandidate(request, result, artifact, decision))
+			observations.append(ReplicatedCandidate(
+				request, result, artifact, decision, "", cache_decision,
+			))
 		except daily_blog.agents.RepairableStructuredOutput:
 			observations.append(ReplicatedCandidate(request, result, None, None, "ineligible_generation"))
 	return ReplicationResult(expected_type, tuple(observations))
@@ -373,6 +363,9 @@ def review(
 		[daily_blog.agents.RouteRequest], daily_blog.agents.AgentResult | None,
 	] | None = None,
 	cache_accept: collections.abc.Callable[
+		[daily_blog.agents.RouteRequest, daily_blog.agents.AgentResult], None,
+	] | None = None,
+	observe_result: collections.abc.Callable[
 		[daily_blog.agents.RouteRequest, daily_blog.agents.AgentResult], None,
 	] | None = None,
 ) -> ReviewResult:
@@ -417,10 +410,14 @@ def review(
 	votes = []
 	repairs = []
 	for item, result in zip(work, results):
+		if observe_result is not None:
+			observe_result(item.request, result)
 		vote = _parse_vote(item, result, parse_winner, False)
 		if vote is None and result.ok and build_repair is not None:
 			repair = build_repair(item, result.text)
-			if repair.request.repair_of != item.request.cache_input_hash:
+			if repair.request.repair_of not in {
+				item.request.cache_input_hash, item.request.request_id,
+			}:
 				raise RuntimeError("Review repair must attest to its source request identity.")
 			if (repair.first_artifact_id, repair.second_artifact_id) != (
 				item.first_artifact_id, item.second_artifact_id,
@@ -441,6 +438,8 @@ def review(
 			repairs[0][2].request.maximum_parallel_calls, budget, cache_load,
 		)
 		for (source, source_result, repair), result in zip(repairs, repair_results):
+			if observe_result is not None:
+				observe_result(repair.request, result)
 			vote = _parse_vote(repair, result, parse_winner, True)
 			vote = vote or _salvage_vote(repair, result, salvage_winner, True)
 			if vote is not None and vote.status == "succeeded":
@@ -560,10 +559,9 @@ def _validated_salvage(
 		text, (work.first_artifact_id, work.second_artifact_id),
 	)
 	label = salvage_allowed_identifier(text, ("A", "B"))
-	label_winner = {
-		"A": work.first_artifact_id,
-		"B": work.second_artifact_id,
-	}.get(label)
+	label_winner = work.first_artifact_id if label == "A" else (
+		work.second_artifact_id if label == "B" else None
+	)
 	if identified is not None and label_winner is not None and identified != label_winner:
 		return None
 	proved = identified or label_winner
@@ -587,7 +585,10 @@ def _disagreements(votes: collections.abc.Iterable[ReviewVote]) -> int:
 	"""Count pairs whose successful reviewers pick different candidates."""
 	by_pair: dict[tuple[str, str], set[str]] = collections.defaultdict(set)
 	for vote in votes:
-		pair = tuple(sorted((vote.first_artifact_id, vote.second_artifact_id)))
+		pair = (
+			min(vote.first_artifact_id, vote.second_artifact_id),
+			max(vote.first_artifact_id, vote.second_artifact_id),
+		)
 		if vote.status == "succeeded":
 			by_pair[pair].add(vote.winner_artifact_id)
 	return sum(len(winners) > 1 for winners in by_pair.values())
@@ -615,7 +616,11 @@ def promote(
 	if expected_type not in daily_blog.artifacts.ARTIFACT_TYPES:
 		raise RuntimeError("Promotion requires a supported exact artifact type.")
 	ordered = _canonical_artifacts(candidates, expected_type)
-	if incumbent is not None and type(incumbent) is not expected_type:
+	incumbent_artifact: daily_blog.artifacts.EditorialArtifact | None = incumbent
+	incumbent_matches_rung = (
+		incumbent_artifact is None or type(incumbent_artifact) is expected_type
+	)
+	if not incumbent_matches_rung:
 		raise RuntimeError("Editorial incumbent must use the expected exact artifact type.")
 	evaluated = tuple((item, eligibility(item)) for item in ordered)
 	if any(
@@ -623,12 +628,14 @@ def promote(
 		for _item, decision in evaluated
 	):
 		raise RuntimeError("Promotion eligibility must return EligibilityResult.")
-	eligible = tuple(item for item, decision in evaluated if decision.eligible)
-	if incumbent is not None and not eligibility(incumbent).eligible:
+	eligible: tuple[daily_blog.artifacts.EditorialArtifact, ...] = tuple(
+		item for item, decision in evaluated if decision.eligible
+	)
+	if incumbent_artifact is not None and not eligibility(incumbent_artifact).eligible:
 		raise RuntimeError("Editorial incumbent must remain mechanically eligible.")
-	if incumbent is not None and incumbent.artifact_id not in {item.artifact_id for item in eligible}:
+	if incumbent_artifact is not None and incumbent_artifact.artifact_id not in {item.artifact_id for item in eligible}:
 		eligible = tuple(sorted(
-			eligible + (incumbent,),
+			eligible + (incumbent_artifact,),
 			key=lambda item: (item.content_hash, item.artifact_id),
 		))
 	identity_candidates = tuple(
@@ -648,7 +655,7 @@ def promote(
 						("no_eligible_generation",),
 					)
 		return daily_blog.artifacts.NoArtifact(expected_type, "no_eligible_generation")
-	incumbent_id = incumbent.artifact_id if incumbent else ""
+	incumbent_id = incumbent_artifact.artifact_id if incumbent_artifact else ""
 	decision = _decide_artifact_promotion(identity_candidates, vote_values, incumbent_id)
 	if decision is None:
 		raise RuntimeError("Eligible promotion candidates unexpectedly disappeared.")

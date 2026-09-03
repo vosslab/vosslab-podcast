@@ -343,6 +343,50 @@ class GitHubClient:
 		)
 
 	#============================================
+	def search_owner_commits(
+		self,
+		owner: str,
+		report_date: str,
+		use_cache: bool = True,
+	) -> list[dict]:
+		"""Search commits across one owner's repositories for one author date."""
+		query = f"user:{owner} author-date:{report_date}"
+		if not use_cache:
+			return self.call_with_retry(
+				"GET /search/commits",
+				lambda: self._search_owner_commits_live(query),
+			)
+		return self.cached_query(
+			"search_owner_commits",
+			{"owner": owner, "report_date": report_date},
+			"GET /search/commits",
+			lambda: self._search_owner_commits_live(query),
+		)
+
+	#============================================
+	def _search_owner_commits_live(self, query: str) -> list[dict]:
+		"""Project GitHub commit-search results into the small daily-blog surface."""
+		results = []
+		for commit_obj in self.client.search_commits(query=query):
+			raw = getattr(commit_obj, "raw_data", {}) or {}
+			commit = raw.get("commit", {}) if isinstance(raw, dict) else {}
+			author = commit.get("author", {}) if isinstance(commit, dict) else {}
+			committer = commit.get("committer", {}) if isinstance(commit, dict) else {}
+			url = raw.get("html_url", "") if isinstance(raw, dict) else ""
+			parts = url.removeprefix("https://github.com/").split("/")
+			repository = "/".join(parts[:2]) if len(parts) >= 4 else ""
+			results.append({
+				"repository": repository,
+				"sha": raw.get("sha", ""),
+				"author_timestamp": author.get("date", ""),
+				"committer_timestamp": committer.get("date", ""),
+				"author_name": author.get("name", ""),
+				"message": commit.get("message", ""),
+				"url": url,
+			})
+		return results
+
+	#============================================
 	def list_issues(self, repo_full_name: str, since: datetime) -> list[dict]:
 		"""
 		List repository issues and pull requests updated since window start.

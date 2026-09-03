@@ -149,7 +149,7 @@ def _source(tmp_path: pathlib.Path) -> tuple[
 		daily_blog.editorial_stage_config.RoleRoute(
 			"reviewer", daily_blog.editorial_stage_config.HERMES_EDITORIAL_ROUTE))
 	config = daily_blog.config.DailyBlogConfig("settings.yaml", str(tmp_path), "owner", "America/Chicago", str(tmp_path),
-		str(tmp_path / "mirrors"), (), (), (route,), route, {}, {}, {},
+		str(tmp_path / "mirrors"), (route,), route, {}, {}, {},
 		daily_blog.config.EditorialReliabilityConfig(2, 1, 1, 8), final_synthesis=stage)
 	coordinator = daily_blog.orchestrator.DailyPublicationOrchestrator(config, packet.report_date)
 	for phase in coordinator.record.phases:

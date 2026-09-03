@@ -61,7 +61,7 @@ def _config(tmp_path: Path) -> daily_blog.config.DailyBlogConfig:
 	route = daily_blog.editorial_stage_config.RoleRoute("fixture", ("fixture",))
 	return daily_blog.config.DailyBlogConfig(
 		"settings.yaml", str(tmp_path), "owner", "America/Chicago", str(tmp_path),
-		str(tmp_path / "mirrors"), (), (), (route,), route, {},
+		str(tmp_path / "mirrors"), (route,), route, {},
 		{"context_chars": 8000, "excerpt_chars": 1000, "commit_subject_chars": 120},
 		{"author_chars": 8000, "referee_chars": 8000},
 		daily_blog.config.EditorialReliabilityConfig(2, 1, 1, 8),
@@ -335,3 +335,26 @@ def test_all_failed_workers_preserve_their_typed_terminal_category_and_evidence(
 	assert raised.value.category is category
 	assert not completed
 	_assert_complete_projected_provenance(artifacts["recovery_fault.json"], packet)
+
+
+def test_unclassified_worker_fault_retains_its_safe_subtype_at_the_terminal_boundary(
+	tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""A generic worker exception is not relabeled as a route-level diagnosis."""
+	packet = _packet()
+	coordinator, artifacts, _summaries, _completed = _coordinator(tmp_path, packet, _Runner(packet))
+
+	def fail_all(_value: daily_blog.multi_repository_coordinator.RepositoryJobInput) -> object:
+		raise RuntimeError("injected worker defect")
+
+	monkeypatch.setattr(daily_blog.multi_repository_coordinator, "_run_job", fail_all)
+	with pytest.raises(daily_blog.recovery.PipelineFaultError) as raised:
+		coordinator.run(packet)
+
+	assert (
+		raised.value.fault.terminal_fault is not None
+		and raised.value.fault.terminal_fault.subtype
+		is daily_blog.recovery.TerminalFaultSubtype.IMPLEMENTATION_UNCLASSIFIED
+		and artifacts["recovery_fault.json"]["terminal_fault"]
+		== raised.value.fault.terminal_fault.to_dict()
+	)

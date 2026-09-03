@@ -1,3 +1,44 @@
+## 2026-09-02
+
+### Fixes and Maintenance
+
+- Completed six independent plan, test, style, documentation, legacy, and comment review passes
+  over the integrated stochastic-resilience implementation. Consolidated primary and recovery
+  Stage-6 reliability summaries under one owner so recovery promotion retains reviewer disagreement
+  counts, and made the split Stage-6 modules declare their direct imports.
+- Applied the clean pre-production schema policy to terminal-summary v2: production readers now
+  accept only the current phase set. Removed the retired-phase pytest fixture and retained a smaller
+  two-assertion idempotency check for the current receipt contract.
+- Documented `fresh_batch_count: 1` as provisional until the bounded stochastic comparison writes
+  its one-time result receipt. Removed milestone labels from permanent attempt-plan docstrings.
+- Split primary and recovery Stage-6 orchestration into named writer, editor, feedback, observation,
+  review, and finalization helpers. The route order, immutable materialization, cache witnesses, and
+  reliability ledger remain unchanged; recovery repair prompts again enforce their configured bound.
+- Corrected the one-time M16 runner before live execution: H2 now measures eligible generation
+  survivors instead of the binary final-selection flag, every materialized attempt retains its safe
+  response-free fact and identity digest, and H3 records an explicit retain/remove decision only when
+  feedback was exercised. The sealed-ceiling and archived-input preflight passes offline.
+- Synchronized shared style guides, tests, and repository support files from the starter template.
+
+### Decisions and Failures
+
+- Kept the existing active-plan copy in its current `docs/active_plans/` location because the
+  repository filing policy requires an explicit one-time sweep before relocating legacy root-level
+  plan files.
+- Kept the plan open: the authorized live M16 comparison, evidence-selected production default,
+  explicit-date publication receipt, final review disposition, and closeout records remain pending.
+
+### Developer Tests and Notes
+
+- Focused Stage-6, recovery, observability, admission, replication, route-cache, and attempt-plan
+  verification passed 99 tests; the slowest completed in 0.23 seconds. The style, typing,
+  source-limit, import, ASCII, and documentation-link checks passed.
+- The controlled producer-to-publisher E2E passed after the orchestration split. The complete
+  permanent suite passed all 3,817 tests in 35.72 seconds. No permanent pytest was added; controlled
+  publication remains E2E evidence and the stochastic comparison remains one-time evidence.
+- The M1-M15 receipt digest chain was re-read from disk and reconciled through the M16 manifest. A
+  temporary offline M16 preflight script and its empty output directory were removed after use.
+
 ## 2026-08-31
 
 ### Behavior or Interface Changes

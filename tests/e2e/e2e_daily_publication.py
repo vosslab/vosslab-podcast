@@ -133,7 +133,7 @@ def _write_settings(path: pathlib.Path, publisher: pathlib.Path, mirrors: pathli
 		"daily_blog:\n"
 		f"  repository_path: {json.dumps(str(publisher))}\n"
 		f"  mirror_cache_root: {json.dumps(str(mirrors))}\n"
-		"  report_timezone: America/Chicago\n  identity_names: [vosslab]\n  identity_emails: []\n",
+		"  report_timezone: America/Chicago\n",
 		encoding="utf-8",
 	)
 
@@ -247,6 +247,7 @@ class _OfflineRunner:
 	"""Deterministic local substitute for the model response boundaries."""
 
 	def __init__(self, evidence_ids: tuple[str, ...]) -> None:
+		"""Bind the controlled evidence IDs to this route substitute."""
 		self.evidence_ids = evidence_ids
 
 	def _evidence_id(self, prompt: str) -> str:
@@ -288,9 +289,11 @@ class _OfflineRunner:
 			"daily_outline_outline_reviewer", "complete_post_reviewer",
 		}:
 			return '{"decision":"ACCEPT","score":90,"reason":"grounded"}'
-		if name in {
-			"complete_post_writer", "complete_post_editor", "final_synthesis_synthesis",
-		}:
+		if name == "complete_post_writer":
+			return _post("Publication fixture", self.evidence_ids)
+		if name == "complete_post_editor":
+			return _post("Publication fixture", self.evidence_ids)
+		if name == "final_synthesis_synthesis":
 			return _post("Publication fixture", self.evidence_ids)
 		if name == "daily_outline_outline_writer":
 			return (
@@ -331,6 +334,16 @@ def _runtime(
 
 	return daily_blog.publication_workflow.PublicationRuntime(
 		repository_loader=lambda _owner, _output: roster,
+		commit_discovery=lambda *_args: [
+			{
+				"repository": activity.repository,
+				"sha": commit.sha,
+				"author_timestamp": commit.author_timestamp,
+				"author_name": commit.author_name,
+				"message": commit.message,
+			}
+			for activity in activities for commit in activity.commits
+		],
 		mirror_refresh=lambda *_args: mirrors, activity_locator=lambda *_args: activities,
 		evidence_assembler=lambda *_args: (packet, assets),
 		route_runner=runner,
@@ -436,7 +449,6 @@ def _success_and_overwrite() -> None:
 			_assert_date_summary_retains_run(replacement_root, "controlled-replacement")
 
 
-#============================================
 def _post_import_failure() -> None:
 	"""Require an operational verification failure to retain the committed publication."""
 	with tempfile.TemporaryDirectory(prefix="daily-publication-e2e-") as temporary:

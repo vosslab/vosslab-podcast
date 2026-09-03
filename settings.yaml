@@ -29,10 +29,6 @@ daily_blog:
   repository_path: "/home/vosslab/nsh/vosslab-daily-blog"
   mirror_cache_root: "/home/vosslab/repo-mirrors"
   report_timezone: "America/Chicago"
-  identity_names:
-    - "Dr. Neil R Voss"
-  identity_emails:
-    - "vosslab@users.noreply.github.com"
   routes:
     authors:
       - name: "author_one"
@@ -162,8 +158,8 @@ daily_blog:
     editor_count: 2
     reviewer_count: 3
     maximum_parallel_calls: 6
-    max_route_calls: 370
     route_retry_attempts: 1
+    fresh_batch_count: 1
     routes:
       writer:
         name: "complete_post_writer"

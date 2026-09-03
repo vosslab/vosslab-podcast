@@ -1,7 +1,6 @@
 """Stable configuration boundaries for Stage 6 complete-post editors."""
 
 # Standard Library
-import dataclasses
 import pathlib
 
 # PIP3 modules
@@ -25,13 +24,6 @@ def write_settings(tmp_path: pathlib.Path, daily_blog: dict[str, object]) -> pat
 		encoding="utf-8",
 	)
 	return settings_path
-
-
-#============================================
-def test_stage6_config_rejects_unsafe_route_budget_type() -> None:
-	"""A boolean never becomes a complete-post route-admission budget."""
-	with pytest.raises(RuntimeError, match="route budget"):
-		dataclasses.replace(daily_blog.editorial_stage_config.CompletePostConfig(), max_route_calls=False)
 
 
 #============================================

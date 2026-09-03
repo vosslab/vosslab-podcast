@@ -10,6 +10,9 @@ import dataclasses
 # local repo modules
 from podlib import pipeline_settings
 
+# local repo modules
+import daily_blog.stage6_attempt_plan
+
 DEFAULT_REPOSITORY_OUTLINE_RELIABILITY = {
 	"generator_count": 2,
 	"merger_count": 2,
@@ -41,8 +44,8 @@ DEFAULT_COMPLETE_POST_RELIABILITY = {
 	"editor_count": 2,
 	"reviewer_count": 1,
 	"maximum_parallel_calls": 6,
-	"max_route_calls": 88,
 	"route_retry_attempts": 1,
+	"fresh_batch_count": 1,
 }
 DEFAULT_COMPLETE_POST_PROMPT_LIMITS = {
 	"writer_chars": 72000,
@@ -78,6 +81,7 @@ MAX_STAGE6_REPLICAS = 16
 MAX_STAGE6_REVIEWERS = 16
 MAX_STAGE6_PARALLEL_CALLS = 16
 MAX_STAGE6_RETRY_ATTEMPTS = 3
+MAX_STAGE6_FRESH_BATCHES = 3
 MAX_COMPLETE_POST_PROMPT_CHARS = {
 	"writer_chars": 120000,
 	"editor_chars": 185000,
@@ -107,8 +111,6 @@ DAILY_BLOG_SETTING_KEYS = {
 	"complete_post",
 	"daily_outline",
 	"editorial_reliability",
-	"identity_emails",
-	"identity_names",
 	"mirror_cache_root",
 	"projection_limits",
 	"prompt_limits",
@@ -521,10 +523,10 @@ class CompletePostConfig:
 	maximum_parallel_calls: int = DEFAULT_COMPLETE_POST_RELIABILITY[
 		"maximum_parallel_calls"
 	]
-	max_route_calls: int = DEFAULT_COMPLETE_POST_RELIABILITY["max_route_calls"]
 	route_retry_attempts: int = DEFAULT_COMPLETE_POST_RELIABILITY[
 		"route_retry_attempts"
 	]
+	fresh_batch_count: int = DEFAULT_COMPLETE_POST_RELIABILITY["fresh_batch_count"]
 	writer_route: RoleRoute = dataclasses.field(
 		default_factory=lambda: _default_complete_post_route("complete_post_writer")
 	)
@@ -550,16 +552,16 @@ class CompletePostConfig:
 		self._require_bounded_count(
 			self.route_retry_attempts, "route_retry_attempts", 0, MAX_STAGE6_RETRY_ATTEMPTS,
 		)
+		self._require_bounded_count(
+			self.fresh_batch_count, "fresh_batch_count", 1, MAX_STAGE6_FRESH_BATCHES,
+		)
+		# ASVS 2.1/2.2: admit exact bounded policy values before plan allocation.
+		self.stage6_attempt_policy
 		if self.maximum_parallel_calls > max(
-			self.writer_count, self.editor_count, self.review_source_count,
+			self.writer_count, self.editor_count, self.review_work_pool_count,
 		):
 			raise RuntimeError(
 				"Complete-post maximum_parallel_calls cannot exceed one stage work pool."
-			)
-		if type(self.max_route_calls) is not int or self.max_route_calls < self.required_route_calls:
-			raise RuntimeError(
-				"Complete-post route budget cannot cover writers, editors, retries, review, "
-				"repair, and incumbent comparison."
 			)
 		routes = (self.writer_route, self.editor_route, self.reviewer_route)
 		if any(not isinstance(route, RoleRoute) for route in routes):
@@ -597,51 +599,28 @@ class CompletePostConfig:
 
 	#============================================
 	@property
-	def review_peer_count(self) -> int:
-		"""Reserve writers, editors, and one optional eligible complete-post incumbent."""
-		return self.writer_count + self.editor_count + 1
-
-	#============================================
-	@property
-	def reviewer_pair_count(self) -> int:
-		"""Return every unordered eligible complete-post comparison pair."""
-		return self.review_peer_count * (self.review_peer_count - 1) // 2
-
-	#============================================
-	@property
-	def review_source_count(self) -> int:
-		"""Return both A/B orders for every reviewer and comparison pair."""
-		return self.reviewer_pair_count * self.reviewer_count * 2
-
-	#============================================
-	@property
-	def repair_source_count(self) -> int:
-		"""Reserve one verdict repair for every structured review presentation."""
-		return self.review_source_count
-
-	#============================================
-	@property
-	def primary_source_count(self) -> int:
-		"""Return all independent complete-post writers and editors."""
-		return self.writer_count + self.editor_count
-
-	#============================================
-	@property
-	def route_source_count(self) -> int:
-		"""Return every Stage 6 route source before bounded retry multiplication."""
-		return self.primary_source_count + self.review_source_count + self.repair_source_count
-
-	#============================================
-	@property
-	def required_route_calls(self) -> int:
-		"""Return the full Stage 6 budget including retries on every route request."""
-		return self.route_source_count * (self.route_retry_attempts + 1)
+	def review_work_pool_count(self) -> int:
+		"""Return the largest concurrent review presentation pool."""
+		peers = self.writer_count + self.editor_count + 1
+		return peers * (peers - 1) * self.reviewer_count
 
 	#============================================
 	@property
 	def max_parallel_calls(self) -> int:
 		"""Provide the RouteBudget-compatible name for the stage parallel cap."""
 		return self.maximum_parallel_calls
+
+	#============================================
+	@property
+	def stage6_attempt_policy(self) -> daily_blog.stage6_attempt_plan.Stage6AttemptPolicy:
+		"""Expose the one bounded immutable topology policy without a module cycle."""
+		return daily_blog.stage6_attempt_plan.Stage6AttemptPolicy(
+			self.writer_count,
+			self.editor_count,
+			self.reviewer_count,
+			self.route_retry_attempts,
+			self.fresh_batch_count,
+		)
 
 
 

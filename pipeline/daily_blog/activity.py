@@ -1,13 +1,20 @@
-"""Locate attributed Git commits within one Central-calendar report day."""
+"""Discover and locate Git commits within one Central-calendar report day."""
 
 # Standard Library
 import datetime
+import os
+import re
 import subprocess
 import zoneinfo
 
 # local repo modules
 import daily_blog.schema
 import daily_blog.repository_contracts
+import podlib.github_client
+import podlib.runtime_credentials
+
+
+COMMIT_MESSAGE_PREVIEW_CHARS = 160
 
 
 #============================================
@@ -44,24 +51,6 @@ def _run_git(cache_path: str, arguments: list[str], check: bool = True) -> subpr
 
 
 #============================================
-def _candidate_shas(cache_path: str, start: datetime.datetime, end: datetime.datetime) -> list[str]:
-	"""Locate nearby reachable commits before exact author-date filtering."""
-	padded_start = start - datetime.timedelta(days=2)
-	padded_end = end + datetime.timedelta(days=2)
-	result = _run_git(
-		cache_path,
-		[
-			"rev-list",
-			"--all",
-			f"--since={padded_start.isoformat()}",
-			f"--until={padded_end.isoformat()}",
-		],
-	)
-	shas = [line.strip() for line in result.stdout.splitlines() if line.strip()]
-	return shas
-
-
-#============================================
 def _commit_record(cache_path: str, sha: str) -> daily_blog.schema.CommitActivity:
 	"""Read one exact commit object into the typed activity schema."""
 	result = _run_git(
@@ -86,19 +75,6 @@ def _commit_record(cache_path: str, sha: str) -> daily_blog.schema.CommitActivit
 		message=parts[6].strip(),
 	)
 	return commit
-
-
-#============================================
-def _matches_identity(
-	commit: daily_blog.schema.CommitActivity,
-	identity_names: tuple[str, ...],
-	identity_emails: tuple[str, ...],
-) -> bool:
-	"""Return whether author metadata exactly matches configured identity evidence."""
-	names = {name.casefold() for name in identity_names}
-	emails = {email.casefold() for email in identity_emails}
-	matched = commit.author_name.casefold() in names or commit.author_email.casefold() in emails
-	return matched
 
 
 #============================================
@@ -176,27 +152,117 @@ def _snapshot_commits(
 
 
 #============================================
+def discover_daily_commits(owner: str, report_date: str, output_root: str) -> list[dict]:
+	"""Return one fresh GitHub account/date commit-search snapshot."""
+	if re.fullmatch(r"[A-Za-z0-9-]+", owner) is None:
+		raise RuntimeError("Daily commit discovery owner is invalid.")
+	datetime.date.fromisoformat(report_date)
+	token = podlib.runtime_credentials.get_github_token()
+	cache_dir = os.path.join(output_root, owner, "daily_blog_cache", "github_commit_search_api")
+	client = podlib.github_client.GitHubClient(token, cache_dir=cache_dir)
+	return client.search_owner_commits(owner, report_date, use_cache=False)
+
+
+#============================================
+def _commit_reference(value: object, owner: str) -> tuple[str, str]:
+	"""Return the owner-qualified repository and SHA from one search result."""
+	if type(value) is not dict:
+		raise RuntimeError("GitHub commit search returned a non-object result.")
+	repository = value.get("repository")
+	sha = value.get("sha")
+	if (
+		type(repository) is not str
+		or not repository.casefold().startswith(owner.casefold() + "/")
+		or daily_blog.repository_contracts.REPOSITORY_NAME_RE.fullmatch(repository) is None
+		or type(sha) is not str
+		or re.fullmatch(r"[0-9a-f]{40}", sha) is None
+	):
+		raise RuntimeError("GitHub commit search returned an invalid repository or SHA.")
+	return repository, sha
+
+
+#============================================
+def _message_preview(value: object) -> str:
+	"""Return one compact escaped commit-message preview for local Markdown."""
+	lines = str(value or "").splitlines()
+	message = " ".join((lines[0] if lines else "").split())
+	if len(message) > COMMIT_MESSAGE_PREVIEW_CHARS:
+		message = message[:COMMIT_MESSAGE_PREVIEW_CHARS - 3].rstrip() + "..."
+	for character in ("\\", "`", "*", "_", "[", "]", "<", ">"):
+		message = message.replace(character, "\\" + character)
+	return message or "(no commit message)"
+
+
+#============================================
+def render_daily_commits(
+	owner: str, report_date: str, commits: list[dict],
+) -> str:
+	"""Render the local Step 0 commit inventory with compact message previews."""
+	rows = []
+	for value in commits:
+		repository, sha = _commit_reference(value, owner)
+		timestamp = str(value.get("author_timestamp") or "")
+		author = _message_preview(value.get("author_name"))
+		message = _message_preview(value.get("message"))
+		url = f"https://github.com/{repository}/commit/{sha}"
+		rows.append((repository.casefold(), timestamp, sha, repository, author, message, url))
+	rows.sort()
+	lines = [
+		f"# Daily commits for {report_date}",
+		"",
+		f"GitHub query: `user:{owner} author-date:{report_date}`",
+		"",
+	]
+	if not rows:
+		lines.extend(["No commits were found for this report date.", ""])
+		return "\n".join(lines)
+	lines.extend([
+		f"{len(rows)} commit{'s' if len(rows) != 1 else ''} across "
+		+ f"{len({row[0] for row in rows})} repositor"
+		+ ("ies." if len({row[0] for row in rows}) != 1 else "y."),
+		"",
+	])
+	current = ""
+	for _folded, timestamp, sha, repository, author, message, url in rows:
+		if repository != current:
+			lines.extend([f"## {repository}", ""])
+			current = repository
+		lines.append(f"- [`{sha[:12]}`]({url}) - {timestamp} - {author} - {message}")
+	lines.append("")
+	return "\n".join(lines)
+
+
+#============================================
+def commit_repositories(owner: str, commits: list[dict]) -> tuple[str, ...]:
+	"""Return the canonical owner repositories named by Step 0."""
+	return tuple(sorted({_commit_reference(value, owner)[0] for value in commits}))
+
+
+#============================================
 def locate_activity(
 	report_date: str,
 	timezone_name: str,
 	mirror_entries: list[dict],
-	identity_names: tuple[str, ...],
-	identity_emails: tuple[str, ...],
+	commit_references: list[dict],
+	owner: str,
 ) -> list[daily_blog.schema.RepositoryActivity]:
-	"""Locate and type all attributed commits for the report day."""
-	if not identity_names and not identity_emails:
-		raise RuntimeError("Activity attribution requires configured names or emails.")
+	"""Resolve GitHub-discovered report-day commits against refreshed mirrors."""
 	start, end = build_date_window(report_date, timezone_name)
+	by_repository: dict[str, list[str]] = {}
+	for value in commit_references:
+		repository, sha = _commit_reference(value, owner)
+		shas = by_repository.setdefault(repository, [])
+		if sha not in shas:
+			shas.append(sha)
 	activities = []
 	for mirror in mirror_entries:
-		if not mirror["object_available"]:
-			raise RuntimeError(f"Mirror default object is unavailable: {mirror['repository']}")
+		repository = mirror["repository"]
+		if repository not in by_repository:
+			continue
 		commits = []
-		for sha in _candidate_shas(mirror["cache_path"], start, end):
+		for sha in by_repository[repository]:
 			commit = _commit_record(mirror["cache_path"], sha)
 			if not _within_window(commit, start, end):
-				continue
-			if not _matches_identity(commit, identity_names, identity_emails):
 				continue
 			commits.append(commit)
 		commits.sort(key=lambda item: (item.author_timestamp, item.sha))

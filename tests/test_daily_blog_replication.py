@@ -8,6 +8,7 @@ import pytest
 
 # local repo modules
 import daily_blog.agents
+import daily_blog.attempt_ledger
 import daily_blog.artifacts
 import daily_blog.editorial_stage_config
 import daily_blog.io_utils
@@ -60,6 +61,42 @@ class Runner:
 		if prompt == "broken":
 			raise daily_blog.routes.EditorialRouteTimeout("offline")
 		return prompt
+
+
+#============================================
+def test_attempt_ledger_rejects_noncanonical_slot_facts() -> None:
+	"""A partial ledger cannot be serialized or summarized as a durable result."""
+	ledger = daily_blog.attempt_ledger.AttemptLedger(("a" * 64,), ())
+	with pytest.raises(RuntimeError):
+		ledger.to_dict()
+
+
+#============================================
+@pytest.mark.parametrize("field, malformed", [
+	("execution_source", []),
+	("transport_outcome", {}),
+	("highest_gate", None),
+	("terminal_disposition", 1),
+	("reason_code", []),
+])
+def test_attempt_fact_rejects_type_confused_closed_values(field: str, malformed: object) -> None:
+	"""Untrusted JSON values fail closed as RuntimeError, never membership TypeError."""
+	value: dict[str, object] = {
+		"slot_id": "a" * 64,
+		"execution_source": "fresh_route",
+		"transport_attempts": 1,
+		"restored_agent_result_attempts": 0,
+		"transport_outcome": "success",
+		"highest_gate": "selected",
+		"terminal_disposition": "selected",
+		"reason_code": "",
+		"candidate_sha256": "b" * 64,
+		"feedback_input_sha256": "",
+	}
+	value[field] = malformed
+
+	with pytest.raises(RuntimeError):
+		daily_blog.attempt_ledger.AttemptFact.from_dict(value)
 
 
 #============================================

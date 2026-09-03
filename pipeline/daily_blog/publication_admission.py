@@ -2,13 +2,114 @@
 
 # Standard Library
 import dataclasses
+import json
+import re
 
 # local repo modules
 import daily_blog.artifacts
 import daily_blog.candidates
+import daily_blog.io_utils
 import daily_blog.projection
 import daily_blog.schema
 import daily_blog.stage6_context
+
+
+REPAIR_FEEDBACK_SCHEMA_VERSION = "vosslab.daily-blog.repair-feedback.v1"
+_REPAIR_FEEDBACK_FIELDS = frozenset({
+	"candidate_sha256", "reason_codes", "objective_codes",
+	"authorized_evidence_refs", "authorized_artifact_ids",
+})
+_SAFE_FEEDBACK_ID_RE = re.compile(r"^[a-z][a-z0-9_-]{0,95}$")
+_REPAIR_OBJECTIVES = {
+	"citation_density_mismatch": "add_authorized_citations",
+	"evidence_grounding_mismatch": "ground_claims_in_authorized_evidence",
+	"image_authority_mismatch": "use_authorized_images",
+	"presentation_policy_mismatch": "meet_presentation_requirements",
+}
+
+
+#============================================
+@dataclasses.dataclass(frozen=True)
+class RepairFeedbackEnvelope:
+	"""One candidate-local, positive repair assignment from admission facts."""
+
+	candidate_sha256: str
+	reason_codes: tuple[str, ...]
+	objective_codes: tuple[str, ...]
+	authorized_evidence_refs: tuple[str, ...]
+	authorized_artifact_ids: tuple[str, ...]
+
+	#============================================
+	def __post_init__(self) -> None:
+		"""Validate the closed schema before it enters a prompt or cache key."""
+		if type(self.candidate_sha256) is not str or re.fullmatch(r"[0-9a-f]{64}", self.candidate_sha256) is None:
+			raise RuntimeError("Repair feedback candidate identity must be a lowercase SHA-256 digest.")
+		self._validate_codes(self.reason_codes, tuple(sorted(_REPAIR_OBJECTIVES)), 1, 16, "reason")
+		self._validate_codes(self.objective_codes, tuple(sorted(_REPAIR_OBJECTIVES.values())), 1, 16, "objective")
+		if self.objective_codes != tuple(sorted(_REPAIR_OBJECTIVES[item] for item in self.reason_codes)):
+			raise RuntimeError("Repair feedback objectives must match its closed reason mapping.")
+		self._validate_ids(self.authorized_evidence_refs, "evidence reference")
+		self._validate_ids(self.authorized_artifact_ids, "artifact identity")
+
+	#============================================
+	@staticmethod
+	def _validate_codes(
+		values: object, allowed: tuple[str, ...], minimum: int, maximum: int, label: str,
+	) -> None:
+		"""Require a bounded canonical subset of one closed code vocabulary."""
+		if (
+			type(values) is not tuple or not minimum <= len(values) <= maximum
+			or values != tuple(sorted(set(values)))
+			or any(type(item) is not str or item not in allowed for item in values)
+		):
+			raise RuntimeError("Repair feedback " + label + " codes are malformed.")
+
+	#============================================
+	@staticmethod
+	def _validate_ids(values: object, label: str) -> None:
+		"""Require a bounded canonical sequence of safe authority identifiers."""
+		if (
+			type(values) is not tuple or len(values) > 256
+			or values != tuple(sorted(set(values)))
+			or any(type(item) is not str or _SAFE_FEEDBACK_ID_RE.fullmatch(item) is None for item in values)
+		):
+			raise RuntimeError("Repair feedback " + label + " identifiers are malformed.")
+
+	#============================================
+	def to_dict(self) -> dict[str, object]:
+		"""Return the exact JSON envelope without parallel schema aliases."""
+		return {
+			"candidate_sha256": self.candidate_sha256,
+			"reason_codes": list(self.reason_codes),
+			"objective_codes": list(self.objective_codes),
+			"authorized_evidence_refs": list(self.authorized_evidence_refs),
+			"authorized_artifact_ids": list(self.authorized_artifact_ids),
+		}
+
+	#============================================
+	@classmethod
+	def from_dict(cls, value: object) -> "RepairFeedbackEnvelope":
+		"""Restore only the exact current closed JSON representation."""
+		if type(value) is not dict or set(value) != _REPAIR_FEEDBACK_FIELDS:
+			raise RuntimeError("Repair feedback envelope fields are unsupported.")
+		if type(value["candidate_sha256"]) is not str or any(
+			type(value[name]) is not list for name in _REPAIR_FEEDBACK_FIELDS - {"candidate_sha256"}
+		):
+			raise RuntimeError("Repair feedback envelope JSON types are malformed.")
+		return cls(
+			value["candidate_sha256"], tuple(value["reason_codes"]), tuple(value["objective_codes"]),
+			tuple(value["authorized_evidence_refs"]), tuple(value["authorized_artifact_ids"]),
+		)
+
+	#============================================
+	def canonical_json(self) -> str:
+		"""Render the validated five-field envelope in its sole canonical form."""
+		return json.dumps(self.to_dict(), ensure_ascii=True, separators=(",", ":"), sort_keys=True)
+
+	#============================================
+	def sha256(self) -> str:
+		"""Hash only the canonical, validated envelope bytes."""
+		return daily_blog.io_utils.sha256_text(self.canonical_json())
 
 
 #============================================
@@ -336,14 +437,10 @@ def complete_post_eligibility(
 	*,
 	recovery: bool = False,
 ) -> daily_blog.artifacts.EligibilityResult:
-	"""Combine mechanical provenance and active final-post body policy."""
-	mechanical = complete_post_mechanical_eligibility(post, surface, output_root, recovery=recovery)
-	policy_issues = complete_post_policy_issues(post, surface, recovery=recovery)
-	reasons = set(mechanical.reasons)
-	if policy_issues:
-		reasons.add("publication_policy_mismatch")
-		reasons.update(_policy_rejection_codes(policy_issues))
-	return daily_blog.artifacts.EligibilityResult(not reasons, tuple(sorted(reasons)))
+	"""Admit mechanically safe, evidence-grounded complete posts."""
+	return complete_post_mechanical_eligibility(
+		post, surface, output_root, recovery=recovery,
+	)
 
 
 #============================================
@@ -370,21 +467,85 @@ def complete_post_policy_issues(
 
 
 #============================================
-def _policy_rejection_codes(issues: tuple[str, ...]) -> tuple[str, ...]:
-	"""Map detailed editor instructions to bounded operational categories."""
-	codes = set()
+def complete_post_repair_feedback(
+	post: daily_blog.artifacts.CompletePost,
+	surface: PublicationSurface, output_root: str,
+	*, recovery: bool = False,
+) -> RepairFeedbackEnvelope | None:
+	"""Project one mechanically grounded policy finding into positive repair work."""
+	if type(post) is not daily_blog.artifacts.CompletePost or type(surface) is not PublicationSurface:
+		raise RuntimeError("Repair feedback requires exact complete-post admission inputs.")
+	if not complete_post_mechanical_eligibility(post, surface, output_root, recovery=recovery).eligible:
+		return None
+	reasons = _repair_feedback_reasons(complete_post_policy_issues(post, surface, recovery=recovery))
+	if not reasons:
+		return None
+	allowed_evidence_refs = (
+		tuple(sorted(item.evidence_id for item in surface.packet.items))
+		if recovery else surface.allowed_evidence_ids
+	)
+	image_evidence_ids = {
+		item.evidence_id for item in surface.allowed_images if item.publish_path in post.image_paths
+	}
+	return RepairFeedbackEnvelope(
+		post.content_hash, reasons, tuple(sorted(_REPAIR_OBJECTIVES[item] for item in reasons)),
+		_bounded_authorized_ids(post.evidence_ids + tuple(sorted(image_evidence_ids)), allowed_evidence_refs),
+		_bounded_authorized_ids((), tuple(item.artifact_id for item in surface.source_artifacts)),
+	)
+
+
+#============================================
+def repair_feedback_digest(
+	posts: tuple[daily_blog.artifacts.CompletePost, ...], surface: PublicationSurface, output_root: str,
+	*, recovery: bool = False,
+) -> str:
+	"""Return one canonical candidate-local envelope witness for an editor."""
+	if type(posts) is not tuple or type(surface) is not PublicationSurface:
+		raise RuntimeError("Repair feedback digest requires exact candidate and surface values.")
+	envelopes = tuple(
+		item for item in (
+			complete_post_repair_feedback(post, surface, output_root, recovery=recovery) for post in posts
+		) if item is not None
+	)
+	if not envelopes:
+		return ""
+	# The cache contract admits a feedback *envelope* digest, not a newly
+	# invented collection wrapper.  Additional envelopes are already determined
+	# by the editor's exact candidate witnesses and the surface-bound prompt.
+	return min(envelopes, key=lambda item: item.candidate_sha256).sha256()
+
+
+#============================================
+def _bounded_authorized_ids(used: tuple[str, ...], admitted: tuple[str, ...]) -> tuple[str, ...]:
+	"""Select at most 256 safe authority IDs, preserving used-ID membership first."""
+	if type(used) is not tuple or type(admitted) is not tuple:
+		raise RuntimeError("Repair feedback authority requires exact identifier tuples.")
+	selected: list[str] = []
+	for value in used + admitted:
+		if value not in selected:
+			selected.append(value)
+		if len(selected) == 256:
+			break
+	return tuple(sorted(selected))
+
+
+#============================================
+def _repair_feedback_reasons(issues: tuple[str, ...]) -> tuple[str, ...]:
+	"""Classify detailed policy findings into the closed positive repair vocabulary."""
+	if type(issues) is not tuple or any(type(item) is not str for item in issues):
+		raise RuntimeError("Repair feedback requires exact policy findings.")
+	reasons = set()
 	for issue in issues:
-		if issue.startswith("Post cites unknown evidence IDs:"):
-			codes.add("unknown_evidence_reference")
-		elif "image path outside projected evidence" in issue:
-			codes.add("unapproved_screenshot_path")
-		elif issue.startswith("Project coverage") or "missing active repositories" in issue:
-			codes.add("project_coverage_mismatch")
-		elif "cite" in issue.casefold() or "evidence" in issue.casefold():
-			codes.add("citation_density_mismatch")
+		folded = issue.casefold()
+		if "image" in folded:
+			reasons.add("image_authority_mismatch")
+		elif "cite" in folded:
+			reasons.add("citation_density_mismatch")
+		elif "evidence" in folded:
+			reasons.add("evidence_grounding_mismatch")
 		else:
-			codes.add("presentation_policy_mismatch")
-	return tuple(sorted(codes))
+			reasons.add("presentation_policy_mismatch")
+	return tuple(sorted(reasons))
 
 
 #============================================

@@ -59,6 +59,29 @@ derived from the date-owned publisher receipt and validated artifacts.
 **Owner.** `deploy/vosslab-daily-publication.timer`,
 `deploy/vosslab-daily-publication.service`, and `make_blog.py`.
 
+### Robustness preserves usable LLM work
+
+**Decision.** Robust means a blog entry is created despite many LLMs barely listening. Robust does
+not mean making publication more likely to fail by adding gates. Editorial preferences such as
+citation density, word count, section shape, heading style, and coverage presentation may guide
+generation, editing, and review; they do not make a mechanically valid complete post ineligible.
+
+**Why.** LLM output is variable even when prompts are clear. Treating every requested prose detail as
+an abort condition multiplies failure probabilities and discards usable work. The August 14 run
+demonstrated this directly: model routes returned candidates, while presentation and citation-policy
+checks eliminated all of them. The system becomes robust by preserving grounded output, not by
+demanding more exact compliance from a stochastic component.
+
+**Consequence.** The publication control path enforces only stable mechanical boundaries: exact
+report identity, evidence and repository provenance, output confinement, approved image paths,
+machine-owned metadata, publication source safety, and sealed publisher integrity. Authored-body
+findings remain advisory repair input. Permanent tests do not require a live or simulated LLM to
+follow exact prose or formatting directions; one-time checks may assess editorial quality without
+becoming suite gates.
+
+**Owner.** `pipeline/daily_blog/publication_admission.py`,
+`pipeline/daily_blog/publication_validation.py`, and [PYTEST_STYLE.md](PYTEST_STYLE.md).
+
 ### Runtime code owns GitHub credential consumption
 
 **Decision.** GitHub clients receive one runtime-only `GITHUB_TOKEN`. An explicitly injected process
@@ -77,7 +100,7 @@ dotenv values or persist credential material.
 **Owner.** `podlib.runtime_credentials`, `daily_blog.repositories`, and
 `deploy/vosslab-daily-publication.service`.
 
-### Empirical prose gates own the v4 prompt decision
+### Empirical review owns the v4 prompt decision
 
 **Decision.** The approved v4 maker package remains unchanged. Fixture-backed evidence accepted the
 sealed busy and quiet posts, attestation, and independent reviews before the recorded activation.

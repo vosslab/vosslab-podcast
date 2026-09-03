@@ -33,9 +33,11 @@ Symptom: a date-owned daily publication needs diagnosis or recovery.
 
 Start with `out/<owner>/daily_blog/YYYY-MM-DD/summary.jsonl`, then inspect the
 selected `runs/RUN_ID/run_state.json` and `runs/RUN_ID/events.jsonl`. The
-summary is the bounded terminal receipt; the run files contain bounded phase
-and lifecycle facts for that one attempt. They intentionally omit prompts,
-model responses, credentials, and raw external diagnostics. Use
+summary is the bounded terminal receipt and authoritative Stage-6 attempt
+summary. The run state contains the response-free attempt ledger and phase
+state; the event journal contains bounded lifecycle facts for that one attempt.
+They intentionally omit prompts, model responses, credentials, and raw external
+diagnostics. Use
 [DAILY_BLOG_OPERATIONS.md](DAILY_BLOG_OPERATIONS.md) for the current layout and
 ownership contract.
 
@@ -80,10 +82,10 @@ automatically replaces an occupied date after validation. Compare the installed
 unit with the deployment files and confirm that it invokes the repository's
 `make_blog.py --yesterday` command.
 
-## GitHub repository discovery is unauthenticated or blocked
+## GitHub commit or repository discovery is unauthenticated or blocked
 
-Symptom: `repository_discovery` reports a missing `GITHUB_TOKEN`, bad credentials, or a GitHub API
-rate-limit failure.
+Symptom: Step 0 or `repository_discovery` reports a missing `GITHUB_TOKEN`, bad credentials, or a
+GitHub API rate-limit failure.
 
 The publication pipeline requires authenticated GitHub discovery. It accepts an explicit process
 `GITHUB_TOKEN`; otherwise it reads only that named entry from `$HERMES_HOME/.env`, defaulting to
@@ -115,6 +117,15 @@ before a terminal receipt is an incomplete operational failure. The public CLI
 emits a bounded `pipeline_fault` JSON record and exits with status 2 only for a
 diagnosed terminal pipeline fault.
 
+For Stage 6, inspect `attempt_summary` in `summary.jsonl`. Its fresh, cache,
+skipped, physical-call, transport, admission-gate, review, rejection-reason,
+selection, and exhaustion totals are derived from the materialized attempt
+ledger in `run_state.json`. Treat a primary no-selection result as an observed
+prefix while recovery remains applicable; only the final recovery/batch
+materialization can record plan exhaustion. Use the event with type
+`daily_publication.stage6_attempt_reliability_persisted` as a bounded lifecycle
+projection, not as a replacement terminal summary.
+
 Route unavailability, malformed output, and failed candidate or review work are
 editorial degradation only while an eligible whole artifact survives. Exhausted
 routes, no eligible generation, unavailable evidence, invalid configuration,
@@ -125,33 +136,37 @@ with the immutable survivor-scoped publication surface. Neither condition
 justifies changing prompt prose during recovery.
 
 The recovery coordinator uses additional editorial paths and promotes only an
-eligible artifact. It does not mechanically assemble partial prose. Preserve the
-bounded phase and category in a ticket; keep route output, prompts, credentials,
-and private paths out of logs and tickets.
+eligible artifact. Preserve the bounded phase and category in a ticket, and use
+the response-free ledger and reason codes for diagnosis. Store route output,
+prompts, credentials, and private paths only in their authorized private
+boundaries.
 
 ## Run state or replay rejected
 
 Symptom: loading, resuming, or recording a run rejects an editorial transition,
 an incumbent identity, duplicate reliability facts, or a terminal record.
 
-Do not hand-edit `run_state.json`, replay events, or append a replacement step.
-The durable record accepts typed `observe`, `establish`, editorial `replace`,
-and publication-repair incumbent transitions; it validates the prior and next
+Treat `run_state.json` and its replay events as immutable evidence. The durable
+record accepts typed `observe`, `establish`, editorial `replace`, and
+publication-repair incumbent transitions; it validates the prior and next
 artifact identities with the associated reliability observation. A rejected
 transition is a state-integrity or implementation fault. Preserve the bounded
 error and terminal summary, correct the underlying configuration or code, then
-rerun the public command for the same report date.
+rerun the public command for the same report date. A record written under a
+pre-v13 run schema is regeneration-required.
 
 ## Terminal summary or advisory report unavailable
 
-Symptom: `events.jsonl` has no valid terminal-summary line, or the advisory
-report exits with `Reliability report input is unavailable or invalid.`
+Symptom: `summary.jsonl` has no valid terminal-summary v2 receipt, or the
+advisory report exits with `Reliability report input is unavailable or invalid.`
 
 The terminal summary is a bounded, redacted receipt rather than a raw log. It
 binds the report date, run identity, terminal record digest, outcome, failure
-classification, page-verification digest, and per-step reliability counts.
-Inspect the date-owned run first. To aggregate retained summaries without
-changing them, run:
+classification, page-verification digest, per-step reliability counts, and the
+authoritative Stage-6 attempt summary. `events.jsonl` records the bounded
+terminal lifecycle event but does not own the terminal-summary receipt. Inspect
+the date-owned run first. To aggregate retained summaries without changing
+them, run:
 
 ```bash
 source source_me.sh && python3 automation/report_blog_reliability.py \
@@ -169,12 +184,14 @@ Symptom: work from a newly created repository is absent from `activity.json`,
 `evidence.json`, `editorial_projection.json`, and the post headline. The
 August 26 audit found this exact failure for `vosslab/cancer-clicker`.
 
-Current runs persist `repository_roster.json` before mirror work. Check that
-artifact first. A missing record means GitHub did not return an eligible public,
-live owner repository or the roster boundary failed. A present record with no
-mirror entry means owner-qualified clone or origin validation failed. A present
-activity record with no first-day story signal means the GitHub creation time
-falls outside the selected local report day or the repository is a fork.
+Current runs write `daily_commits.md` before repository or mirror work. Check it
+first. A missing commit there means the account/date GitHub search did not
+return that repository/SHA. A present commit with a missing
+`repository_roster.json` record means repository discovery excluded or missed
+the owner repository. A present roster record with no mirror entry means
+owner-qualified clone or origin validation failed. A present activity record
+with no first-day story signal means the GitHub creation time falls outside the
+selected local report day or the repository is a fork.
 
 ## Mirror refresh failure
 

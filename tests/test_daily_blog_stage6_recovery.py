@@ -114,14 +114,14 @@ def _config(tmp_path: pathlib.Path) -> daily_blog.config.DailyBlogConfig:
 	"""Return a minimal Stage 6 configuration with one recovery writer route."""
 	complete_post = daily_blog.editorial_stage_config.CompletePostConfig(
 		writer_count=2, editor_count=2, reviewer_count=1, maximum_parallel_calls=1,
-		max_route_calls=44, route_retry_attempts=0,
+		route_retry_attempts=0,
 		writer_route=daily_blog.editorial_stage_config.RoleRoute("writer", daily_blog.editorial_stage_config.HERMES_EDITORIAL_ROUTE),
 		editor_route=daily_blog.editorial_stage_config.RoleRoute("editor", daily_blog.editorial_stage_config.HERMES_EDITORIAL_ROUTE),
 		reviewer_route=daily_blog.editorial_stage_config.RoleRoute("reviewer", daily_blog.editorial_stage_config.HERMES_EDITORIAL_ROUTE),
 	)
 	return daily_blog.config.DailyBlogConfig(
 		"settings.yaml", str(tmp_path), "owner", "America/Chicago", str(tmp_path),
-		str(tmp_path / "mirrors"), (), (),
+		str(tmp_path / "mirrors"),
 		(daily_blog.editorial_stage_config.RoleRoute("author", daily_blog.editorial_stage_config.HERMES_EDITORIAL_ROUTE),),
 		daily_blog.editorial_stage_config.RoleRoute("referee", daily_blog.editorial_stage_config.HERMES_EDITORIAL_ROUTE), {}, {},
 		{"author_chars": 72000, "referee_chars": 88000},
@@ -329,40 +329,6 @@ def test_recovery_ungrounded_response_is_classified_as_no_eligible_generation(
 	assert attempt.outcome.reason == daily_blog.recovery.TerminalFaultCategory.NO_ELIGIBLE_GENERATION.value
 
 
-#============================================
-def test_recovery_editors_repair_grounded_author_drafts_that_miss_body_policy(
-		tmp_path: pathlib.Path,
-) -> None:
-	"""Recovery preserves a grounded draft for an editor without promoting it unchanged."""
-	value = _recovery_input(tmp_path, daily_blog.recovery.RecoveryRung.DAILY_OUTLINE_EXPANSION)
-	invalid = _post(value.stage6_input) + "\n\n" + "An intentionally uncited afterword.\n\n" * 4
-	edited = _post(value.stage6_input).replace(
-		"# A day of connected work", "# Recovery editorial repair",
-	)
-	class Runner:
-		editor_prompts: list[str] = []
-
-		def run(
-			self, route: daily_blog.editorial_stage_config.RoleRoute,
-			prompt: str, _directory: str,
-		) -> str:
-			if route.name == "writer":
-				return invalid
-			if route.name == "editor":
-				self.editor_prompts.append(prompt)
-				return edited
-			return '{"winner":"A","reason":"grounded","evidence_quality":"high","confidence":1}'
-
-	runner = Runner()
-	attempt = daily_blog.stage6.recover_daily_outline_expansion(
-		value, "recovery-editor", _config(tmp_path), daily_blog.agents.RouteBudget(20, 1), runner,
-	)
-
-	assert runner.editor_prompts and "Project coverage must use one compact paragraph or list." in runner.editor_prompts[0]
-	assert isinstance(attempt.outcome, daily_blog.artifacts.SelectedPeer) and "Recovery editorial repair" in attempt.outcome.artifact.content
-
-
-#============================================
 def test_recovery_reviews_multiple_eligible_peers_before_promoting_one(
 		tmp_path: pathlib.Path,
 		monkeypatch: pytest.MonkeyPatch,
@@ -413,32 +379,6 @@ def test_recovery_reviews_multiple_eligible_peers_before_promoting_one(
 	assert isinstance(attempt.outcome, daily_blog.artifacts.SelectedPeer) and "Reviewed recovery choice" in attempt.outcome.artifact.content
 
 
-#============================================
-def test_recovery_all_policy_invalid_author_and_editor_posts_are_typed_degradation(
-		tmp_path: pathlib.Path,
-) -> None:
-	"""Recovery records every successful invalid editorial response without assembling a post."""
-	value = _recovery_input(tmp_path, daily_blog.recovery.RecoveryRung.DAILY_OUTLINE_EXPANSION)
-	invalid = _post(value.stage6_input) + "\n\n" + "An intentionally uncited afterword.\n\n" * 4
-	class Runner:
-		def run(
-			self, route: daily_blog.editorial_stage_config.RoleRoute,
-			_prompt: str, _directory: str,
-		) -> str:
-			return invalid
-
-	attempt = daily_blog.stage6.recover_daily_outline_expansion(
-		value, "recovery-invalid", _config(tmp_path), daily_blog.agents.RouteBudget(20, 1), Runner(),
-	)
-
-	assert isinstance(attempt.outcome, daily_blog.artifacts.NoArtifact) and attempt.outcome.reason == "no_eligible_generation"
-	assert attempt.recovery_generation is not None and (
-		attempt.observation.successful_responses == len(attempt.recovery_generation.candidates)
-		and not attempt.recovery_generation.eligible
-	)
-
-
-#============================================
 def test_recovery_reports_real_writer_loss_and_repaired_disagreeing_reviews(
 		tmp_path: pathlib.Path,
 ) -> None:
@@ -495,7 +435,7 @@ def test_recovery_reuses_grounded_writer_cache_when_editor_prompt_is_limited(
 			return _post(value.stage6_input)
 
 	def cached(request: daily_blog.agents.RouteRequest) -> daily_blog.agents.AgentResult | None:
-		if request.role not in {"recovery_author", "recovery_editor"}:
+		if request.role not in {"writer", "editor"}:
 			return None
 		text = _post(value.stage6_input)
 		return daily_blog.agents.AgentResult(

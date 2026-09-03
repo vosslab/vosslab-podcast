@@ -3398,3 +3398,86 @@ Tests
 
 Next actions
 1. None for this correction.
+
+---
+Session Update: 2026-09-02 (stochastic-resilience audit)
+
+Change
+- Ran six fresh independent review passes for plan conformance, permanent-test policy,
+  Python/repository style, documentation, legacy cleanup, and comment quality.
+- Merged the primary and recovery reliability summarizers under the Stage-6 attempt-reliability
+  owner. Recovery promotion now retains reviewer disagreement counts through the same implementation
+  used by primary execution.
+- Applied the clean current-schema policy to terminal-summary v2, removed the historical-phase
+  pytest fixture, declared direct module dependencies, removed permanent milestone labels, and marked
+  the current one-batch setting as provisional pending the live comparison.
+
+Tests
+- Focused Stage-6, recovery, observability, admission, replication, and attempt-plan tests passed:
+  80 passed in 3.51 seconds; slowest 0.22 seconds.
+- Pyflakes, typing, source-size, import-style, ASCII, and Markdown-link checks passed:
+  1,347 passed in 7.33 seconds.
+- The complete permanent suite passed: 3,817 passed in 35.58 seconds. Compilation and
+  `git diff --check` also passed. No permanent pytest was added.
+
+Next actions
+1. Obtain explicit authorization for the sealed live comparison's external evidence sharing, then
+   run the one-time 1/2/3-batch and feedback comparison.
+2. Record the evidence-selected default and explicit-date publication receipt.
+3. Resolve or disposition the broad Stage-6 orchestration-function maintainability finding, rerun
+   final review, and complete the plan closeout records.
+
+---
+Session Update: 2026-09-02 (Stage-6 orchestration audit resolution)
+
+Change
+- Split primary and recovery Stage-6 execution into named writer, editor, feedback, generation
+  observation, peer-review, and finalization helpers. The top-level functions now coordinate those
+  single-purpose steps instead of interleaving prompt construction, route callbacks, promotion, and
+  ledger closure.
+- Replaced the primary route and promotion lambdas with named admission callbacks. Preserved the
+  separate primary and recovery policy paths, the immutable materialized-plan order, response-free
+  observation closure, cache witnesses, and the shared reliability owner.
+- Restored the configured recovery repair-prompt bound while extracting peer review. Added no new
+  behavior gate or permanent test.
+
+Tests
+- Primary and recovery focused tests passed 21 cases after resolving one deferred-annotation import
+  cycle found during the refactor.
+- The broader Stage-6, recovery, route-cache, replication, admission, observability, and attempt-plan
+  slice passed 99 tests in 4.06 seconds; the slowest test completed in 0.23 seconds.
+- The controlled producer-to-publisher E2E passed in 12.5 seconds. Python style, typing, source-limit,
+  and import checks passed 923 tests. The complete permanent suite passed 3,817 tests in 35.72
+  seconds.
+
+Next actions
+1. Obtain explicit authorization for the sealed live comparison's external evidence sharing.
+2. Run the one-time stochastic comparison and explicit-date publication, record the selected default,
+   and complete the dependent final review and closeout gates.
+
+---
+Session Update: 2026-09-02 (M16 offline receipt and harness preflight)
+
+Change
+- Re-read the M1-M15 diagnostic receipts from disk and verified the recorded digest chain through the
+  sealed M16 manifest.
+- Corrected the one-time M16 runner so H2 derives marginal yield from eligible generated survivors,
+  rather than the binary final selection flag. The result will retain every safe response-free
+  attempt fact plus a digest of its ordered identities, allowing physical calls to reconcile with
+  admitted semantic slots.
+- Made H3's decision explicitly `retain` or `remove` and require that feedback was actually exercised
+  before attributing an improvement. Preserved the same fixed archived evidence, protected prompt
+  hashes, serial execution, and finite route-call ceilings.
+
+Tests
+- The runner passed Python compilation, direct Pyflakes, ASCII, and whitespace checks.
+- A disposable offline preflight rebuilt the typed archived Stage-6 input and reconciled every
+  one-, two-, and three-batch policy ceiling with the sealed manifest. The temporary script and empty
+  output directory were removed afterward; no pytest was added.
+
+Next actions
+1. Obtain explicit authorization to share the archived evidence and generated candidates with the
+   configured external Hermes/OpenAI-Codex route.
+2. Run the bounded comparison, apply its evidence-selected default, perform the explicit-date live
+   publication, and record the run, bundle, and rendered-page digests.
+3. Run the dependent final review and closeout verification.

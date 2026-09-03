@@ -72,7 +72,7 @@ def make_repository(
 			encoding="utf-8",
 		)
 	(repository / "src.py").write_text("VALUE = 1\n", encoding="utf-8")
-	commit(repository, "Add exact evidence", "2026-08-23T09:00:00-05:00")
+	selected_commit = commit(repository, "Add exact evidence", "2026-08-23T09:00:00-05:00")
 	if include_changelog:
 		(repository / "docs" / "CHANGELOG.md").write_text(
 			"## 2026-08-23\n\n- Added exact evidence.\n\n"
@@ -105,8 +105,11 @@ def make_repository(
 		"2026-08-23",
 		"America/Chicago",
 		[mirror],
-		("Dr. Neil R Voss",),
-		("vosslab@users.noreply.github.com",),
+		[
+			{"repository": "vosslab/evidence-repository", "sha": selected_commit},
+			{"repository": "vosslab/evidence-repository", "sha": final_commit},
+		],
+		"vosslab",
 	)
 	return repository, mirror, activities[0]
 
@@ -247,8 +250,11 @@ def verify_non_linear_activity(root: pathlib.Path) -> None:
 		"2026-08-23",
 		"America/Chicago",
 		[mirror],
-		("Dr. Neil R Voss",),
-		("vosslab@users.noreply.github.com",),
+		[
+			{"repository": "vosslab/branched-repository", "sha": branch_a},
+			{"repository": "vosslab/branched-repository", "sha": branch_b},
+		],
+		"vosslab",
 	)[0]
 	packet, _assets = daily_blog.evidence.EvidenceAssembler(
 		"2026-08-23", "America/Chicago", collection_limits()

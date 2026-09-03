@@ -19,9 +19,10 @@ source_me.sh               Bash Python 3.12 environment setup
 
 ```text
 pipeline/daily_blog/
-  acquisition_workflow.py           roster, mirror, activity, evidence, projection ownership
-  activity.py                       report-day Git activity location
+  acquisition_workflow.py           Step-0 inventory, roster, mirror, activity, evidence ownership
+  activity.py                       account-wide commit discovery and report-day Git activity
   agents.py                         bounded parallel editorial route execution
+  attempt_ledger.py                 response-free Stage-6 terminal facts and summaries
   artifacts.py                      typed editorial artifact identities
   bounded_artifact_context.py       stage-neutral bounded artifact prompt projections
   candidates.py                     complete-post eligibility validation
@@ -67,11 +68,16 @@ pipeline/daily_blog/
   roster_snapshots.py               immutable verified roster storage
   route_cache.py                    route-result cache serialization
   routes.py                         isolated stdin command execution for editorial routes
-  run_contracts.py                  v12 run record and compatible-v11 reader
+  run_contracts.py                  clean-break v13 run record
   run_state.py                      RunStore persistence and recovery
   schema.py                         evidence, projection, and bounded-context types
   stage6.py                         Stage-6 author/editor path and typed input boundary
+  stage6_attempt_plan.py            maximum topology and dependency-closed materialization
+  stage6_attempt_reliability.py     execution observations to canonical ledger facts
+  stage6_cache_identity.py          closed digest-only materialized cache witness
   stage6_context.py                 bounded Stage-6 artifact and evidence frames
+  stage6_execution.py               shared plan-bound request and candidate-pair mechanics
+  stage6_primary.py                 primary fresh-batch execution
   stage6_recovery.py                lower-rung whole-post author, editor, and review work
   stage7.py                         Stage-7 incumbent-preserving synthesis
   stage_recovery_coordinator.py     serial typed recovery-state coordination
@@ -120,7 +126,7 @@ out/<owner>/
 |  +- summary.jsonl                       bounded terminal receipts for this date
 |  +- post.md                             trusted selected-post handoff during finalization
 |  +- runs/RUN_ID/
-|  |  +- run_state.json                   authoritative typed run record
+|  |  +- run_state.json                   authoritative v13 run record and attempt ledger
 |  |  +- events.jsonl                     bounded lifecycle diagnostics
 |  |  `- stage-owned JSON artifacts       including recovery journals while unresolved
 |  `- publication/                        atomically promoted sealed bundle

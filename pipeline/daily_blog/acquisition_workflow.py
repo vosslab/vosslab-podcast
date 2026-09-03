@@ -6,6 +6,7 @@ import dataclasses
 import collections.abc
 
 # local repo modules
+import daily_blog.activity
 import daily_blog.config
 import daily_blog.io_utils
 import daily_blog.locks
@@ -60,9 +61,23 @@ class AcquisitionCoordinator:
 	#============================================
 	def acquire(self) -> AcquisitionResult:
 		"""Build and return the immutable acquisition handoff in durable phase order."""
+		commit_references = self._commit_inventory()
 		roster = self._repository_phase()
-		mirrors = self._mirror_phase(roster)
-		activities = self._activity_phase(mirrors)
+		active_repositories = set(daily_blog.activity.commit_repositories(
+			self.dependencies.config.output_owner, commit_references,
+		))
+		active_records = [
+			record for record in roster.repositories
+			if record.repository in active_repositories
+		]
+		if active_records:
+			active_roster = daily_blog.repository_contracts.RepositoryRoster.create(
+				roster.owner, active_records,
+			)
+			mirrors = self._mirror_phase(active_roster)
+		else:
+			mirrors = self._empty_mirror_phase(roster)
+		activities = self._activity_phase(mirrors, commit_references)
 		packet, assets = self._evidence_phase(mirrors, activities)
 		result = AcquisitionResult(
 			roster=roster,
@@ -72,6 +87,22 @@ class AcquisitionCoordinator:
 			assets=assets,
 		)
 		return result
+
+	#============================================
+	def _commit_inventory(self) -> list[dict]:
+		"""Write Step 0's local account/date commit inventory before LLM work."""
+		config = self.dependencies.config
+		commits = daily_blog.publication_workflow.discover_daily_commits(
+			self.dependencies.runtime, config.output_owner,
+			self.dependencies.report_date, config.output_root,
+		)
+		if type(commits) is not list:
+			raise RuntimeError("Daily commit discovery must return a list.")
+		document = daily_blog.activity.render_daily_commits(
+			config.output_owner, self.dependencies.report_date, commits,
+		)
+		self.dependencies.store.write_document("daily_commits.md", document)
+		return commits
 
 	#============================================
 	def _repository_phase(self) -> daily_blog.repository_contracts.RepositoryRoster:
@@ -131,16 +162,35 @@ class AcquisitionCoordinator:
 		return entries
 
 	#============================================
+	def _empty_mirror_phase(
+		self, roster: daily_blog.repository_contracts.RepositoryRoster,
+	) -> list[dict[str, object]]:
+		"""Record a complete no-op mirror phase when Step 0 found no active repositories."""
+		phase_input = {
+			"cache_root": self.dependencies.config.mirror_cache_root,
+			"roster_id": roster.roster_id,
+			"repositories": [],
+			"refresh": False,
+		}
+		self.dependencies.start("mirror_refresh", phase_input)
+		entries: list[dict[str, object]] = []
+		self.dependencies.store.write_artifact("mirror_manifest.json", entries)
+		self.dependencies.complete("mirror_refresh", entries, False)
+		return entries
+
+	#============================================
 	def _activity_phase(
-		self, mirror_entries: list[dict[str, object]],
+		self, mirror_entries: list[dict[str, object]], commit_references: list[dict],
 	) -> list[daily_blog.schema.RepositoryActivity]:
 		"""Locate typed activity or restore it only through its schema parser."""
 		config = self.dependencies.config
 		phase_input = {
 			"report_date": self.dependencies.report_date,
 			"timezone": config.report_timezone,
-			"identity_names": list(config.identity_names),
-			"identity_emails": list(config.identity_emails),
+			"github_commits": [
+				{"repository": item.get("repository"), "sha": item.get("sha")}
+				for item in commit_references
+			],
 			"mirrors": _stable_mirror_input(mirror_entries),
 		}
 		input_hash = self.dependencies.start("activity_location", phase_input)
@@ -149,7 +199,7 @@ class AcquisitionCoordinator:
 		if cached is None:
 			activities = daily_blog.publication_workflow.locate_activity(
 				self.dependencies.runtime, self.dependencies.report_date, config.report_timezone,
-				mirror_entries, config.identity_names, config.identity_emails,
+				mirror_entries, commit_references, config.output_owner,
 			)
 			value = [activity.to_dict() for activity in activities]
 			self.dependencies.cache.store_json("activity_location", input_hash, "activity.json", value)

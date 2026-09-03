@@ -10,18 +10,33 @@ import daily_blog.agents
 import daily_blog.config
 import daily_blog.io_utils
 import daily_blog.locks
+import daily_blog.stage6_cache_identity
+import daily_blog.stage6_attempt_plan
 
 
-ROUTE_CACHE_SCHEMA_VERSION = "vosslab.daily-blog.route-cache.v1"
-# Stage 6 owns two sequential, model-authored whole-post recovery rungs: daily
-# outline expansion and repository-story merge.  Keeping the topology count at
-# the admission boundary avoids a stage6 import cycle while reserving both
-# configured retry envelopes before normal editorial work starts.
-_STAGE6_SEQUENTIAL_WHOLE_POST_RECOVERY_CALLS = 2
+ROUTE_CACHE_SCHEMA_VERSION = daily_blog.stage6_cache_identity.ROUTE_CACHE_SCHEMA_VERSION
 
 
 class RouteCacheIntegrityError(daily_blog.agents.EditorialTerminalError):
 	"""A durable route cache value conflicts with its immutable identity."""
+
+
+#============================================
+def build_stage6_cache_identity(
+	materialization: daily_blog.stage6_attempt_plan.MaterializedStage6AttemptPlan,
+	attempt: daily_blog.stage6_attempt_plan.PlannedStage6Attempt, *, prompt: str,
+	candidate_identities: tuple[str, ...] = (), feedback_envelope_sha256: str = "",
+	repair_response: str = "", route_name: str, route_contract_sha256: str,
+) -> daily_blog.stage6_cache_identity.Stage6CacheIdentity:
+	"""Create the typed Stage 6 witness at the semantic route-cache boundary."""
+	try:
+		return daily_blog.stage6_cache_identity.Stage6CacheIdentity(
+			materialization, attempt, prompt=prompt, candidate_identities=candidate_identities,
+			feedback_envelope_sha256=feedback_envelope_sha256, repair_response=repair_response,
+			route_name=route_name, route_contract_sha256=route_contract_sha256,
+		)
+	except daily_blog.stage6_cache_identity.Stage6CacheIdentityError as error:
+		raise RouteCacheIntegrityError("Stage 6 cache identity fails its materialized contract.") from error
 
 
 @dataclasses.dataclass(frozen=True)
@@ -42,16 +57,19 @@ class RouteCacheEffect:
 
 
 def _request_identity(request: daily_blog.agents.RouteRequest) -> dict[str, object]:
-	"""Return immutable logical inputs without host execution paths or raw prompts."""
+	"""Return a v2 digest-only identity for generic or planned editorial work."""
+	if request.stage6_cache_identity is not None:
+		return request.stage6_cache_identity.identity_dict()
 	return {
-		"step": request.step,
-		"role": request.role,
-		"route": {"name": request.route.name, "command": list(request.route.command)},
-		"model": request.model,
-		"model_options": list(request.model_options),
+		"cache_schema_version": ROUTE_CACHE_SCHEMA_VERSION,
+		"kind": "generic-editorial-request",
+		"step_sha256": daily_blog.io_utils.sha256_text(request.step),
+		"role_sha256": daily_blog.io_utils.sha256_text(request.role),
+		"route_name_sha256": daily_blog.io_utils.sha256_text(request.route.name),
+		"route_contract_sha256": request.route_contract_sha256,
 		"prompt_sha256": daily_blog.io_utils.sha256_text(request.prompt),
-		"cache_input_hash": request.cache_input_hash,
-		"contract_version": request.contract_version,
+		"cache_input_sha256": request.cache_input_hash,
+		"contract_version_sha256": daily_blog.io_utils.sha256_text(request.contract_version),
 	}
 
 
@@ -64,7 +82,10 @@ class RouteResultCache:
 		self._cache = cache
 
 	def _identity(self, request: daily_blog.agents.RouteRequest) -> tuple[dict[str, object], str]:
-		if request.cache_input_hash == "unbound":
+		if (
+			type(request.cache_input_hash) is not str
+			or daily_blog.agents.SHA256_RE.fullmatch(request.cache_input_hash) is None
+		):
 			raise RouteCacheIntegrityError("Route cache requires a logical input fingerprint.")
 		identity = _request_identity(request)
 		return identity, daily_blog.io_utils.hash_value(identity)
@@ -210,22 +231,16 @@ class RunCapacityPlan:
 			config.complete_post, config.final_synthesis,
 		)
 		try:
-			# Each Stage 6 recovery rung is one whole-post route request with the
-			# complete-post retry envelope.  They execute sequentially, but both must
-			# be admitted because the first can exhaust without yielding an eligible
-			# post.  The primary Stage 6 cap covers only its normal writer/editor/review
-			# work.
-			recovery_reserve = (
-				_STAGE6_SEQUENTIAL_WHOLE_POST_RECOVERY_CALLS
-				* (config.complete_post.route_retry_attempts + 1)
+			stage6_plan = daily_blog.stage6_attempt_plan.build_stage6_attempt_plan(
+				config.complete_post.stage6_attempt_policy
 			)
 			calls = (
 				repository_count * (
 					config.repository_outline.max_route_calls
 					+ config.repository_story.max_route_calls
 				)
-				+ config.daily_outline.max_route_calls + config.complete_post.max_route_calls
-				+ config.final_synthesis.max_route_calls + recovery_reserve
+				+ config.daily_outline.max_route_calls + stage6_plan.maximum_route_calls
+				+ config.final_synthesis.max_route_calls
 			)
 			parallel = max(item.max_parallel_calls for item in stages)
 		except (AttributeError, TypeError, ValueError) as error:

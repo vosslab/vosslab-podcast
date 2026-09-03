@@ -44,6 +44,31 @@ def _aggregate_repository_reliability(
 	return tuple(values)
 
 
+def _projection_phase_input(
+	packet: daily_blog.schema.EvidencePacket,
+	config: daily_blog.config.DailyBlogConfig,
+) -> dict[str, object]:
+	"""Bind the pre-dispatch phase to hashes and counts, never packet contents."""
+	return {
+		"config_sha256": daily_blog.io_utils.hash_value(dataclasses.asdict(config)),
+		"global_packet_id": packet.packet_id,
+		"global_packet_sha256": daily_blog.io_utils.hash_value(packet.content_dict()),
+		"activity_count": len(packet.activity),
+		"evidence_count": len(packet.items),
+		"mirror_count": len(packet.mirrors),
+	}
+
+
+def _packet_digest_packet(
+	packet: daily_blog.schema.EvidencePacket,
+) -> daily_blog.recovery.EvidenceDigestPacket:
+	"""Retain original sealed packet identity and evidence refs for a safe fault."""
+	return daily_blog.recovery.EvidenceDigestPacket(
+		packet.packet_id, daily_blog.io_utils.hash_value(packet.content_dict()),
+		tuple(sorted(item.evidence_id for item in packet.items)),
+	)
+
+
 @dataclasses.dataclass(frozen=True)
 class RepositoryEditorialDependencies:
 	"""Exact capabilities for the serial acceptance of repository editorial work."""
@@ -121,20 +146,18 @@ class RepositoryEditorialCoordinator:
 		# to this run before capacity admission or any durable state transition.
 		if type(packet) is not daily_blog.schema.EvidencePacket:
 			raise RuntimeError("Repository editorial requires an exact EvidencePacket.")
-		packet = daily_blog.schema.EvidencePacket.from_dict(packet.to_dict())
 		dependencies = self._dependencies
 		if packet.report_date != dependencies.report_date:
 			raise RuntimeError("Repository editorial packet date does not match the run.")
-		projected = daily_blog.multi_repository_coordinator.project_repository_packets(packet)
+		dependencies.start("repository_editorial", _projection_phase_input(packet, dependencies.config))
+		try:
+			projected = daily_blog.multi_repository_coordinator.project_repository_packets(packet)
+		except daily_blog.multi_repository_coordinator.RepositoryProjectionFault as error:
+			self._raise_projection_fault(packet, error.terminal_fault)
 		capacity = daily_blog.route_cache.RunCapacityPlan.for_run(
 			dependencies.config, len(projected),
 		)
 		budget = capacity.new_budget()
-		dependencies.start("repository_editorial", {
-			"global_packet_id": packet.packet_id,
-			"projected_packet_ids": [item.packet_id for item in projected],
-			"maximum_calls": capacity.maximum_calls,
-		})
 		templates = dependencies.prompt_snapshot.template_dict()
 		rubric = templates.get("rubric")
 		if type(rubric) is not str or not rubric:
@@ -212,6 +235,36 @@ class RepositoryEditorialCoordinator:
 		return RepositoryEditorialResult(value, capacity, budget)
 
 	#============================================
+	def _raise_projection_fault(
+		self, packet: daily_blog.schema.EvidencePacket,
+		terminal_fault: daily_blog.recovery.TerminalFaultDigest,
+	) -> None:
+		"""Persist one projection diagnosis before the public workflow boundary."""
+		if (
+			type(terminal_fault) is not daily_blog.recovery.TerminalFaultDigest
+			or terminal_fault.category is not daily_blog.recovery.TerminalFaultCategory.IMPLEMENTATION_DEFECT
+		):
+			raise RuntimeError("Repository projection terminal fault is invalid.")
+		observation = daily_blog.recovery.GenerationObservation(
+			"repository_terminal", 0, 0, (), terminal_fault.category,
+		)
+		fault = daily_blog.recovery.PipelineFault(
+			terminal_fault.category, 0, "", "", (observation,),
+			terminal_fault=terminal_fault,
+		)
+		payload, digest = daily_blog.recovery.canonical_evidence_digest(
+			daily_blog.recovery.EvidenceDigestInput(
+				self._dependencies.report_date, "stage3/repository_editorial/terminal",
+				(), (_packet_digest_packet(packet),), (), (), fault,
+				allowed_repositories=(),
+			)
+		)
+		# ASVS 13.4.2, 15.4.2, and 16.2.5: serialize one atomic canonical
+		# digest only; it contains neither prompts, route output, nor error text.
+		self._dependencies.write_artifact("recovery_fault.json", payload)
+		raise daily_blog.recovery.PipelineFaultError(fault, digest)
+
+	#============================================
 	def _raise_terminal_fault(
 		self,
 		joined: daily_blog.multi_repository_coordinator.RepositoryEditorialJoin,
@@ -252,6 +305,7 @@ class RepositoryEditorialCoordinator:
 			daily_blog.recovery.classify_pipeline_fault(tuple(observations)), 0,
 			"" if strongest is None else strongest.artifact_id,
 			"" if strongest is None else type(strongest).__name__, tuple(observations),
+			terminal_fault=joined.terminal_fault_digest,
 		)
 		steps = tuple(sorted((daily_blog.recovery.EvidenceDigestStep(
 			("stage3" if item.step.startswith("3.") else "stage4")

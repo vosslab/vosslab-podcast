@@ -144,7 +144,6 @@ def _stage6_sources(
 	)
 
 
-#============================================
 def test_surface_uses_exact_survivors_and_only_their_bundle_asset_paths(tmp_path: Path) -> None:
 	"""Stage 6 context and bundle sealing retain one survivor-scoped authority."""
 	base = _packet("vosslab/first", "selected.png")

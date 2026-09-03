@@ -8,13 +8,14 @@ import re
 
 # local repo modules
 import daily_blog.io_utils
+import daily_blog.attempt_ledger
 import daily_blog.replication
 import daily_blog.editorial
 import daily_blog.publisher_contract
 import daily_blog.recovery
 
 
-RUN_SCHEMA_VERSION = "vosslab.daily-blog.run.v12"
+RUN_SCHEMA_VERSION = "vosslab.daily-blog.run.v13"
 UTC_TIMESTAMP_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
 
 LEGAL_PHASES = (
@@ -66,36 +67,30 @@ MAX_LOGICAL_PATH_CHARS = 1024
 MAX_EDITORIAL_STEP_CHARS = 256
 
 
+class RunRegenerationRequiredError(RuntimeError):
+	"""Signal that pre-production mutable state must be regenerated, not resumed."""
+
+	def __init__(self, schema_version: str) -> None:
+		super().__init__("Daily-publication run state requires regeneration.")
+		self.schema_version = schema_version
+
+
 #============================================
-def _migrate_v11_record(value: object) -> dict:
-	"""Read a safe v11 record after retiring its unused global projection phase."""
+def classify_run_schema(value: object) -> str:
+	"""Classify only the outer schema identity before any mutable-state decode.
+
+	ASVS 1.5 and 16.1: old or malformed pre-production state is never coerced
+	into current resumable state.  Sealed bundle bytes are separate immutable
+	artifacts and are intentionally not opened by this classifier.
+	"""
 	if type(value) is not dict:
-		raise RuntimeError("Run record must be an object.")
-	migrated = value.copy()
-	if "phases" not in migrated:
-		raise RuntimeError("Run record v11 phases are invalid.")
-	phases = migrated["phases"]
-	if type(phases) is not dict or "editorial_projection" not in phases:
-		raise RuntimeError("Run record v11 phases are invalid.")
-	retired = phases["editorial_projection"]
-	if (
-		type(retired) is not dict or "status" not in retired
-		or retired["status"] not in {"pending", "completed"}
-	):
-		raise RuntimeError("Run record v11 projection phase requires an offline migration.")
-	resume_index = LEGAL_PHASES.index("repository_editorial")
-	if retired["status"] == "pending" and any(
-		name not in phases or type(phases[name]) is not dict
-		or "status" not in phases[name] or phases[name]["status"] != "pending"
-		for name in LEGAL_PHASES[resume_index:]
-	):
-		raise RuntimeError("Run record v11 phase order requires an offline migration.")
-	migrated["phases"] = {
-		name: phase for name, phase in phases.items() if name != "editorial_projection"
-	}
-	migrated.pop("editorial_projection", None)
-	migrated["schema_version"] = RUN_SCHEMA_VERSION
-	return migrated
+		return "invalid"
+	schema_version = value.get("schema_version")
+	if schema_version == RUN_SCHEMA_VERSION:
+		return "current"
+	if type(schema_version) is str:
+		return "regenerate_required"
+	return "invalid"
 
 
 @dataclasses.dataclass(frozen=True)
@@ -343,6 +338,10 @@ class RunRecord:
 	created_at: str
 	updated_at: str
 	completed_at: str
+	terminal_fault: dict
+	attempt_ledger: dict
+	attempt_summary: dict
+	repair_feedback: dict
 	schema_version: str = RUN_SCHEMA_VERSION
 
 	#============================================
@@ -371,6 +370,10 @@ class RunRecord:
 			created_at=now,
 			updated_at=now,
 			completed_at="",
+			terminal_fault={},
+			attempt_ledger={},
+			attempt_summary={},
+			repair_feedback={},
 		)
 		return record
 
@@ -425,6 +428,28 @@ class RunRecord:
 		self.updated_at = daily_blog.io_utils.utc_now()
 
 	#============================================
+	def set_attempt_ledger(self, ledger: daily_blog.attempt_ledger.AttemptLedger) -> None:
+		"""Persist the exact canonical current reliability projection.
+
+		ASVS 2.1-2.3 and 15.4: only the serial run owner may attach an already
+		validated ledger; summaries are derived here, never inferred from logs.
+		"""
+		if type(ledger) is not daily_blog.attempt_ledger.AttemptLedger:
+			raise RuntimeError("Run attempt ledger must be an exact AttemptLedger.")
+		if self.state != "running":
+			raise RuntimeError("Terminal run records cannot accept an attempt ledger.")
+		self.attempt_ledger = ledger.to_dict()
+		self.attempt_summary = ledger.summary().to_dict()
+		self.updated_at = daily_blog.io_utils.utc_now()
+
+	#============================================
+	def set_repair_feedback_projection(self, value: dict) -> None:
+		"""Reserve a current-schema closed feedback projection for M12."""
+		if type(value) is not dict or value:
+			raise RuntimeError("Repair feedback is not available until its closed contract exists.")
+		self.repair_feedback = {}
+
+	#============================================
 	def complete_phase(self, phase: str, output_hash: str, reused: bool = False) -> None:
 		"""Complete the currently running phase with an output identity."""
 		record = self.phases[phase]
@@ -439,13 +464,21 @@ class RunRecord:
 		self.updated_at = now
 
 	#============================================
-	def fail_phase(self, phase: str, failure_kind: str) -> None:
+	def fail_phase(
+		self, phase: str, failure_kind: str,
+		terminal_fault: daily_blog.recovery.TerminalFaultDigest | None = None,
+	) -> None:
 		"""Fail the currently running phase with one safe diagnostic category."""
 		record = self.phases[phase]
 		if self.current_phase != phase or record.status != "running":
 			raise RuntimeError(f"Run phase is not running: {phase}")
 		if failure_kind not in FAILURE_KINDS:
 			raise RuntimeError("Run failure kind is not supported.")
+		if terminal_fault is not None and (
+			type(terminal_fault) is not daily_blog.recovery.TerminalFaultDigest
+			or terminal_fault.category.value != failure_kind
+		):
+			raise RuntimeError("Run terminal fault does not match its failure category.")
 		now = daily_blog.io_utils.utc_now()
 		record.status = "failed"
 		record.completed_at = now
@@ -453,6 +486,7 @@ class RunRecord:
 		self.state = "failed"
 		self.outcome = "failed"
 		self.failure = {"phase": phase, "kind": failure_kind}
+		self.terminal_fault = {} if terminal_fault is None else terminal_fault.to_dict()
 		self.current_phase = ""
 		self.updated_at = now
 		self.completed_at = now
@@ -530,6 +564,22 @@ class RunRecord:
 				raise RuntimeError("Failed run requires matching failure details.")
 		if self.state != "failed" and self.failure:
 			raise RuntimeError("Non-failed run cannot retain failure details.")
+		if type(self.terminal_fault) is not dict:
+			raise RuntimeError("Run terminal fault must be an object.")
+		if self.terminal_fault:
+			fault = daily_blog.recovery.TerminalFaultDigest.from_dict(self.terminal_fault)
+			if self.state != "failed" or self.failure.get("kind") != fault.category.value:
+				raise RuntimeError("Run terminal fault conflicts with failure state.")
+		if type(self.attempt_ledger) is not dict or type(self.attempt_summary) is not dict:
+			raise RuntimeError("Run attempt reliability projections must be objects.")
+		if bool(self.attempt_ledger) != bool(self.attempt_summary):
+			raise RuntimeError("Run attempt reliability projections must be paired.")
+		if self.attempt_ledger:
+			ledger = daily_blog.attempt_ledger.AttemptLedger.from_dict(self.attempt_ledger)
+			if ledger.summary().to_dict() != self.attempt_summary:
+				raise RuntimeError("Run attempt reliability summary does not match its ledger.")
+		if type(self.repair_feedback) is not dict or self.repair_feedback:
+			raise RuntimeError("Run repair feedback projection is not yet supported.")
 		if self.state == "failed" and self.outcome != "failed":
 			raise RuntimeError("Failed run requires a failed outcome.")
 		if self.state != "failed" and self.outcome == "failed":
@@ -601,13 +651,10 @@ class RunRecord:
 		# ASVS 1.5.2 and 2.2.1: reject type-confused JSON before it becomes run state.
 		if type(value) is not dict:
 			raise RuntimeError("Run record must be an object.")
-		if value.get("schema_version") == "vosslab.daily-blog.run.v10":
-			raise RuntimeError(
-				"Run record schema v10 requires an offline migration before reopen."
-			)
-		if value.get("schema_version") == "vosslab.daily-blog.run.v11":
-			value = _migrate_v11_record(value)
-		if value.get("schema_version") != RUN_SCHEMA_VERSION:
+		classification = classify_run_schema(value)
+		if classification == "regenerate_required":
+			raise RunRegenerationRequiredError(value["schema_version"])
+		if classification != "current":
 			raise RuntimeError("Unsupported run record schema.")
 		field_names = {field.name for field in dataclasses.fields(cls)}
 		if set(value) != field_names:
@@ -635,6 +682,10 @@ class RunRecord:
 			"evidence_packet",
 			"publication_bundle",
 			"failure",
+			"terminal_fault",
+			"attempt_ledger",
+			"attempt_summary",
+			"repair_feedback",
 		)
 		for field in structured_fields:
 			if type(value[field]) is not dict:
@@ -676,6 +727,10 @@ class RunRecord:
 			created_at=value["created_at"],
 			updated_at=value["updated_at"],
 			completed_at=value["completed_at"],
+			terminal_fault=value["terminal_fault"].copy(),
+			attempt_ledger=value["attempt_ledger"].copy(),
+			attempt_summary=value["attempt_summary"].copy(),
+			repair_feedback=value["repair_feedback"].copy(),
 			schema_version=value["schema_version"],
 		)
 		record.validate()

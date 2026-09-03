@@ -8,6 +8,7 @@ import os
 
 # local repo modules
 import daily_blog.agents
+import daily_blog.attempt_ledger
 import daily_blog.artifacts
 import daily_blog.complete_post_editor_prompts
 import daily_blog.config
@@ -22,8 +23,17 @@ import daily_blog.recovery
 import daily_blog.routes
 import daily_blog.schema
 import daily_blog.stage6_context
+import daily_blog.stage6_attempt_plan
 import daily_blog.publication_admission
 import daily_blog.stage6_recovery
+
+
+RELIABILITY_SCOPE_PLANNED_ROUTES_COMPLETE = "planned_routes_complete"
+RELIABILITY_SCOPE_EXTERNAL_INCUMBENT_OBSERVED = "external_incumbent_observed"
+RELIABILITY_SCOPES = frozenset({
+	RELIABILITY_SCOPE_PLANNED_ROUTES_COMPLETE,
+	RELIABILITY_SCOPE_EXTERNAL_INCUMBENT_OBSERVED,
+})
 
 
 #============================================
@@ -348,6 +358,29 @@ class CompletePostRecoveryInput:
 		"""Render one lower path from the surface-owned bounded source authority."""
 		return self.stage6_input.prompt_context.render_recovery_context(self.rung)
 #============================================
+@dataclasses.dataclass(frozen=True)
+class Stage6BatchObservation:
+	"""One batch's final admitted work and exact route observations."""
+
+	materialization: daily_blog.stage6_attempt_plan.MaterializedStage6AttemptPlan
+	results: tuple[daily_blog.agents.AgentResult, ...]
+	closed_facts: tuple[daily_blog.attempt_ledger.AttemptFact, ...] = ()
+
+	def __post_init__(self) -> None:
+		"""Require canonical request-result coverage without synthetic attempts."""
+		if type(self.materialization) is not daily_blog.stage6_attempt_plan.MaterializedStage6AttemptPlan:
+			raise RuntimeError("Stage 6 batch observation requires an exact materialization.")
+		if type(self.results) is not tuple or any(type(item) is not daily_blog.agents.AgentResult for item in self.results):
+			raise RuntimeError("Stage 6 batch observation requires exact agent results.")
+		if type(self.closed_facts) is not tuple or any(type(item) is not daily_blog.attempt_ledger.AttemptFact for item in self.closed_facts):
+			raise RuntimeError("Stage 6 batch observation requires exact closed facts.")
+		if self.closed_facts and tuple(item.slot_id for item in self.closed_facts) != self.materialization.semantic_identities:
+			raise RuntimeError("Stage 6 batch facts must match materialized slots in canonical order.")
+		if tuple(item.request_id for item in self.results) != self.materialization.semantic_identities:
+			raise RuntimeError("Stage 6 batch observations must match materialized slots in canonical order.")
+
+
+#============================================
 @dataclasses.dataclass(frozen=True, kw_only=True)
 class Stage6Result:
 	"""The promotion plus independently inspectable Stage 6 observations."""
@@ -360,6 +393,9 @@ class Stage6Result:
 	editing: daily_blog.replication.ReplicationResult
 	step_reliability: tuple[daily_blog.replication.StepReliability, ...]
 	recovery_generation: daily_blog.replication.ReplicationResult | None = None
+	primary_observations: tuple["Stage6BatchObservation", ...] = ()
+	recovery_observations: tuple["Stage6BatchObservation", ...] = ()
+	reliability_scope: str = RELIABILITY_SCOPE_EXTERNAL_INCUMBENT_OBSERVED
 
 	def __post_init__(self) -> None:
 		"""Validate every independently recorded Stage 6 observation."""
@@ -367,12 +403,21 @@ class Stage6Result:
 			raise RuntimeError("Stage 6 editing observation is invalid.")
 		if any(type(item) is not daily_blog.replication.StepReliability for item in self.step_reliability):
 			raise RuntimeError("Stage 6 step reliability is invalid.")
+		if (type(self.primary_observations) is not tuple
+			or any(type(item) is not Stage6BatchObservation for item in self.primary_observations)):
+			raise RuntimeError("Stage 6 primary execution observation is invalid.")
+		if (type(self.recovery_observations) is not tuple
+			or any(type(item) is not Stage6BatchObservation for item in self.recovery_observations)):
+			raise RuntimeError("Stage 6 recovery execution observation is invalid.")
+		if self.reliability_scope not in RELIABILITY_SCOPES:
+			raise RuntimeError("Stage 6 reliability scope is invalid.")
 		if self.artifact is None:
 			self._validate_primary_no_artifact()
 		if self.recovery_generation is not None:
 			if (
 				type(self.recovery_generation) is not daily_blog.replication.ReplicationResult
 				or self.recovery_generation.expected_type is not daily_blog.artifacts.CompletePost
+				or not self.recovery_observations
 			):
 				raise RuntimeError("Stage 6 recovery generation observation is invalid.")
 			if (
@@ -481,17 +526,19 @@ def _unique(items: collections.abc.Iterable[daily_blog.artifacts.CompletePost]) 
 def _anonymous_posts(
 	value: Stage6Input,
 	items: collections.abc.Iterable[daily_blog.artifacts.CompletePost],
+	*, recovery: bool = False,
 ) -> str:
-	"""Render anonymous grounded drafts with bounded deterministic repair facts."""
-	candidates = [{
-		"alias": "candidate-" + str(index + 1),
-		"content": item.content,
-		"validation_issues": list(
-			daily_blog.publication_admission.complete_post_policy_issues(
-				item, value.publication_surface,
-			)
-		),
-	} for index, item in enumerate(_unique(items))]
+	"""Render anonymous drafts with bounded candidate-local repair assignments."""
+	candidates = []
+	for index, item in enumerate(_unique(items)):
+		feedback = daily_blog.publication_admission.complete_post_repair_feedback(
+			item, value.publication_surface, value.output_root, recovery=recovery,
+		)
+		candidates.append({
+			"alias": "candidate-" + str(index + 1),
+			"content": item.content,
+			"repair_feedback": {} if feedback is None else feedback.to_dict(),
+		})
 	rendered = json.dumps({"candidates": candidates}, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
 	if len(rendered) > daily_blog.complete_post_editor_prompts.MAX_CANDIDATE_POSTS_CHARS:
 		raise RuntimeError("Stage 6 editor candidate context exceeds its bounded limit.")
@@ -499,65 +546,13 @@ def _anonymous_posts(
 
 
 #============================================
-def _request(value: Stage6Input, run_id: str, step: str, role: str, ordinal: str,
-	route: daily_blog.editorial_stage_config.RoleRoute, prompt: str, config: daily_blog.editorial_stage_config.CompletePostConfig,
-	working_directory: str, contract_version: str, editor_identity: dict[str, object], input_ids: tuple[str, ...] = (),
-	assignment: daily_blog.replication.ReviewAssignment | None = None, repair_of: str = "") -> daily_blog.agents.RouteRequest:
-	"""Build one cache-safe request binding role, inputs, V4, and editor identities."""
-	assignment_data = {} if assignment is None else {"pair_index": assignment.pair_index,
-		"reviewer_index": assignment.reviewer_index, "display_order": assignment.display_order}
-	logical_input = {"report_date": value.report_date,
-		"context": value.render_context(), "output_path": value.output_path, "step": step, "role": role,
-		"ordinal": ordinal, "input_ids": list(input_ids), "editor_prompt": editor_identity,
-		"stage6_prompt_context": value.prompt_context.cache_identity(),
-		"v4_contract": contract_version, "assignment": assignment_data}
-	logical_input.pop("output_path")
-	cache_input_hash = daily_blog.io_utils.hash_value(logical_input)
-	input_hash = daily_blog.io_utils.hash_value({"run_id": run_id, "logical": logical_input,
-		"output_path": value.output_path})
-	return daily_blog.agents.RouteRequest(
-		request_id=f"stage6_{step}_{role}_{ordinal}_{cache_input_hash[:12]}", step="stage6_" + step,
-		route=route, prompt=prompt, working_directory=working_directory, role=role,
-		retry_attempts=config.route_retry_attempts, maximum_parallel_calls=config.maximum_parallel_calls,
-		repair_of=repair_of, input_hash=input_hash, contract_version=contract_version,
-		cache_input_hash=cache_input_hash,
+def _repair_feedback_digest(
+	value: Stage6Input, items: tuple[daily_blog.artifacts.CompletePost, ...], *, recovery: bool = False,
+) -> str:
+	"""Return the exact positive feedback witness consumed by an editor generation."""
+	return daily_blog.publication_admission.repair_feedback_digest(
+		items, value.publication_surface, value.output_root, recovery=recovery,
 	)
-
-
-#============================================
-def _disagreements(votes: collections.abc.Iterable[daily_blog.replication.ReviewVote]) -> int:
-	"""Count candidate-pair conflicts without retaining any reviewer prose."""
-	pairs: dict[tuple[str, str], set[str]] = {}
-	for vote in votes:
-		if vote.status == "succeeded":
-			pairs.setdefault(tuple(sorted((vote.first_artifact_id, vote.second_artifact_id))), set()).add(vote.winner_artifact_id)
-	return sum(len(winners) > 1 for winners in pairs.values())
-
-
-#============================================
-def _review_reliability(review: daily_blog.replication.ReviewResult, promotion: object,
-	reasons: collections.abc.Iterable[str] = ()) -> daily_blog.replication.StepReliability:
-	"""Summarize actual review routes, including repair success and disagreements."""
-	votes, disagreements = review.votes, _disagreements(review.votes)
-	all_reasons = set(reasons) | set(daily_blog.replication.review_reasons(votes, disagreements))
-	best = "" if isinstance(promotion, daily_blog.artifacts.NoArtifact) else promotion.artifact.artifact_id
-	return daily_blog.replication.StepReliability("6.3", "degraded" if all_reasons else "succeeded",
-		len(votes), sum(item.status == "succeeded" for item in votes), sum(item.status == "failed" for item in votes),
-		0, sum(item.repaired and item.status == "succeeded" for item in votes), disagreements, best,
-		tuple(sorted(all_reasons)))
-
-
-#============================================
-def _promotion_reliability(promotion: object, votes: collections.abc.Iterable[daily_blog.replication.ReviewVote]) -> daily_blog.replication.StepReliability:
-	"""Record deterministic selection separately from route observations."""
-	if isinstance(promotion, daily_blog.artifacts.NoArtifact):
-		reasons, best = (promotion.reason,), ""
-	elif isinstance(promotion, daily_blog.artifacts.DegradedPromotion):
-		reasons, best = promotion.reasons, promotion.artifact.artifact_id
-	else:
-		reasons, best = (), promotion.artifact.artifact_id
-	return daily_blog.replication.StepReliability("6.4", "degraded" if reasons else "succeeded", 1, 1, 0,
-		0, 0, _disagreements(votes), best, reasons)
 
 
 #============================================
@@ -603,64 +598,6 @@ def _recovery_post(
 
 
 #============================================
-def _recovery_request(
-	value: CompletePostRecoveryInput,
-	run_id: str,
-	config: daily_blog.config.DailyBlogConfig,
-	contract_version: str,
-	prompt_identity: dict[str, object],
-	prompt: str,
-	role: str = "recovery_author",
-	ordinal: str = "1",
-	input_ids: tuple[str, ...] = (),
-	assignment: daily_blog.replication.ReviewAssignment | None = None,
-	repair_of: str = "",
-) -> daily_blog.agents.RouteRequest:
-	"""Bind one lower editorial rung to its exact sources, contract, and cache identity."""
-	stage = config.complete_post
-	source_ids = tuple(item.content_hash for item in value.source_artifacts)
-	logical_input = {
-		"report_date": value.report_date,
-		"rung": value.rung.value,
-		"context": value.render_context(),
-		"stage6_prompt_context": value.stage6_input.prompt_context.cache_identity(),
-		"source_ids": list(source_ids),
-		"repositories": list(value.repositories),
-		"prompt_contract": prompt_identity,
-		"v4_contract": contract_version,
-		"role": role,
-		"ordinal": ordinal,
-		"input_ids": list(input_ids),
-		"assignment": {} if assignment is None else {
-			"pair_index": assignment.pair_index,
-			"reviewer_index": assignment.reviewer_index,
-			"display_order": assignment.display_order,
-		},
-	}
-	cache_input_hash = daily_blog.io_utils.hash_value(logical_input)
-	input_hash = daily_blog.io_utils.hash_value({
-		"run_id": run_id,
-		"logical": logical_input,
-		"output_path": value.stage6_input.output_path,
-	})
-	return daily_blog.agents.RouteRequest(
-		request_id="stage6_recovery_" + value.rung.value + "_" + role + "_" + ordinal + "_" + cache_input_hash[:12],
-		step="stage6_recovery_" + value.rung.value,
-		route={"recovery_author": stage.writer_route, "recovery_editor": stage.editor_route,
-			"recovery_reviewer": stage.reviewer_route}[role],
-		prompt=prompt,
-		working_directory=config.daily_blog_repository,
-		role=role,
-		retry_attempts=stage.route_retry_attempts,
-		maximum_parallel_calls=stage.maximum_parallel_calls,
-		input_hash=input_hash,
-		contract_version=contract_version,
-		cache_input_hash=cache_input_hash,
-		repair_of=repair_of,
-	)
-
-
-#============================================
 def _recover_complete_post(
 	value: CompletePostRecoveryInput,
 	run_id: str,
@@ -676,6 +613,7 @@ def _recover_complete_post(
 	cache_accept: collections.abc.Callable[
 		[daily_blog.agents.RouteRequest, daily_blog.agents.AgentResult], None,
 	] | None,
+	plan: daily_blog.stage6_attempt_plan.Stage6AttemptPlan | None = None,
 ) -> daily_blog.recovery.RecoveryAttempt:
 	"""Delegate the bounded recovery topology while retaining the public API."""
 	if type(value) is not CompletePostRecoveryInput or type(run_id) is not str or not run_id:
@@ -684,9 +622,12 @@ def _recover_complete_post(
 		raise RuntimeError("Stage 6 recovery requires exact complete-post configuration.")
 	if type(budget) is not daily_blog.agents.RouteBudget:
 		raise RuntimeError("Stage 6 recovery requires the coordinator-owned RouteBudget.")
+	recovery_plan = daily_blog.stage6_attempt_plan.build_stage6_attempt_plan(
+		config.complete_post.stage6_attempt_policy,
+	) if plan is None else plan
 	return daily_blog.stage6_recovery.recover_complete_post(
 		value, run_id, config, budget, runner, contract, selection, snapshot,
-		cache_load, cache_accept, _recovery_post, _recovery_request, _anonymous_posts,
+		cache_load, cache_accept, _recovery_post, _anonymous_posts, recovery_plan,
 	)
 
 
@@ -706,6 +647,7 @@ def recover_daily_outline_expansion(
 	cache_accept: collections.abc.Callable[
 		[daily_blog.agents.RouteRequest, daily_blog.agents.AgentResult], None,
 	] | None = None,
+	plan: daily_blog.stage6_attempt_plan.Stage6AttemptPlan | None = None,
 ) -> daily_blog.recovery.RecoveryAttempt:
 	"""Expand the promoted daily outline through one independently authored whole post."""
 	if (
@@ -715,7 +657,7 @@ def recover_daily_outline_expansion(
 		raise RuntimeError("Daily-outline recovery requires its exact recovery input.")
 	return _recover_complete_post(
 		value, run_id, config, budget, runner, contract, selection, snapshot,
-		cache_load, cache_accept,
+		cache_load, cache_accept, plan,
 	)
 
 
@@ -735,6 +677,7 @@ def recover_repository_story_merge(
 	cache_accept: collections.abc.Callable[
 		[daily_blog.agents.RouteRequest, daily_blog.agents.AgentResult], None,
 	] | None = None,
+	plan: daily_blog.stage6_attempt_plan.Stage6AttemptPlan | None = None,
 ) -> daily_blog.recovery.RecoveryAttempt:
 	"""Merge eligible repository stories through one independently authored whole post."""
 	if (
@@ -744,7 +687,7 @@ def recover_repository_story_merge(
 		raise RuntimeError("Repository-story recovery requires its exact recovery input.")
 	return _recover_complete_post(
 		value, run_id, config, budget, runner, contract, selection, snapshot,
-		cache_load, cache_accept,
+		cache_load, cache_accept, plan,
 	)
 
 
@@ -773,122 +716,10 @@ def run_stage6(value: Stage6Input, run_id: str, config: daily_blog.config.DailyB
 	editor_prompt_set = daily_blog.prompt_registry.loader.load_prompt_set(
 		daily_blog.prompt_registry.definitions.COMPLETE_POST_EDITOR_PROMPT_SET,
 	)
-	editor_identity = daily_blog.complete_post_editor_prompts.complete_post_editor_prompt_identity(
-		editor_prompt_set,
-	)
-	stage = config.complete_post
 	route_runner = runner if runner is not None else daily_blog.routes.CommandRouteRunner()
-	logical_writer_run = "stage6-" + daily_blog.io_utils.sha256_text(value.render_context())[:24]
-	writer_requests = tuple(_request(value, run_id, "6_1", "writer", str(index + 1), stage.writer_route,
-		daily_blog.editorial.render_author_prompt(value, f"{logical_writer_run}-writer-{index + 1}",
-			stage.prompt_limits["writer_chars"], snapshot=resolved), stage, config.daily_blog_repository, resolved.contract.prompt_version,
-		editor_identity) for index in range(stage.writer_count))
-	if any(len(item.prompt) > stage.prompt_limits["writer_chars"] for item in writer_requests):
-		raise RuntimeError("Stage 6 writer prompt exceeds its configured limit.")
-	writing = daily_blog.replication.replicate(writer_requests, route_runner, budget,
-		daily_blog.artifacts.CompletePost, lambda item: _post(value, item), lambda item: _eligible(value, item),
-		cache_load, cache_accept,
-		lambda item: daily_blog.publication_admission.complete_post_mechanical_eligibility(
-			item, value.publication_surface, value.output_root,
-		))
-	writer_peers = _unique(writing.eligible)
-	writer_material = _unique(
-		item.artifact for item in writing.candidates if item.artifact is not None
-		and daily_blog.publication_admission.complete_post_mechanical_eligibility(
-			item.artifact, value.publication_surface, value.output_root,
-		).eligible)
-	editing = daily_blog.replication.ReplicationResult(daily_blog.artifacts.CompletePost, ())
-	editor_prompt_limited = False
-	# Editors may refine provenance-valid drafts which missed body policy; only
-	# fully eligible editor output can enter the review and promotion peer set.
-	editor_source = writer_material if incumbent is None else _unique(writer_material + (incumbent,))
-	if editor_source:
-		candidate_json = _anonymous_posts(value, editor_source)
-		editor_requests = tuple(_request(value, run_id, "6_2", "editor", str(index + 1), stage.editor_route,
-			daily_blog.complete_post_editor_prompts.render_complete_post_editor_prompt(value.render_context(),
-				candidate_json, "editor-" + str(index + 1), editor_prompt_set), stage, config.daily_blog_repository,
-			resolved.contract.prompt_version, editor_identity, tuple(item.content_hash for item in editor_source))
-			for index in range(stage.editor_count))
-		if any(len(item.prompt) > stage.prompt_limits["editor_chars"] for item in editor_requests):
-			editor_prompt_limited = True
-		else:
-			editing = daily_blog.replication.replicate(editor_requests, route_runner, budget,
-				daily_blog.artifacts.CompletePost, lambda item: _post(value, item), lambda item: _eligible(value, item),
-				cache_load, cache_accept, lambda item: daily_blog.publication_admission.complete_post_mechanical_eligibility(
-					item, value.publication_surface, value.output_root,
-				))
-	editor_peers = _unique(editing.eligible)
-	# Every eligible whole post is an independent peer.  Editors are an
-	# additional editorial path, never a mechanical replacement for writers.
-	peers = _unique(writer_peers + editor_peers)
-	if incumbent is not None:
-		peers = _unique(peers + (incumbent,))
-	if not peers:
-		category = (
-			"no_eligible_generation"
-			if any(item.result.ok for item in writing.candidates)
-			else "route_unavailable"
-		)
-		promotion = daily_blog.artifacts.NoArtifact(daily_blog.artifacts.CompletePost, category)
-		empty = daily_blog.replication.ReviewResult((), ())
-		editor_reasons = (
-			("editor_prompt_limit", "editor_unavailable") if editor_prompt_limited
-			else (("editor_unavailable",) if editor_source else ("upstream_unavailable",))
-		)
-		steps = (daily_blog.replication.generation_reliability("6.1", writing),
-			daily_blog.replication.generation_reliability("6.2", editing, editor_reasons),
-			_review_reliability(empty, promotion, ("upstream_unavailable",)), _promotion_reliability(promotion, ()))
-		return Stage6Result(
-			promotion=promotion, generation=writing, review=empty,
-			reliability=_aggregate(steps), editing=editing, step_reliability=steps,
-		)
-
-	def build_work(left: daily_blog.artifacts.EditorialArtifact, right: daily_blog.artifacts.EditorialArtifact,
-		assignment: daily_blog.replication.ReviewAssignment) -> daily_blog.replication.ReviewWork:
-		prompt = templates["referee"].format(rubric=templates["rubric"], evidence_json=value.render_context(),
-			candidate_a=left.content, candidate_b=right.content)
-		if len(prompt) > stage.prompt_limits["reviewer_chars"]:
-			raise RuntimeError("Stage 6 reviewer prompt exceeds its configured limit.")
-		request = _request(value, run_id, "6_3", "reviewer",
-			f"{assignment.pair_index}_{assignment.reviewer_index}_{assignment.display_order}", stage.reviewer_route,
-			prompt, stage, config.daily_blog_repository, resolved.contract.prompt_version, editor_identity, (left.content_hash, right.content_hash), assignment)
-		return daily_blog.replication.ReviewWork(request, left.artifact_id, right.artifact_id, assignment)
-
-	def parse_winner(text: str, work: daily_blog.replication.ReviewWork) -> str:
-		try:
-			verdict = daily_blog.editorial.parse_referee_verdict(text, {"A", "B"})
-		except daily_blog.editorial.RefereeVerdictParseError as error:
-			raise daily_blog.agents.RepairableStructuredOutput(str(error)) from error
-		return {"A": work.first_artifact_id, "B": work.second_artifact_id}.get(verdict["winner"], "")
-
-	def repair(work: daily_blog.replication.ReviewWork, response: str) -> daily_blog.replication.ReviewWork:
-		prompt = templates["repair"].format(response=response[:daily_blog.editorial.MAX_REFEREE_RESPONSE_CHARS])
-		if len(prompt) > stage.prompt_limits["repair_chars"]:
-			raise RuntimeError("Stage 6 reviewer repair prompt exceeds its configured limit.")
-		request = _request(value, run_id, "6_3_repair", "reviewer_repair", work.request.request_id,
-			stage.reviewer_route, prompt, stage, config.daily_blog_repository, resolved.contract.prompt_version, editor_identity,
-			(daily_blog.io_utils.sha256_text(response),), work.assignment, work.request.cache_input_hash)
-		return daily_blog.replication.ReviewWork(request, work.first_artifact_id, work.second_artifact_id, work.assignment)
-
-	def salvage(text: str, work: daily_blog.replication.ReviewWork) -> str | None:
-		label = daily_blog.replication.salvage_allowed_identifier(text, ("A", "B"))
-		return {"A": work.first_artifact_id, "B": work.second_artifact_id}.get(label)
-
-	review = daily_blog.replication.review(peers, daily_blog.artifacts.CompletePost, stage.reviewer_count,
-		build_work, parse_winner, route_runner, budget, repair, salvage, cache_load, cache_accept)
-	promotion = daily_blog.replication.promote(peers, daily_blog.artifacts.CompletePost,
-		lambda item: _eligible(value, item), review.votes, incumbent)
-	if not editor_peers and writer_peers and isinstance(promotion, (daily_blog.artifacts.SelectedPeer,
-		daily_blog.artifacts.DegradedPromotion)):
-		reasons = ("editor_unavailable",) if isinstance(promotion, daily_blog.artifacts.SelectedPeer) else tuple(sorted(set(promotion.reasons) | {"editor_unavailable"}))
-		promotion = daily_blog.artifacts.DegradedPromotion(promotion.artifact, daily_blog.artifacts.CompletePost, reasons)
-	editor_reasons = () if editor_peers else (("editor_prompt_limit", "editor_unavailable")
-		if editor_prompt_limited else (("editor_unavailable",) if editor_source else ("upstream_unavailable",)))
-	review_reasons = () if review.work else ("review_unavailable",)
-	steps = (daily_blog.replication.generation_reliability("6.1", writing),
-		daily_blog.replication.generation_reliability("6.2", editing, editor_reasons),
-		_review_reliability(review, promotion, review_reasons), _promotion_reliability(promotion, review.votes))
-	return Stage6Result(
-		promotion=promotion, generation=writing, review=review,
-		reliability=_aggregate(steps), editing=editing, step_reliability=steps,
+	# The primary runner imports this facade after all Stage 6 types exist.
+	from daily_blog import stage6_primary
+	return stage6_primary.run_primary_batches(
+		value, run_id, config, budget, route_runner, resolved, templates,
+		editor_prompt_set, cache_load, cache_accept, incumbent,
 	)

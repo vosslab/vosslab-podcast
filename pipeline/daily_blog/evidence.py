@@ -577,19 +577,6 @@ class EvidenceAssembler:
 			items.extend(screenshot_items)
 			assets.update(screenshot_assets)
 			items.extend(CommitMetadataEvidenceProvider().collect(activity, snapshot))
-		if not activities:
-			content = f"No attributed commits were located for {self.report_date} in the refreshed caches."
-			items.append(
-				daily_blog.schema.EvidenceItem.create(
-					"commit_metadata",
-					"vosslab",
-					"",
-					"",
-					"",
-					content,
-					"date-scoped cache activity locator",
-				)
-			)
 		budgeted = self._budget_items(
 			items,
 			[activity.repository for activity in activities],

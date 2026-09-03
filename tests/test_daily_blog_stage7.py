@@ -160,7 +160,7 @@ def _config(tmp_path: Path) -> daily_blog.config.DailyBlogConfig:
 		reviewer_route=daily_blog.editorial_stage_config.RoleRoute(
 			"reviewer", daily_blog.editorial_stage_config.HERMES_EDITORIAL_ROUTE))
 	return daily_blog.config.DailyBlogConfig("settings", str(tmp_path), "owner", "America/Chicago", str(tmp_path),
-		str(tmp_path / "mirrors"), (), (), (daily_blog.editorial_stage_config.RoleRoute("author", ("fixture",)),),
+		str(tmp_path / "mirrors"), (daily_blog.editorial_stage_config.RoleRoute("author", ("fixture",)),),
 		daily_blog.editorial_stage_config.RoleRoute("referee", ("fixture",)), {}, {}, {"author_chars": 72000, "referee_chars": 88000},
 		daily_blog.config.EditorialReliabilityConfig(2, 1, 1, 8), final_synthesis=stage)
 

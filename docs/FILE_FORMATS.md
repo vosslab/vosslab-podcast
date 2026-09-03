@@ -12,7 +12,7 @@ see [OUT_DIRECTORY_ORGANIZATION_SPEC.md](OUT_DIRECTORY_ORGANIZATION_SPEC.md).
 ## Configuration input
 
 `settings.yaml` supplies the operator-owned `daily_blog` configuration. It selects the report
-timezone, repository and mirror roots, source identities, bounded collection and projection limits,
+timezone, repository and mirror roots, account owner, bounded collection and projection limits,
 and the bounded reliability and route settings for editorial stages. The configuration loader rejects
 unknown or malformed values. Credentials, raw provider responses, and routing capacity state are not
 publication artifacts.
@@ -21,6 +21,14 @@ publication artifacts.
 second publication namespace.
 
 ## Evidence and projection
+
+### Step 0 commit inventory
+
+`daily_commits.md` is a run-local operator document, not an interchange schema or bundle member. It
+records the fresh GitHub commit search for `user:<owner> author-date:<report_date>`, groups results by
+owner repository, and links each exact commit SHA. Its commit-message previews contain only the first
+line and are capped at 160 characters. Downstream evidence resolves the same repository/SHA pairs
+against local mirrors; it does not parse this Markdown document.
 
 ### Repository roster
 
@@ -74,6 +82,11 @@ Author, referee, and repair work may produce several private artifacts. Only the
 `CompletePost` crosses the publication boundary; candidates, reviewer comparisons, and route labels do
 not.
 
+Authored-body policy findings remain available as candidate-local repair guidance. They do not make a
+mechanically valid, evidence-grounded `CompletePost` ineligible. Provenance, authority, repository
+scope, path confinement, approved image paths, metadata, and source-safety checks remain enforced at
+their deterministic boundaries.
+
 ### Bounded editorial contexts
 
 The run directory retains `stage5_evidence_context.json`, `stage5_repository_context.json`, and
@@ -88,14 +101,44 @@ scale maximizes usable source text while keeping each complete primary and recov
 60,000 characters. Its source identities are validated against the same `PublicationSurface` that
 later governs citations, screenshots, repository coverage, and admission.
 
+### Stage-6 attempt topology and facts
+
+`vosslab.daily-blog.stage6-attempt-plan.v1` is the in-memory capacity and ordering contract for
+complete-post work. One immutable maximum plan expands the configured writer, editor, reviewer,
+same-request retry, fresh-batch, and recovery-rung policy before route dispatch. The policy accepts
+one through three fresh batches and reserves at most 10,000 semantic attempts and 40,000 physical
+route calls. Transport retries keep the same semantic slot identity.
+
+Candidate-dependent work is admitted through a `MaterializedStage6AttemptPlan`. It retains canonical
+maximum-plan order and includes only generation slots whose inputs exist, review slots bound to an
+ordered pair of distinct candidate SHA-256 witnesses, and review-repair slots bound to the exact
+materialized review they repair. A materialization cannot add or reorder work. Unavailable conditional
+reviews have no invented attempt fact; an early promotion may mark only a materialized terminal suffix
+as `skipped_after_promotion`.
+
+The run record carries the resulting response-free `attempt_ledger` and its derived
+`attempt_summary`. Each fact names a materialized slot and records a closed execution source,
+transport outcome, highest admission gate, terminal disposition, reason code, and optional candidate
+or positive-feedback digest. The summary reconciles planned, fresh, cached, skipped, physical-call,
+transport, parse, mechanical, publication-policy, review, rejection, selection, and exhaustion totals.
+It counts `reviewed` only for completed or rejected review work. Primary exhaustion remains a prefix
+until the final applicable recovery materialization closes or selects the ladder.
+
+Stage-6 route-cache entries use `vosslab.daily-blog.route-cache.v2`. Their identity binds the attempt
+plan version, materialized slot, prompt digest, ordered actual candidate digest, positive repair
+feedback digest, review-repair source and response digests, route name, and route execution contract.
+The witness retains hashes rather than prompt, candidate, reviewer-response, or provider text.
+
 ## Run state and observability
 
 ### Run record
 
 Every attempt owns `run_state.json` under its date-owned run directory. It uses schema
-`vosslab.daily-blog.run.v12` and is the authoritative resumable lifecycle record. It records the run
+`vosslab.daily-blog.run.v13` and is the authoritative resumable lifecycle record. It records the run
 and report identities, ordered phase states, evidence and bundle references, editorial reliability
-summaries, the current `best_artifact_id`, an outcome, and a safe failure classification when needed.
+summaries, the current `best_artifact_id`, the reconciled Stage-6 attempt ledger and summary, an
+outcome, and a safe failure classification when needed. Current pre-production readers classify any
+other run schema as regeneration-required instead of coercing mutable state into v13.
 
 Each editorial summary uses `vosslab.daily-blog.editorial-reliability.v2`. Its `rejection_counts`
 contains at most 64 sorted, unique canonical `{code, count}` entries. Each code is a bounded
@@ -112,27 +155,29 @@ editorial summaries:
 - `repair_publication` records a publication-validation repair separately from editorial promotion.
 
 The validator replays every transition from an empty incumbent and requires the result to equal
-`best_artifact_id`. It rejects missing, duplicated, mismatched, or type-confused transitions. Run v10
-records require an offline migration before they can be reopened. The reader conditionally
-normalizes retained v11 records only when their retired `editorial_projection` phase and subsequent
-phase order meet the narrow migration contract. New records contain only current v12 phases.
+`best_artifact_id`. It rejects missing, duplicated, mismatched, or type-confused transitions. Current
+mutable records contain only the v13 phase set; any earlier run-state schema regenerates under the
+current contract.
 
 ### Event journal and terminal summary
 
 `events.jsonl` is a bounded, append-only, canonical-JSON operational journal. It contains scalar,
 redacted lifecycle observations tied to one run. It intentionally excludes raw exception text,
 paths, URLs, credentials, prompt text, and provider responses. Capacity produces one explicit
-truncation record instead of an unbounded log.
+truncation record instead of an unbounded log. The
+`daily_publication.stage6_attempt_reliability_persisted` event is a bounded scalar projection of the
+closed Stage-6 ledger; it is lifecycle evidence rather than the terminal source of truth.
 
 The date-level `summary.jsonl` journal contains one bounded terminal-summary receipt for each retained
-terminal run. A receipt uses schema `vosslab.daily-blog.terminal-summary.v1`, binds `summary_id` to the
+terminal run. A receipt uses schema `vosslab.daily-blog.terminal-summary.v2`, binds `summary_id` to the
 terminal run-record digest, distinguishes completed and failed outcomes, reports verified publication
-facts, and projects reliability counts without diagnostic payloads. Detailed run state is retained or
-expired only through the validated summary and descriptor-owned retention path.
+facts, and carries the authoritative terminal projection of the reconciled Stage-6 attempt summary
+without diagnostic payloads. Detailed run state is retained or expired only through the validated
+summary and descriptor-owned retention path.
 
-A retained v1 failure receipt may name the retired `editorial_projection` phase. The reader accepts
-that one historical phase so later terminal receipts and crash replay can preserve valid history;
-current writers emit only v12 phases, and every other unknown phase remains invalid.
+Terminal-summary v2 accepts only the current run phase set. Inspect retired internal summary JSON
+through a disposable diagnostic reader when historical analysis requires it; production readers and
+writers share the current schema.
 
 Phase cache data is resumability support, not a durable exchange protocol. The producer revalidates
 cached response bytes and identities before reuse. Model/cache identity retains selected commits,
@@ -143,9 +188,10 @@ do not change the editorial request.
 ### Recovery fault digest
 
 An exhausted editorial recovery writes a bounded `recovery_fault.json` with schema
-`vosslab.daily-blog.recovery.v5`. Its canonical digest identifies the report date, stage, safe route
-observations, eligible recovery provenance, prompt and rubric identities, and the typed fault
-category. It is a run-owned diagnostic receipt, not a publication format or a substitute post.
+`vosslab.daily-blog.recovery.v6`. Its canonical digest identifies the report date, stage, safe route
+observations, eligible recovery provenance, prompt and rubric identities, the typed fault category,
+and the reconciled Stage-6 plan-exhaustion digest when applicable. It is a run-owned diagnostic
+receipt, not a publication format or a substitute post.
 
 ## Publication handoff
 

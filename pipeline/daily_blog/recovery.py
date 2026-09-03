@@ -11,9 +11,10 @@ import re
 import daily_blog.artifacts
 import daily_blog.io_utils
 import daily_blog.replication
+import daily_blog.stage6_attempt_plan
 
 
-RECOVERY_SCHEMA_VERSION = "vosslab.daily-blog.recovery.v5"
+RECOVERY_SCHEMA_VERSION = "vosslab.daily-blog.recovery.v6"
 MAX_DIGEST_PACKETS = 256
 MAX_DIGEST_EVIDENCE_REFS = 4096
 MAX_DIGEST_OBSERVATIONS = 512
@@ -31,6 +32,13 @@ STAGE_KEY_RE = re.compile(
 RANKING_PROMOTION_ID_RE = re.compile(r"ranking-promotion-[0-9a-f]{24}\Z")
 
 
+#============================================
+def _validate_stage6_observations(value: tuple[object, ...], label: str) -> None:
+	"""Require exact Stage 6 batch facts after module initialization completes."""
+	if not daily_blog.stage6_attempt_plan.has_canonical_observation_coordinates(value):
+		raise RecoveryConfigurationError(f"{label} batch observations are not canonical.")
+
+
 class TerminalFaultCategory(enum.StrEnum):
 	"""The only terminal categories an operator may receive."""
 
@@ -39,6 +47,87 @@ class TerminalFaultCategory(enum.StrEnum):
 	EVIDENCE_UNAVAILABLE = "evidence_unavailable"
 	CONFIGURATION = "configuration"
 	IMPLEMENTATION_DEFECT = "implementation_defect"
+
+
+class TerminalFaultSubtype(enum.StrEnum):
+	"""Closed causal subtypes safe for durable terminal diagnostics."""
+
+	PROJECTION_SOURCE_SCOPE_INCOMPLETE = "projection_source_scope_incomplete"
+	PROJECTION_PACKET_INVALID = "projection_packet_invalid"
+	IMPLEMENTATION_UNCLASSIFIED = "implementation_unclassified"
+	ROUTE_START_FAILURE = "route_start_failure"
+	ROUTE_TIMEOUT = "route_timeout"
+	ROUTE_PROCESS_FAILURE = "route_process_failure"
+	PLAN_EXHAUSTED = "plan_exhausted"
+	EVIDENCE_MISSING = "evidence_missing"
+	CONFIGURATION_INVALID = "configuration_invalid"
+
+
+_SUBTYPE_CATEGORIES = {
+	TerminalFaultSubtype.PROJECTION_SOURCE_SCOPE_INCOMPLETE: TerminalFaultCategory.IMPLEMENTATION_DEFECT,
+	TerminalFaultSubtype.PROJECTION_PACKET_INVALID: TerminalFaultCategory.IMPLEMENTATION_DEFECT,
+	TerminalFaultSubtype.IMPLEMENTATION_UNCLASSIFIED: TerminalFaultCategory.IMPLEMENTATION_DEFECT,
+	TerminalFaultSubtype.ROUTE_START_FAILURE: TerminalFaultCategory.ROUTE_UNAVAILABLE,
+	TerminalFaultSubtype.ROUTE_TIMEOUT: TerminalFaultCategory.ROUTE_UNAVAILABLE,
+	TerminalFaultSubtype.ROUTE_PROCESS_FAILURE: TerminalFaultCategory.ROUTE_UNAVAILABLE,
+	TerminalFaultSubtype.PLAN_EXHAUSTED: TerminalFaultCategory.NO_ELIGIBLE_GENERATION,
+	TerminalFaultSubtype.EVIDENCE_MISSING: TerminalFaultCategory.EVIDENCE_UNAVAILABLE,
+	TerminalFaultSubtype.CONFIGURATION_INVALID: TerminalFaultCategory.CONFIGURATION,
+}
+_SAFE_FAULT_OWNER_RE = re.compile(r"[a-z][a-z0-9_.]{0,127}\Z")
+_SAFE_FAULT_FACT_RE = re.compile(r"[a-z][a-z0-9_]{0,63}\Z")
+MAX_SAFE_FAULT_FACTS = 16
+
+
+@dataclasses.dataclass(frozen=True)
+class TerminalFaultDigest:
+	"""Safe category/subtype evidence owned by the boundary that detects it.
+
+	ASVS 1.5, 2.1-2.3, 13.4, and 16.2: this narrow type permits only fixed
+	codes and small integer structure, preventing accidental persistence of
+	exception text, paths, commands, prompts, responses, or credentials.
+	"""
+
+	category: TerminalFaultCategory
+	subtype: TerminalFaultSubtype
+	owner: str
+	structural_facts: tuple[tuple[str, int], ...] = ()
+
+	def __post_init__(self) -> None:
+		if type(self.category) is not TerminalFaultCategory or type(self.subtype) is not TerminalFaultSubtype:
+			raise RecoveryConfigurationError("Terminal fault category or subtype is invalid.")
+		if _SUBTYPE_CATEGORIES[self.subtype] is not self.category:
+			raise RecoveryConfigurationError("Terminal fault category and subtype conflict.")
+		if type(self.owner) is not str or _SAFE_FAULT_OWNER_RE.fullmatch(self.owner) is None:
+			raise RecoveryConfigurationError("Terminal fault owner is invalid.")
+		if (type(self.structural_facts) is not tuple or len(self.structural_facts) > MAX_SAFE_FAULT_FACTS
+			or tuple(sorted(self.structural_facts)) != self.structural_facts
+			or len({key for key, _value in self.structural_facts}) != len(self.structural_facts)
+			or any(type(key) is not str or _SAFE_FAULT_FACT_RE.fullmatch(key) is None
+				or type(number) is not int or not 0 <= number <= 1000000
+				for key, number in self.structural_facts)):
+			raise RecoveryConfigurationError("Terminal fault structural facts are invalid.")
+
+	def to_dict(self) -> dict[str, object]:
+		return {
+			"category": self.category.value,
+			"subtype": self.subtype.value,
+			"owner": self.owner,
+			"structural_facts": [{"key": key, "value": value} for key, value in self.structural_facts],
+		}
+
+	@classmethod
+	def from_dict(cls, value: object) -> "TerminalFaultDigest":
+		if type(value) is not dict or set(value) != {"category", "subtype", "owner", "structural_facts"}:
+			raise RecoveryConfigurationError("Terminal fault digest uses unsupported fields.")
+		facts = value["structural_facts"]
+		if type(facts) is not list or any(type(item) is not dict or set(item) != {"key", "value"} for item in facts):
+			raise RecoveryConfigurationError("Terminal fault digest structural facts are invalid.")
+		try:
+			return cls(TerminalFaultCategory(value["category"]), TerminalFaultSubtype(value["subtype"]),
+				value["owner"], tuple((item["key"], item["value"]) for item in facts))
+		except (TypeError, ValueError) as error:
+			raise RecoveryConfigurationError("Terminal fault digest is invalid.") from error
 
 
 class RecoveryRung(enum.StrEnum):
@@ -261,6 +350,7 @@ class RecoveryAttempt:
 	observation: GenerationObservation
 	recovery_generation: daily_blog.replication.ReplicationResult | None = None
 	step_reliability: tuple[daily_blog.replication.StepReliability, ...] = ()
+	stage6_observations: tuple["daily_blog.stage6.Stage6BatchObservation", ...] = ()
 
 	#============================================
 	def __post_init__(self) -> None:
@@ -292,6 +382,7 @@ class RecoveryAttempt:
 			raise RecoveryConfigurationError("Recovery attempt reliability steps must be unique.")
 		for item in self.step_reliability:
 			item.validate()
+		_validate_stage6_observations(self.stage6_observations, "Recovery attempt")
 
 
 @dataclasses.dataclass(frozen=True)
@@ -341,6 +432,7 @@ class RecoveryResult:
 	observations: tuple[GenerationObservation, ...]
 	recovery_generation: daily_blog.replication.ReplicationResult | None = None
 	rung_reliability: tuple[RecoveryRungReliability, ...] = ()
+	stage6_observations: tuple["daily_blog.stage6.Stage6BatchObservation", ...] = ()
 
 	#============================================
 	def __post_init__(self) -> None:
@@ -364,6 +456,7 @@ class RecoveryResult:
 				self.observations[-1], self.artifact,
 			)
 		_validate_rung_reliability(self.rung_reliability, self.observations)
+		_validate_stage6_observations(self.stage6_observations, "Recovery result")
 
 
 @dataclasses.dataclass(frozen=True)
@@ -383,6 +476,8 @@ class PipelineFault:
 	strongest_artifact_type: str
 	observations: tuple[GenerationObservation, ...]
 	rung_reliability: tuple[RecoveryRungReliability, ...] = ()
+	terminal_fault: TerminalFaultDigest | None = None
+	stage6_observations: tuple["daily_blog.stage6.Stage6BatchObservation", ...] = ()
 
 	#============================================
 	def __post_init__(self) -> None:
@@ -408,6 +503,10 @@ class PipelineFault:
 			raise RecoveryConfigurationError("Pipeline fault depth exceeds its observations.")
 		if self.category is not classify_pipeline_fault(self.observations):
 			raise RecoveryConfigurationError("Pipeline fault category conflicts with observations.")
+		if self.terminal_fault is not None:
+			if type(self.terminal_fault) is not TerminalFaultDigest or self.terminal_fault.category is not self.category:
+				raise RecoveryConfigurationError("Pipeline fault safe diagnostic conflicts with its category.")
+		_validate_stage6_observations(self.stage6_observations, "Pipeline fault")
 
 
 class PipelineFaultError(RuntimeError):
@@ -448,11 +547,13 @@ def _validate_paths(paths: tuple[RecoveryPath, ...]) -> None:
 def _fault(category: TerminalFaultCategory, depth: int, incumbent: RecoveryIncumbent | None,
 	observations: tuple[GenerationObservation, ...],
 	rung_reliability: tuple[RecoveryRungReliability, ...] = (),
+	stage6_observations: tuple["daily_blog.stage6.Stage6BatchObservation", ...] = (),
 ) -> PipelineFault:
 	"""Build one validated terminal result without copying unsafe diagnostic text."""
 	return PipelineFault(
 		category, depth, "" if incumbent is None else incumbent.artifact.artifact_id,
 		"" if incumbent is None else type(incumbent.artifact).__name__, observations, rung_reliability,
+		None, stage6_observations,
 	)
 
 
@@ -472,6 +573,7 @@ def recover_ladder(
 		raise RecoveryConfigurationError("Recovery incumbent must remain mechanically eligible.")
 	observations: list[GenerationObservation] = []
 	rung_reliability: list[RecoveryRungReliability] = []
+	stage6_observations: list[object] = []
 	for depth, path in enumerate(paths, start=1):
 		if incumbent is not None and RUNG_ORDER.index(incumbent.rung) < RUNG_ORDER.index(path.rung):
 			if type(incumbent.artifact) is not daily_blog.artifacts.CompletePost:
@@ -481,6 +583,7 @@ def recover_ladder(
 		if type(attempt) is not RecoveryAttempt:
 			raise RecoveryConfigurationError("Recovery path returned an invalid attempt.")
 		observations.append(attempt.observation)
+		stage6_observations.extend(attempt.stage6_observations)
 		if attempt.step_reliability:
 			rung_reliability.append(RecoveryRungReliability(path.rung, attempt.step_reliability))
 		outcome = attempt.outcome
@@ -492,7 +595,7 @@ def recover_ladder(
 		if type(outcome) is daily_blog.artifacts.NoArtifact:
 			category = no_artifact_category(outcome, attempt.observation)
 			if category not in ORDINARY_NO_ARTIFACT:
-				return _fault(category, depth, incumbent, tuple(observations), tuple(rung_reliability))
+				return _fault(category, depth, incumbent, tuple(observations), tuple(rung_reliability), tuple(stage6_observations))
 			continue
 		candidate = outcome.artifact
 		if type(candidate) is not expected_type or not eligible(candidate):
@@ -502,7 +605,7 @@ def recover_ladder(
 			# Repository material is lower-rung provenance, never a publishable peer.
 			# A higher whole post may replace it without a cross-type comparison.
 			return RecoveryResult(candidate, depth, tuple(observations), attempt.recovery_generation,
-				tuple(rung_reliability))
+				tuple(rung_reliability), tuple(stage6_observations))
 		chosen = promote(prior, candidate)
 		if type(chosen) is not daily_blog.artifacts.CompletePost or not eligible(chosen):
 			raise RecoveryConfigurationError("Recovery promotion returned an ineligible artifact.")
@@ -514,10 +617,10 @@ def recover_ladder(
 		return RecoveryResult(
 			chosen, depth, tuple(observations),
 			attempt.recovery_generation if chosen is candidate else None,
-			tuple(rung_reliability),
+			tuple(rung_reliability), tuple(stage6_observations),
 		)
 	return _fault(classify_pipeline_fault(tuple(observations)), len(paths), incumbent, tuple(observations),
-		tuple(rung_reliability))
+		tuple(rung_reliability), tuple(stage6_observations))
 
 
 #============================================
@@ -691,6 +794,9 @@ def canonical_evidence_digest(value: EvidenceDigestInput) -> tuple[dict[str, obj
 		"retained_artifact_type": value.fault.strongest_artifact_type,
 		"ladder_depth": value.fault.depth,
 		"category": value.fault.category.value,
+		"terminal_fault": (
+			{} if value.fault.terminal_fault is None else value.fault.terminal_fault.to_dict()
+		),
 		"attempts": [item.to_digest_dict() for item in value.fault.observations],
 	}
 	return payload, daily_blog.io_utils.hash_value(payload)

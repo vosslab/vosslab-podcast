@@ -23,6 +23,7 @@ import daily_blog.publisher
 import daily_blog.repositories
 import daily_blog.repository_contracts
 import daily_blog.repository_editorial_workflow
+import daily_blog.recovery
 import daily_blog.route_cache
 import daily_blog.run_contracts
 import daily_blog.run_state
@@ -145,7 +146,12 @@ def record_phase_failure(
 	if not phase:
 		return
 	failure_kind = daily_blog.run_contracts.classify_exception(error)
-	record.fail_phase(phase, failure_kind)
+	terminal_fault = (
+		error.fault.terminal_fault
+		if isinstance(error, daily_blog.recovery.PipelineFaultError)
+		else None
+	)
+	record.fail_phase(phase, failure_kind, terminal_fault)
 	store.save(record)
 	store.append_event(
 		"daily_publication.phase_failed",

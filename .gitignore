@@ -1,12 +1,3 @@
-# === LOCAL REPOSITORY RULES === [ADD CUSTOM IGNORES HERE]
-# Propagation preserves this section.
-
-.venv/
-.venv_tts/
-out/
-report_*.txt
-*.py[cod]
-
 # === UNIVERSAL === [PROPAGATED - LOCAL EDITS OVERWRITTEN]
 .DS_Store
 /node_modules/
@@ -27,3 +18,14 @@ sdist/
 *.egg
 *.egg-info/
 site/
+
+# -------------------- LOCAL REPOSITORY RULES --------------------
+# ADD YOUR CUSTOM IGNORES BELOW
+# Propagation preserves this section.
+# ------------------ END LOCAL REPOSITORY RULES ------------------
+
+.venv/
+.venv_tts/
+out/
+report_*.txt
+*.py[cod]

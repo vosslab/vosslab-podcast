@@ -181,14 +181,14 @@ def config(tmp_path: Path, routes: int = 2) -> daily_blog.config.DailyBlogConfig
 	reliability = daily_blog.config.EditorialReliabilityConfig(2, 1, 2, 4, 0)
 	complete_post = daily_blog.editorial_stage_config.CompletePostConfig(
 		writer_count=2, editor_count=2, reviewer_count=1, maximum_parallel_calls=2,
-		max_route_calls=44, route_retry_attempts=0,
+		route_retry_attempts=0,
 		writer_route=daily_blog.editorial_stage_config.RoleRoute("writer", daily_blog.editorial_stage_config.HERMES_EDITORIAL_ROUTE),
 		editor_route=daily_blog.editorial_stage_config.RoleRoute("editor", daily_blog.editorial_stage_config.HERMES_EDITORIAL_ROUTE),
 		reviewer_route=daily_blog.editorial_stage_config.RoleRoute("referee", daily_blog.editorial_stage_config.HERMES_EDITORIAL_ROUTE),
 	)
 	return daily_blog.config.DailyBlogConfig(
 		"settings", str(tmp_path), "owner", "America/Chicago", str(tmp_path), str(tmp_path / "mirrors"),
-		(), (), tuple(daily_blog.editorial_stage_config.RoleRoute(
+		tuple(daily_blog.editorial_stage_config.RoleRoute(
 			"author-" + str(index), daily_blog.editorial_stage_config.HERMES_EDITORIAL_ROUTE,
 		) for index in range(routes)), daily_blog.editorial_stage_config.RoleRoute(
 			"referee", daily_blog.editorial_stage_config.HERMES_EDITORIAL_ROUTE,
@@ -344,69 +344,6 @@ def test_stage6_no_eligible_writer_response_is_a_typed_no_artifact(tmp_path: Pat
 	assert result.promotion.reason == "no_eligible_generation"
 
 
-#============================================
-def test_stage6_policy_invalid_writer_degrades_while_valid_peer_is_promoted(tmp_path: Path) -> None:
-	"""A structurally grounded but uncited writer peer cannot enter editorial voting."""
-	value = input_value(tmp_path)
-	class Runner:
-		def __init__(self) -> None:
-			self.responses = iter((
-				post(value, "invalid") + "\n\n" + "A deliberately uncited editorial thought.\n\n" * 4,
-				post(value, "valid-peer"),
-				post(value, "valid-peer"),
-				post(value, "valid-peer"),
-				'{"winner":"A","reason":"grounded","evidence_quality":"high","confidence":1}',
-				'{"winner":"A","reason":"grounded","evidence_quality":"high","confidence":1}',
-				'{"winner":"A","reason":"grounded","evidence_quality":"high","confidence":1}',
-			))
-
-		def run(self, _route: daily_blog.editorial_stage_config.RoleRoute, _prompt: str, _directory: str) -> str:
-			return next(self.responses)
-	result = daily_blog.stage6.run_stage6(
-		value, "policy-peer", config(tmp_path), daily_blog.agents.RouteBudget(50, 2), Runner(),
-	)
-	assert result.artifact.content.startswith("---\ndate: 2026-08-23\n---\n# valid-peer")
-	writer_counts = result.step_reliability[0].rejection_counts
-	assert writer_counts and result.reliability.rejection_counts == writer_counts
-
-
-#============================================
-def test_stage6_editors_refine_grounded_writer_drafts_that_miss_body_policy(
-	tmp_path: Path,
-) -> None:
-	"""Policy-invalid grounded work reaches editors but cannot enter promotion unchanged."""
-	value = input_value(tmp_path)
-	invalid = post(value, "draft") + "\n\n" + "An intentionally uncited afterword.\n\n" * 4
-	class Runner:
-		editor_calls = 0
-
-		def run(
-			self, route: daily_blog.editorial_stage_config.RoleRoute,
-			_prompt: str, _directory: str,
-		) -> str:
-			if route.name == "writer":
-				return invalid
-			if route.name == "editor":
-				self.editor_calls += 1
-				return post(value, "editor-refinement")
-			return '{"winner":"A","reason":"grounded","evidence_quality":"high","confidence":1}'
-
-	runner = Runner()
-	result = daily_blog.stage6.run_stage6(
-		value, "policy-editor", config(tmp_path),
-		daily_blog.agents.RouteBudget(50, 2), runner,
-	)
-	assert runner.editor_calls > 0
-	assert result.editing.eligible and result.artifact in result.editing.eligible
-	assert all(
-		candidate.eligibility is not None
-		and "publication_policy_mismatch" in candidate.eligibility.reasons
-		and set(candidate.eligibility.reasons) != {"publication_policy_mismatch"}
-		for candidate in result.generation.candidates
-	)
-
-
-#============================================
 #============================================
 def test_stage6_propagates_non_referee_parser_defects(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
 	"""Only bounded verdict syntax errors are repairable; implementation defects remain faults."""

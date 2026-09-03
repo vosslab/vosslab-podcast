@@ -58,7 +58,7 @@ def _config(tmp_path: pathlib.Path) -> daily_blog.config.DailyBlogConfig:
 	route = daily_blog.editorial_stage_config.RoleRoute("fixture", ("fixture",))
 	return daily_blog.config.DailyBlogConfig(
 		"settings.yaml", str(tmp_path), "owner", "America/Chicago", str(tmp_path), str(tmp_path / "mirrors"),
-		(), (), (route,), route, {}, {"context_chars": 8000, "excerpt_chars": 1000, "commit_subject_chars": 120},
+		(route,), route, {}, {"context_chars": 8000, "excerpt_chars": 1000, "commit_subject_chars": 120},
 		{"author_chars": 8000, "referee_chars": 8000}, daily_blog.config.EditorialReliabilityConfig(2, 1, 1, 8),
 		repository_outline=daily_blog.editorial_stage_config.RepositoryOutlineConfig(
 			generator_count=2, merger_count=2, reviewer_count=1, maximum_parallel_calls=2, route_retry_attempts=0,
@@ -176,12 +176,16 @@ def test_projection_rejects_duplicate_evidence_before_editorial_dispatch(tmp_pat
 	)
 	invalid_projection = (duplicated,) + projected[1:]
 
-	with pytest.raises(RuntimeError):
+	with pytest.raises(daily_blog.multi_repository_coordinator.RepositoryProjectionFault) as raised:
 		daily_blog.multi_repository_coordinator.run_repository_editorial(
 			packet, invalid_projection, _config(tmp_path), daily_blog.agents.RouteBudget(80, 2), object(),
 			"Prefer grounded work.", daily_blog.io_utils.sha256_text("Prefer grounded work."),
 			_cache(tmp_path), str(tmp_path),
 		)
+	assert (
+		raised.value.terminal_fault.subtype
+		is daily_blog.recovery.TerminalFaultSubtype.PROJECTION_PACKET_INVALID
+	)
 
 
 def test_failed_worker_does_not_leak_buffered_effects_while_a_healthy_sibling_survives(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:

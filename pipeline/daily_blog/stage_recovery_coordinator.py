@@ -27,6 +27,12 @@ import daily_blog.schema
 _STAGE_KEY_RE = daily_blog.recovery.STAGE_KEY_RE
 _REUSED_KEY_RE = daily_blog.recovery.STAGE_KEY_RE
 _MAX_REUSED_STEP_KEYS = 512
+_STAGE6_RECOVERY_STAGE_KEY = "stage6/complete_post/recovery"
+_STAGE6_RECOVERY_RUNGS = (
+	daily_blog.recovery.RecoveryRung.DAILY_OUTLINE_EXPANSION,
+	daily_blog.recovery.RecoveryRung.REPOSITORY_STORY_MERGE,
+)
+_PLAN_EXHAUSTED_OWNER = "daily_blog.stage_recovery_coordinator.stage6_ladder_exhaustion"
 _SAFE_RELIABILITY_REASONS = frozenset({
 	"configuration", "editor_unavailable", "empty_response", "evidence_unavailable",
 	"editor_prompt_limit",
@@ -165,6 +171,7 @@ class StageRecoveryResult:
 	digest_sha256: str
 	reused_step_keys: tuple[str, ...]
 	recovery_generation: daily_blog.replication.ReplicationResult | None = None
+	stage6_observations: tuple["daily_blog.stage6.Stage6BatchObservation", ...] = ()
 
 	def __post_init__(self) -> None:
 		if type(self.reused_step_keys) is not tuple or len(self.reused_step_keys) > _MAX_REUSED_STEP_KEYS or tuple(sorted(set(self.reused_step_keys))) != self.reused_step_keys or any(
@@ -179,9 +186,15 @@ class StageRecoveryResult:
 					self.recovery_generation, daily_blog.artifacts.CompletePost,
 					selected_artifact=self.artifact,
 				)
+			daily_blog.recovery._validate_stage6_observations(
+				self.stage6_observations, "Stage recovery result",
+			)
 			return
 		if self.recovery_generation is not None or self.selected_path is not None or type(self.fault) is not daily_blog.recovery.PipelineFault or not os.path.isabs(self.digest_path) or os.path.basename(self.digest_path) != "recovery_fault.json" or daily_blog.recovery.SHA256_RE.fullmatch(self.digest_sha256) is None:
 			raise daily_blog.recovery.RecoveryConfigurationError("Stage recovery fault result is invalid.")
+		daily_blog.recovery._validate_stage6_observations(
+			self.stage6_observations, "Stage recovery result",
+		)
 
 
 class StageRecoveryCoordinator:
@@ -513,6 +526,35 @@ class StageRecoveryCoordinator:
 				raise daily_blog.recovery.RecoveryConfigurationError("Recovery digest write did not verify.")
 		return path, digest
 
+	def _stage6_ladder_terminal_fault(
+		self,
+		value: StageRecoveryInput,
+		result: daily_blog.recovery.PipelineFault,
+		observations: tuple[daily_blog.recovery.GenerationObservation, ...],
+	) -> daily_blog.recovery.TerminalFaultDigest | None:
+		"""Return the safe exhaustion cause after every admitted Stage 6 rung ran.
+
+		The primary stage reaches this coordinator only after its own bounded fresh
+		batches have completed.  This recovery boundary contributes the two lower
+		rungs, so the digest is available only after both emitted a typed ordinary
+		no-artifact observation.  Earlier recovery observations remain ordinary
+		degradation and retain no terminal subtype.
+		"""
+		if (
+			value.stage_key != _STAGE6_RECOVERY_STAGE_KEY
+			or result.category is not daily_blog.recovery.TerminalFaultCategory.NO_ELIGIBLE_GENERATION
+			or tuple(path.rung for path in value.paths) != _STAGE6_RECOVERY_RUNGS
+			or result.depth != len(_STAGE6_RECOVERY_RUNGS)
+			or len(observations) != len(_STAGE6_RECOVERY_RUNGS) + 1
+		):
+			return None
+		return daily_blog.recovery.TerminalFaultDigest(
+			daily_blog.recovery.TerminalFaultCategory.NO_ELIGIBLE_GENERATION,
+			daily_blog.recovery.TerminalFaultSubtype.PLAN_EXHAUSTED,
+			_PLAN_EXHAUSTED_OWNER,
+			(("recovery_rungs_exhausted", len(_STAGE6_RECOVERY_RUNGS)),),
+		)
+
 	def run(self, value: StageRecoveryInput) -> StageRecoveryResult:
 		"""Persist source facts, recover only ordinary no-artifact outcomes, or fault."""
 		if type(value) is not StageRecoveryInput:
@@ -584,6 +626,7 @@ class StageRecoveryCoordinator:
 					reused = tuple(sorted(reused + (recovery_summary.step,)))
 			return StageRecoveryResult(
 				result.artifact, rung, None, "", "", reused, result.recovery_generation,
+				result.stage6_observations,
 			)
 		detailed = {item.rung: item for item in result.rung_reliability}
 		for facts in result.rung_reliability:
@@ -595,6 +638,11 @@ class StageRecoveryCoordinator:
 			if self._persist(recovery_summary, daily_blog.run_contracts.ObserveIncumbent()):
 				reused = tuple(sorted(reused + (recovery_summary.step,)))
 		observations = (source_observation,) + result.observations
-		fault = dataclasses.replace(result, category=daily_blog.recovery.classify_pipeline_fault(observations), observations=observations)
+		category = daily_blog.recovery.classify_pipeline_fault(observations)
+		fault = dataclasses.replace(result, category=category, observations=observations)
+		terminal_fault = self._stage6_ladder_terminal_fault(value, fault, observations)
+		if terminal_fault is not None:
+			fault = dataclasses.replace(fault, terminal_fault=terminal_fault)
 		path, digest = self._digest(value, fault)
-		return StageRecoveryResult(None, None, fault, path, digest, reused)
+		return StageRecoveryResult(None, None, fault, path, digest, reused, None,
+			fault.stage6_observations)

@@ -163,8 +163,14 @@ def main() -> None:
 			"2026-08-26",
 			"America/Chicago",
 			mirrors,
-			("Dr. Neil R Voss",),
-			("vosslab@users.noreply.github.com",),
+			[
+				{"repository": mirror["repository"], "sha": sha}
+				for mirror in mirrors
+				for sha in run_git(
+					pathlib.Path(mirror["cache_path"]), ["rev-list", "--all"],
+				).splitlines()
+			],
+			"vosslab",
 		)
 		packet, _assets = daily_blog.evidence.EvidenceAssembler(
 			"2026-08-26", "America/Chicago", collection_limits()

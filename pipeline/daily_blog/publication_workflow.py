@@ -8,6 +8,8 @@ import json
 
 # local repo modules
 import daily_blog.artifacts
+import daily_blog.attempt_ledger
+import daily_blog.agents
 import daily_blog.io_utils
 import daily_blog.publication_validation
 import daily_blog.publication_admission
@@ -18,6 +20,8 @@ import daily_blog.evidence
 import daily_blog.mirrors
 import daily_blog.recovery
 import daily_blog.stage6
+import daily_blog.stage6_attempt_plan
+import daily_blog.stage6_attempt_reliability
 import daily_blog.stage7
 import daily_blog.stage_recovery_coordinator
 import daily_blog.editorial
@@ -39,6 +43,7 @@ class PublicationRuntime:
 	"""Optional external-provider overrides for controlled real-pipeline execution."""
 
 	repository_loader: collections.abc.Callable | None = None
+	commit_discovery: collections.abc.Callable | None = None
 	mirror_refresh: collections.abc.Callable | None = None
 	activity_locator: collections.abc.Callable | None = None
 	evidence_assembler: collections.abc.Callable | None = None
@@ -68,14 +73,26 @@ def refresh_mirrors(runtime: PublicationRuntime, config: object, roster: object,
 
 
 #============================================
+def discover_daily_commits(
+	runtime: PublicationRuntime, owner: str, report_date: str, output_root: str,
+) -> list[dict]:
+	"""Use the optional commit provider or GitHub's account/date search."""
+	if runtime.commit_discovery is not None:
+		return runtime.commit_discovery(owner, report_date, output_root)
+	return daily_blog.activity.discover_daily_commits(owner, report_date, output_root)
+
+
+#============================================
 def locate_activity(
 	runtime: PublicationRuntime, report_date: str, timezone: str, mirrors: list[dict],
-	names: tuple[str, ...], emails: tuple[str, ...],
+	commit_references: list[dict], owner: str,
 ) -> list[object]:
 	"""Use the optional activity provider or the real deterministic locator."""
 	if runtime.activity_locator is not None:
-		return runtime.activity_locator(report_date, timezone, mirrors, names, emails)
-	return daily_blog.activity.locate_activity(report_date, timezone, mirrors, names, emails)
+		return runtime.activity_locator(report_date, timezone, mirrors, commit_references, owner)
+	return daily_blog.activity.locate_activity(
+		report_date, timezone, mirrors, commit_references, owner,
+	)
 
 
 #============================================
@@ -301,6 +318,85 @@ def _stage6_incumbent_transition(
 
 
 #============================================
+def _persist_stage6_attempt_ledger(
+	coordinator: object,
+	ledger: daily_blog.attempt_ledger.AttemptLedger,
+) -> daily_blog.attempt_ledger.AttemptReliabilitySummary | None:
+	"""Persist one already reconciled, response-free Stage 6 reliability ledger.
+
+	The caller closes the exact configured plan before this serial durability
+	boundary.  Saving only a validated ledger keeps every durable record and
+	journal projection derived from closed execution facts.
+	"""
+	if type(ledger) is not daily_blog.attempt_ledger.AttemptLedger or not ledger.complete:
+		raise RuntimeError("Stage 6 persistence requires one complete reconciled attempt ledger.")
+	coordinator.record.set_attempt_ledger(ledger)
+	coordinator.store.save(coordinator.record)
+	summary = ledger.summary()
+	coordinator.store.append_event(
+		"daily_publication.stage6_attempt_reliability_persisted",
+		_stage6_attempt_summary_event_details(summary),
+	)
+	return summary
+
+
+#============================================
+def _reconcile_stage6_attempt_ledger(
+	coordinator: object,
+	observations: tuple[object, ...],
+) -> daily_blog.attempt_ledger.AttemptLedger:
+	"""Build and reconcile the configured canonical plan before durable Stage 6 work."""
+	plan = daily_blog.stage6_attempt_plan.build_stage6_attempt_plan(
+		coordinator.config.complete_post.stage6_attempt_policy,
+	)
+	ledger = daily_blog.stage6_attempt_reliability.aggregate_stage6_attempt_ledger(
+		plan, observations,
+	)
+	if not ledger.complete:
+		raise RuntimeError("Stage 6 reconciliation requires every materialized attempt fact.")
+	return ledger
+
+
+#============================================
+def _validate_stage6_attempt_prefix(
+	coordinator: object,
+	observations: tuple[object, ...],
+) -> daily_blog.attempt_ledger.AttemptLedger:
+	"""Validate observed primary facts before recovery chooses a final ladder."""
+	plan = daily_blog.stage6_attempt_plan.build_stage6_attempt_plan(
+		coordinator.config.complete_post.stage6_attempt_policy,
+	)
+	ledger = daily_blog.stage6_attempt_reliability.observed_stage6_attempt_prefix_ledger(
+		plan, observations,
+	)
+	if not ledger.complete:
+		raise RuntimeError("Stage 6 primary validation requires every materialized attempt fact.")
+	return ledger
+
+
+#============================================
+def _stage6_attempt_summary_event_details(
+	summary: daily_blog.attempt_ledger.AttemptReliabilitySummary,
+) -> dict[str, object]:
+	"""Return the scalar, bounded event projection of one reconciled summary."""
+	if type(summary) is not daily_blog.attempt_ledger.AttemptReliabilitySummary:
+		raise RuntimeError("Stage 6 event requires an exact reliability summary.")
+	canonical = daily_blog.attempt_ledger.AttemptReliabilitySummary.from_dict(summary.to_dict())
+	counts = dict(canonical.reason_counts)
+	value = {name: getattr(canonical, name) for name in (
+		"planned", "fresh", "cache", "skipped", "current_physical_calls",
+		"transport_success", "transport_failure", "parsed", "mechanical", "policy",
+		"selected", "exhausted", "dispatched", "reviewed", "rejected",
+	)}
+	value["schema_version"] = "vosslab.daily-blog.stage6-attempt-summary-event.v1"
+	value.update({
+		"reason_" + code: counts.get(code, 0)
+		for code in sorted(daily_blog.attempt_ledger.ATTEMPT_REASON_CODES - {""})
+	})
+	return value
+
+
+#============================================
 def run_typed_stage6(
 	coordinator: object, value: daily_blog.stage6.Stage6Input,
 ) -> daily_blog.stage6.Stage6Result:
@@ -311,13 +407,6 @@ def run_typed_stage6(
 		raise RuntimeError("Stage 6 requires an exact generated Stage6Input.")
 	if value.output_root != output_root or value.output_path != output_path:
 		raise RuntimeError("Stage 6 input must use the coordinator-owned output root and path.")
-	coordinator._start("stage6_complete_post", {
-		"packet_ids": [item.packet_id for item in value.packets], "output_path": output_path,
-		"evidence_context_id": value.evidence_context.context_id,
-		"model_context_id": value.evidence_context.model_context_id,
-		"publication_surface_packet_id": value.publication_surface.packet.packet_id,
-		"publication_surface_projection_id": value.publication_surface.projection.projection_id,
-	})
 	cache_effects = _cache_buffer(coordinator)
 	result = daily_blog.stage6.run_stage6(
 		value, coordinator.run_id, coordinator.config, coordinator.route_budget,
@@ -325,6 +414,21 @@ def run_typed_stage6(
 		snapshot=coordinator.prompt_snapshot, cache_load=cache_effects.load,
 		cache_accept=cache_effects.accept,
 	)
+	if (
+		result.reliability_scope != daily_blog.stage6.RELIABILITY_SCOPE_PLANNED_ROUTES_COMPLETE
+		or not result.primary_observations
+	):
+		raise RuntimeError("Stage 6 production execution requires planned-route observations.")
+	# Validate primary route facts before the phase begins or writes Stage 6
+	# artifacts.  Recovery then supplies the final durable ladder when needed.
+	primary_ledger = _validate_stage6_attempt_prefix(coordinator, result.primary_observations)
+	coordinator._start("stage6_complete_post", {
+		"packet_ids": [item.packet_id for item in value.packets], "output_path": output_path,
+		"evidence_context_id": value.evidence_context.context_id,
+		"model_context_id": value.evidence_context.model_context_id,
+		"publication_surface_packet_id": value.publication_surface.packet.packet_id,
+		"publication_surface_projection_id": value.publication_surface.projection.projection_id,
+	})
 	# Preserve the Stage-6 aggregate record while making its mechanisms
 	# independently queryable through bounded summaries.
 	# The step names are an identity boundary in RunRecord, so reject malformed
@@ -355,12 +459,22 @@ def run_typed_stage6(
 	if result.artifact is None:
 		try:
 			result = _recover_stage6(coordinator, value, result, cache_effects)
-		except daily_blog.recovery.PipelineFaultError:
+		except daily_blog.recovery.PipelineFaultError as error:
 			# Recovery may finish with a typed terminal fault after valid primary
 			# or fallback route results were buffered.  Preserve those validated
 			# cache effects before the fault leaves this serial write boundary.
+			ledger = _reconcile_stage6_attempt_ledger(
+				coordinator, result.primary_observations + error.fault.stage6_observations,
+			)
+			_persist_stage6_attempt_ledger(coordinator, ledger)
 			coordinator.route_cache.commit(cache_effects.drain())
 			raise
+	ledger = primary_ledger
+	if result.recovery_observations:
+		ledger = _reconcile_stage6_attempt_ledger(
+			coordinator, result.primary_observations + result.recovery_observations,
+		)
+	_persist_stage6_attempt_ledger(coordinator, ledger)
 	coordinator.route_cache.commit(cache_effects.drain())
 	coordinator._complete("stage6_complete_post", {
 		"artifact_id": result.artifact.artifact_id,
@@ -534,27 +648,42 @@ def _recover_stage6(
 	story_recovery = daily_blog.stage6.CompletePostRecoveryInput(
 		value, daily_blog.recovery.RecoveryRung.REPOSITORY_STORY_MERGE,
 	)
+	plan = daily_blog.stage6_attempt_plan.build_stage6_attempt_plan(
+		coordinator.config.complete_post.stage6_attempt_policy,
+	)
 
 	def expand_daily_outline(
-		budget: object, cache_load: object, cache_accept: object,
+		budget: daily_blog.agents.RouteBudget,
+		cache_load: collections.abc.Callable[
+			[daily_blog.agents.RouteRequest], daily_blog.agents.AgentResult | None,
+		] | None,
+		cache_accept: collections.abc.Callable[
+			[daily_blog.agents.RouteRequest, daily_blog.agents.AgentResult], None,
+		] | None,
 	) -> daily_blog.recovery.RecoveryAttempt:
 		"""Author one whole post from the retained daily outline."""
 		return daily_blog.stage6.recover_daily_outline_expansion(
 			outline_recovery, coordinator.run_id + "-recovery", coordinator.config, budget,
 			runner=coordinator.route_runner, contract=coordinator.editorial_contract,
 			selection=coordinator.prompt_snapshot.selection, snapshot=coordinator.prompt_snapshot,
-			cache_load=cache_load, cache_accept=cache_accept,
+			cache_load=cache_load, cache_accept=cache_accept, plan=plan,
 		)
 
 	def merge_repository_stories(
-		budget: object, cache_load: object, cache_accept: object,
+		budget: daily_blog.agents.RouteBudget,
+		cache_load: collections.abc.Callable[
+			[daily_blog.agents.RouteRequest], daily_blog.agents.AgentResult | None,
+		] | None,
+		cache_accept: collections.abc.Callable[
+			[daily_blog.agents.RouteRequest, daily_blog.agents.AgentResult], None,
+		] | None,
 	) -> daily_blog.recovery.RecoveryAttempt:
 		"""Author one whole post from retained repository-story material."""
 		return daily_blog.stage6.recover_repository_story_merge(
 			story_recovery, coordinator.run_id + "-recovery", coordinator.config, budget,
 			runner=coordinator.route_runner, contract=coordinator.editorial_contract,
 			selection=coordinator.prompt_snapshot.selection, snapshot=coordinator.prompt_snapshot,
-			cache_load=cache_load, cache_accept=cache_accept,
+			cache_load=cache_load, cache_accept=cache_accept, plan=plan,
 		)
 
 	recovery = daily_blog.stage_recovery_coordinator.StageRecoveryCoordinator(
@@ -594,6 +723,7 @@ def _recover_stage6(
 	}:
 		raise RuntimeError("Stage 6 recovery selected an unsupported editorial path.")
 	recovery_generation = recovered.recovery_generation
+	recovery_observations = recovered.stage6_observations
 	if (
 		type(recovery_generation) is not daily_blog.replication.ReplicationResult
 		or recovery_generation.expected_type is not daily_blog.artifacts.CompletePost
@@ -601,12 +731,17 @@ def _recover_stage6(
 		or all(item is not recovered.artifact for item in recovery_generation.eligible)
 	):
 		raise RuntimeError("Stage 6 selected recovery lacks exact generation provenance.")
+	if (type(recovery_observations) is not tuple
+		or not recovery_observations
+		or any(type(item) is not daily_blog.stage6.Stage6BatchObservation for item in recovery_observations)):
+		raise RuntimeError("Stage 6 selected recovery lacks exact batch observations.")
 	return dataclasses.replace(
 		result,
 		promotion=daily_blog.artifacts.DegradedPromotion(
 			recovered.artifact, daily_blog.artifacts.CompletePost, ("no_eligible_generation",),
 		),
 		recovery_generation=recovery_generation,
+		recovery_observations=recovery_observations,
 	)
 
 

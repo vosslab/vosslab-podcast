@@ -16,6 +16,7 @@ import daily_blog.config
 import daily_blog.editorial_stage_config
 import daily_blog.io_utils
 import daily_blog.routes
+import daily_blog.stage6_cache_identity
 
 
 AGENT_RESULT_SCHEMA_VERSION = "vosslab.daily-blog.agent-result.v2"
@@ -23,8 +24,6 @@ RECOVERABLE_FAILURES = frozenset({
 	"timeout", "start_failure", "process_failure", "empty_response",
 })
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
-
-
 class FailureClass(enum.StrEnum):
 	"""The five bounded outcomes crossing the editorial route boundary."""
 
@@ -77,6 +76,7 @@ class RouteRequest:
 	input_hash: str = "unbound"
 	contract_version: str = "unbound"
 	cache_input_hash: str = "unbound"
+	stage6_cache_identity: daily_blog.stage6_cache_identity.Stage6CacheIdentity | None = None
 
 	#============================================
 	def __post_init__(self) -> None:
@@ -99,6 +99,24 @@ class RouteRequest:
 			type(option) is not str or not option for option in self.model_options
 		):
 			raise EditorialTerminalError("Editorial model options must be a tuple of non-empty strings.")
+		if self.stage6_cache_identity is not None:
+			try:
+				daily_blog.stage6_cache_identity.validate_route_request_witness(
+					self.stage6_cache_identity, request_id=self.request_id, step=self.step,
+					role=self.role, route_name=self.route.name, prompt=self.prompt,
+					route_contract_sha256=self.route_contract_sha256, repair_of=self.repair_of,
+				)
+			except daily_blog.stage6_cache_identity.Stage6CacheIdentityError as error:
+				raise EditorialIdentityError("Stage 6 cache identity does not bind this route request.") from error
+
+	#============================================
+	@property
+	def route_contract_sha256(self) -> str:
+		"""Hash the validated execution contract without serializing it to cache."""
+		return daily_blog.io_utils.hash_value({
+			"route": dataclasses.asdict(self.route), "model": self.model,
+			"model_options": list(self.model_options), "contract_version": self.contract_version,
+		})
 
 	#============================================
 	def identity_dict(self) -> dict[str, object]:
@@ -118,6 +136,10 @@ class RouteRequest:
 			"retry_attempts": self.retry_attempts,
 			"maximum_parallel_calls": self.maximum_parallel_calls,
 			"repair_of": self.repair_of,
+			"stage6_cache_identity": (
+				None if self.stage6_cache_identity is None
+				else self.stage6_cache_identity.identity_dict()
+			),
 		}
 
 	#============================================
