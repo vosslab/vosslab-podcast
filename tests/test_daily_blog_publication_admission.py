@@ -512,9 +512,10 @@ def test_image_decorator_route_is_optional_and_machine_resolves_selected_id(tmp_
 
 #============================================
 def test_image_decorator_failure_preserves_publishable_incumbent(tmp_path: Path) -> None:
-	"""Malformed or empty optional image advice cannot destroy the selected post."""
+	"""Malformed advice is optional, while usable placements survive noisy siblings."""
 	packet = _packet("vosslab/first", "first.png")
 	surface = _surface((packet,))
+	image = next(item for item in packet.items if item.kind == "screenshot")
 	post = daily_blog.artifacts.CompletePost.create(
 		packet.report_date, (surface.packet,), ("vosslab/first",),
 		"# Work log\n\nThe incumbent remains publishable. <!-- evidence: "
@@ -533,6 +534,23 @@ def test_image_decorator_failure_preserves_publishable_incumbent(tmp_path: Path)
 	assert daily_blog.publication_images.parse_image_decoration(
 		'{"placements":[]}', empty_catalog, block_count,
 	) == daily_blog.publication_images.ImageDecorationPlan(())
+	catalog = daily_blog.publication_images.PublicationImageCatalog(
+		packet.report_date, (daily_blog.publication_images.CatalogImage(
+			image.evidence_id, image.repository, image.path, image.blob_hash,
+			image.asset_path, image.publish_path, image.content,
+		),),
+	)
+	plan = daily_blog.publication_images.parse_image_decoration(
+		'{"placements":[{"image_id":"unknown","after_block":0,"alt_text":"bad"},'
+		'{"image_id":"' + image.evidence_id
+		+ '","after_block":0,"alt_text":"Useful view","comment":"use this"}],'
+		'"explanation":"optional prose"}',
+		catalog, block_count,
+	)
+	decorated = daily_blog.publication_images.apply_image_decoration(
+		post, catalog, plan, (surface.packet,),
+	)
+	assert decorated.image_paths == (image.publish_path,)
 
 
 #============================================

@@ -3963,3 +3963,30 @@ Tests
 Next actions
 1. Keep image choice editorial and optional; retain deterministic provenance, path, byte, and
    final-reference validation at the publication boundary.
+
+---
+Session Update: 2026-09-03 (second gate and blocker audit)
+
+Change
+- Audited generation, review, image selection, publication validation, transient cleanup, transfer,
+  and progress reporting against `LLM_GATE_STYLE.md` and the human robustness requirements.
+- Moved the Stage 6 phase start before Stage 6 execution so elapsed time covers the actual model work
+  and failures are owned by the phase that produced them.
+- Made the optional image decorator salvage valid unique catalog placements from noisy JSON while
+  ignoring invalid siblings and explanatory fields. The approved three-placement bound remains;
+  machine-owned identity, path, byte, source-safety, and confinement checks remain hard boundaries.
+- Kept working artifacts until verified delivery and retained the existing successful-run cleanup to
+  the canonical run log and terminal summary.
+- Applied ASVS 1.1.2, 1.5.2, 2.2.1-2.2.3, 2.3.3, 5.3.2, 11.4.3, 15.3.5, and 16.2 guidance at the
+  Markdown, typed-input, workflow, path, digest, and logging boundaries.
+
+Tests
+- Focused image, observability, Stage 6, recovery, and fault-semantics coverage passed 49 tests.
+- The complete Python 3.12 permanent suite passed all 3,989 tests in 30.34 seconds.
+- The controlled producer-to-renderer E2E passed as separate whole-system evidence. No new permanent
+  test module, historical fixture, live-model expectation, count gate, prompt-byte gate, or call-
+  topology assertion was added.
+
+Next actions
+1. Observe the corrected Stage 6 duration on the next ordinary live run; do not create a permanent
+   timing or live-model test for that observation.

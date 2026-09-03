@@ -334,13 +334,6 @@ def run_typed_stage6(
 		raise RuntimeError("Stage 6 requires an exact generated Stage6Input.")
 	if value.output_root != output_root or value.output_path != output_path:
 		raise RuntimeError("Stage 6 input must use the coordinator-owned output root and path.")
-	cache_effects = _cache_buffer(coordinator)
-	result = daily_blog.stage6.run_stage6(
-		value, coordinator.run_id, coordinator.config, coordinator.route_budget,
-		runner=coordinator.route_runner, contract=coordinator.editorial_contract,
-		snapshot=coordinator.prompt_snapshot, cache_load=cache_effects.load,
-		cache_accept=cache_effects.accept,
-	)
 	coordinator._start("stage6_complete_post", {
 		"packet_ids": [item.packet_id for item in value.packets], "output_path": output_path,
 		"evidence_context_id": value.evidence_context.context_id,
@@ -348,6 +341,13 @@ def run_typed_stage6(
 		"publication_surface_packet_id": value.publication_surface.packet.packet_id,
 		"publication_surface_projection_id": value.publication_surface.projection.projection_id,
 	})
+	cache_effects = _cache_buffer(coordinator)
+	result = daily_blog.stage6.run_stage6(
+		value, coordinator.run_id, coordinator.config, coordinator.route_budget,
+		runner=coordinator.route_runner, contract=coordinator.editorial_contract,
+		snapshot=coordinator.prompt_snapshot, cache_load=cache_effects.load,
+		cache_accept=cache_effects.accept,
+	)
 	# Preserve the Stage-6 aggregate record while making its mechanisms
 	# independently queryable through bounded summaries.
 	# The step names are an identity boundary in RunRecord, so reject malformed

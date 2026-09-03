@@ -59,35 +59,44 @@ def parse_image_decoration(
 	catalog: "PublicationImageCatalog",
 	block_count: int,
 ) -> ImageDecorationPlan | None:
-	"""Tolerantly parse a bounded decorator response; malformed output means no change."""
+	"""Salvage valid bounded placements from one decorator response."""
 	if type(response) is not str or type(catalog) is not PublicationImageCatalog:
 		raise RuntimeError("Image decoration parsing requires exact typed inputs.")
 	if type(block_count) is not int or block_count < 1:
 		raise RuntimeError("Image decoration requires a positive prose-block count.")
-	# ASVS 1.5.2 and 2.2.1: deserialize only JSON and allowlist its complete
-	# bounded shape before any editorial value reaches publication construction.
+	# ASVS 1.5.2 and 2.2.1: deserialize only JSON, then positively validate each
+	# placement before any editorial value reaches publication construction.
 	try:
 		value = json.loads(response.strip())
 	except (json.JSONDecodeError, TypeError):
 		return None
-	if not isinstance(value, dict) or set(value) != {"placements"}:
+	if not isinstance(value, dict) or not isinstance(value.get("placements"), list):
 		return None
 	items = value["placements"]
-	if not isinstance(items, list) or len(items) > MAX_DECORATOR_IMAGES:
-		return None
 	allowed = {item.evidence_id for item in catalog.images}
 	placements = []
+	seen = set()
 	for item in items:
-		if not isinstance(item, dict) or set(item) != {"image_id", "after_block", "alt_text"}:
-			return None
-		if item["image_id"] not in allowed or not 0 <= item["after_block"] < block_count:
-			return None
+		if len(placements) == MAX_DECORATOR_IMAGES:
+			break
+		if not isinstance(item, dict):
+			continue
+		image_id = item.get("image_id")
+		after_block = item.get("after_block")
+		alt_text = item.get("alt_text")
+		if (
+			type(image_id) is not str or image_id not in allowed or image_id in seen
+			or type(after_block) is not int or not 0 <= after_block < block_count
+			or type(alt_text) is not str or not alt_text.strip()
+		):
+			continue
 		try:
 			placements.append(ImagePlacement(
-				item["image_id"], item["after_block"], item["alt_text"],
+				image_id, after_block, alt_text[:160],
 			))
 		except (TypeError, RuntimeError):
-			return None
+			continue
+		seen.add(image_id)
 	try:
 		return ImageDecorationPlan(tuple(placements))
 	except RuntimeError:

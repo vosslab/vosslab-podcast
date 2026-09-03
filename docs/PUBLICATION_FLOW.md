@@ -159,7 +159,8 @@ editorial improvement steps, never publication gates: no catalog, no suitable se
 decorator output, or decorator failure preserves the existing publishable incumbent. The decorator
 may name only stable image identities supplied by A6. It cannot choose filenames or destination paths.
 Its bounded response contains at most three `{image_id, after_block, alt_text}` placements. The machine
-validates those identities and positions against the exact post and catalog before changing Markdown.
+salvages valid, unique identities and positions against the exact post and catalog, ignoring malformed
+siblings and explanatory fields before changing Markdown.
 
 ## G: Publication
 

@@ -94,6 +94,12 @@
 
 ### Fixes and Maintenance
 
+- Moved Stage 6 phase start before its model work. Complete-post generation now reports its real
+  elapsed time, and an exception during that work is attributed to Stage 6 instead of the previously
+  completed daily-outline phase.
+- Made image-decoration parsing salvage valid, unique catalog placements from a noisy response.
+  Invalid or duplicate siblings and extra explanatory fields no longer discard usable image choices;
+  unknown identities still cannot influence paths or transferred bytes.
 - Removed the outline/story image-selection gate from the Stage 6 publication surface. Every
   provenance-validated survivor screenshot is now available to the final author and optional image
   decorator; deterministic final-Markdown resolution still copies only images the selected post
@@ -138,6 +144,13 @@
 
 ### Developer Tests and Notes
 
+- The second gate audit classified remaining publication failures by concrete harm and retained only
+  evidence authority, date and repository scope, source safety, path confinement, selected-byte
+  availability, artifact integrity, and transactional publisher boundaries as hard failures.
+- Focused image, observability, Stage 6, recovery, and fault-semantics checks passed 49 tests. The
+  complete Python 3.12 permanent suite passed all 3,989 tests in 30.34 seconds. The controlled
+  publication E2E passed separately; no live-model, historical-artifact, count, prompt-byte, or
+  call-topology check was added to permanent pytest.
 - Focused Stage 6, recovery, publication-surface, bundle, publisher, Stage 7, and publication-
   validation checks passed 96 tests. A live August 27 rerun degraded across unavailable outline,
   writer, editor, reviewer, and synthesis work, then replaced the post, copied its one selected
