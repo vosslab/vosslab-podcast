@@ -335,3 +335,48 @@ def test_store_rejects_symlinked_summary_component(tmp_path: pathlib.Path) -> No
 
 
 #============================================
+@pytest.mark.parametrize(("seconds", "expected"), (
+	(54, "54 sec"),
+	(174, "2m54s"),
+	(3723, "1h02m03s"),
+))
+def test_human_elapsed_time_uses_compact_whole_second_units(
+	seconds: float, expected: str,
+) -> None:
+	"""Human timing stays compact without exposing wall-clock timestamps."""
+	assert daily_blog.observability.format_elapsed(seconds) == expected
+
+
+#============================================
+def test_human_progress_times_coordinator_owned_steps(
+	tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str],
+) -> None:
+	"""A coordinator start and result render one measured completion suffix."""
+	progress = daily_blog.observability.HumanProgress(
+		REPORT_DATE, str(tmp_path / "runlog.jsonl"),
+	)
+	clock = iter((10.0, 64.0))
+	progress._clock = clock.__next__
+	progress.note("A2", "Searching GitHub commits...")
+	progress.note("A2", "Found 1 commit across 1 repo", "green")
+
+	assert "A2 | Found 1 commit across 1 repo; completed in 54 sec" in capsys.readouterr().out
+
+
+#============================================
+def test_human_progress_prints_phase_completion_time(
+	tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str],
+) -> None:
+	"""A phase without a separate result line receives a completion line."""
+	progress = daily_blog.observability.HumanProgress(
+		REPORT_DATE, str(tmp_path / "runlog.jsonl"),
+	)
+	clock = iter((10.0, 184.0))
+	progress._clock = clock.__next__
+	progress.event("daily_publication.phase_started", {"phase": "bundle_creation"})
+	progress.event("daily_publication.phase_completed", {"phase": "bundle_creation"})
+
+	assert "G2 | Completed in 2m54s" in capsys.readouterr().out
+
+
+#============================================

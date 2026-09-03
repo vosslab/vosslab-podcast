@@ -2,6 +2,10 @@
 
 ### Behavior or Interface Changes
 
+- Added monotonic elapsed-time reporting to every human-visible daily-publication step. Existing
+  result lines now end with compact durations such as `completed in 54 sec` or `completed in 2m54s`;
+  phases without separate result text receive a completion line, and the final line shows total run
+  time. Timing remains presentation-only and cannot affect workflow state or publication decisions.
 - Replaced the retired publisher-record/archive receipt dependency with
   `vosslab.daily-blog.import-receipt.v3`. The producer now verifies the installed Markdown and every
   selected image directly against its sealed transfer, then binds the rendered page separately.

@@ -25,6 +25,8 @@ origin belongs there too. Rules: [REPO_STYLE.md](REPO_STYLE.md).
 - Keep gates only where failure represents a genuine correctness, safety, or artifact-validity boundary.
 - Judge success primarily by whether a valid blog entry is ultimately produced, not whether the LLM took the prescribed path to produce it.
 - Filenames are always deterministic and code-owned; never let an LLM choose or influence a filename.
+- Print how long every human-visible daily-blog step took when that step completes, using compact
+  output such as `completed in 54 sec` or `completed in 2m54s`.
 - A post may use multiple selected images. Store them with its date-owned Markdown and include the source
   repository in each deterministic image name so different repositories remain recognizable.
 - I create repositories often, so neither the complete account roster nor a date's active repository

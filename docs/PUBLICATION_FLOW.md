@@ -24,6 +24,12 @@ The console names the absolute machine log first:
 runlog-YYYY-MM-DD.jsonl
 ```
 
+Each human-visible step reports its elapsed monotonic time when it completes. Existing result lines
+end with `completed in 54 sec` or `completed in 2m54s`; phases without a separate result line print a
+short completion line. Editorial substeps report time from their enclosing phase start, and the final
+publication line reports total run time. These timings are operator feedback only and never influence
+workflow state, reuse, admission, or publication output.
+
 Every name in this flow is deterministic and code-owned. Names derive only from validated
 `report_date`, fixed artifact names, and manifest-confined asset paths. Model responses,
 titles, headings, summaries, rankings, and selected prose never choose or influence filenames.

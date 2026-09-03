@@ -7,6 +7,7 @@ import json
 import os
 import re
 import stat
+import time
 from collections.abc import Iterator
 
 # PIP3 modules
@@ -466,6 +467,18 @@ class RunEventSink:
 			return self._replay_editorial_from_descriptor(descriptor, line)
 
 
+def format_elapsed(seconds: float) -> str:
+	"""Return one compact whole-second duration for human progress output."""
+	total = max(0, round(seconds))
+	minutes, remainder = divmod(total, 60)
+	if not minutes:
+		return f"{remainder} sec"
+	hours, minutes = divmod(minutes, 60)
+	if not hours:
+		return f"{minutes}m{remainder:02d}s"
+	return f"{hours}h{minutes:02d}m{remainder:02d}s"
+
+
 class HumanProgress:
 	"""Render validated publication progress without owning workflow decisions."""
 
@@ -516,12 +529,34 @@ class HumanProgress:
 		"publication_validation": "G1", "bundle_creation": "G2",
 		"post_write": "G3", "site_import": "G4", "page_verification": "G5",
 	}
+	_PHASE_RESULT_LINES = frozenset({
+		"repository_discovery", "mirror_refresh", "activity_location", "evidence_assembly",
+	})
+	_STEP_PHASES = {
+		"3.1": "repository_editorial", "3.2": "repository_editorial",
+		"3.3": "repository_editorial", "3.4": "repository_editorial",
+		"4.1": "repository_editorial", "4.2": "repository_editorial",
+		"4.3": "repository_editorial", "4.4": "repository_editorial",
+		"repository_job": "repository_editorial",
+		"5.1": "stage5_daily_outline", "5.2": "stage5_daily_outline",
+		"5.3": "stage5_daily_outline", "5.4": "stage5_daily_outline",
+		"5.5": "stage5_daily_outline",
+		"6.1": "stage6_complete_post", "6.2": "stage6_complete_post",
+		"6.3": "stage6_complete_post", "6.4": "stage6_complete_post",
+		"stage6_complete_post": "stage6_complete_post",
+		"7.1": "stage7_final_synthesis", "7.2": "stage7_final_synthesis",
+		"7.3": "stage7_final_synthesis", "publication_validation": "publication_validation",
+	}
 
 	def __init__(self, report_date: str, journal_path: str) -> None:
 		"""Create one terminal renderer for a validated date and confined journal path."""
 		self.report_date = _opaque(report_date, "Progress report date")
 		self.journal_path = os.path.abspath(journal_path)
 		self.console = rich.console.Console(highlight=False)
+		self._clock = time.monotonic
+		self._started: dict[str, float] = {}
+		self._phase_elapsed: dict[str, float] = {}
+		self._run_started = 0.0
 
 	def _write(self, message: str, style: str = "") -> None:
 		"""Encode plain display text at the final terminal boundary. ASVS 1.1.2."""
@@ -529,20 +564,37 @@ class HumanProgress:
 
 	def announce(self) -> None:
 		"""Announce durable machine output before reporting human progress."""
+		self._run_started = self._clock()
 		self._write(f"JSON run log: {self.journal_path}", "bold cyan")
 		self._write(f"Preparing daily blog for {self.report_date}", "bold")
 
 	def note(self, step: str, message: str, style: str = "cyan") -> None:
 		"""Render one coordinator-owned human step without creating a machine event."""
+		if message.endswith("..."):
+			self._started[step] = self._clock()
+		elif step in self._started:
+			elapsed = self._clock() - self._started.pop(step)
+			message += f"; completed in {format_elapsed(elapsed)}"
 		self._write(f"{step} | {message}", style)
 
 	def event(self, event: str, details: dict[str, object]) -> None:
 		"""Render one validated lifecycle or editorial event."""
 		if event == "daily_publication.phase_started":
 			phase = str(details["phase"])
+			self._started[phase] = self._clock()
 			message = self._PHASE_STARTS.get(phase)
 			if message:
-				self.note(self._PHASE_CODES[phase], message + "...")
+				self._write(f"{self._PHASE_CODES[phase]} | {message}...", "cyan")
+		elif event == "daily_publication.phase_completed":
+			phase = str(details["phase"])
+			now = self._clock()
+			elapsed = now - self._started.pop(phase, now)
+			if phase in self._PHASE_RESULT_LINES:
+				self._phase_elapsed[phase] = elapsed
+			elif phase != "publication_validation":
+				self._write(
+					f"{self._PHASE_CODES[phase]} | Completed in {format_elapsed(elapsed)}", "green",
+				)
 		elif event == "daily_publication.editorial_step_completed":
 			step = str(details["step"])
 			code = self._STEP_CODES.get(step, step)
@@ -552,18 +604,31 @@ class HumanProgress:
 				message += f"; {details['failed']} unavailable"
 			if details["reused"]:
 				message += f"; {details['reused']} reused"
+			phase = self._STEP_PHASES.get(step)
+			if phase in self._started:
+				elapsed = self._clock() - self._started[phase]
+				message += f"; completed in {format_elapsed(elapsed)}"
 			self._write(message, "green" if details["succeeded"] else "yellow")
 		elif event == "daily_publication.phase_failed":
-			self._write(f"Stopped during {details['phase']}: {details['failure_kind']}", "bold red")
-		elif event == "daily_publication.run_completed":
+			phase = str(details["phase"])
+			now = self._clock()
+			duration = format_elapsed(now - self._started.get(phase, now))
 			self._write(
-				f"Published {self.report_date}: {details['site_import_status']} ({details['outcome']})",
+				f"Stopped during {phase}: {details['failure_kind']} after {duration}", "bold red",
+			)
+		elif event == "daily_publication.run_completed":
+			duration = format_elapsed(self._clock() - self._run_started)
+			self._write(
+				f"Published {self.report_date}: {details['site_import_status']} "
+				f"({details['outcome']}); completed in {duration}",
 				"bold green",
 			)
 
 	def phase_result(self, phase: str, output: object, reused: bool) -> None:
 		"""Summarize one coordinator-owned phase result without affecting control flow."""
 		suffix = " (reused)" if reused else ""
+		if phase in self._phase_elapsed:
+			suffix += f"; completed in {format_elapsed(self._phase_elapsed.pop(phase))}"
 		if phase == "repository_discovery" and isinstance(output, dict):
 			self.note(
 				"A1",

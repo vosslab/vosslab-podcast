@@ -3916,3 +3916,24 @@ Tests
 Next actions
 1. Rerun `./make_blog.py -y -d 2026-08-17`; the preserved failed run can reuse its completed
    editorial work and retry the repaired transient renderer boundary.
+
+---
+Session Update: 2026-09-03 (human progress timing)
+
+Change
+- Added monotonic elapsed durations to every human-visible daily-publication completion. Existing
+  result lines receive a compact suffix, phases without result text receive a completion line,
+  editorial milestones show elapsed phase time, and the final publication line shows total run time.
+- Kept timing inside the human renderer. It does not enter durable workflow state or affect reuse,
+  validation, selection, delivery, or failure classification.
+- Re-read and applied `docs/PYTEST_STYLE.md`: duration formatting is tested as a pure function and
+  renderer behavior uses an injected deterministic clock without sleeps or wall-clock assertions.
+
+Tests
+- `source source_me.sh && python3 -m pytest tests/test_daily_blog_observability.py tests/test_make_blog.py -q`
+  passes 40 tests.
+- `source source_me.sh && python3 -m pytest tests/` passes all 3,988 tests in 29.99 seconds
+  under Python 3.12.13.
+
+Next actions
+1. Observe the compact durations on the next live daily-blog publication.
