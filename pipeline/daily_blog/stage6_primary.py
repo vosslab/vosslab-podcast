@@ -326,8 +326,15 @@ def _review_primary_batch(
 	all_results = {item.request.request_id: item.result for item in writing.candidates}
 	all_results.update({item.request.request_id: item.result for item in editing.candidates})
 	all_results.update(review_results)
+	# A complete candidate set makes review possible, but bounded prompt construction
+	# may still decline the entire optional wave. Materialize reviewer slots only
+	# when route observations actually exist; generation remains usable on its own.
+	observed_bindings = bindings if all(
+		item.semantic_identity in all_results
+		for item in review_view.attempts if item.work_kind == "review"
+	) else ()
 	final_view = context.plan.materialize(
-		"primary", batch_index, generation_ids, bindings,
+		"primary", batch_index, generation_ids, observed_bindings,
 	)
 	observation = daily_blog.stage6.Stage6BatchObservation(
 		final_view, tuple(all_results[item] for item in final_view.semantic_identities),

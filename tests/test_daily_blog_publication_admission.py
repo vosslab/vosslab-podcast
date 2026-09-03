@@ -140,8 +140,8 @@ def _stage6_sources(
 	)
 
 
-def test_surface_uses_exact_survivors_and_only_their_bundle_asset_paths(tmp_path: Path) -> None:
-	"""Stage 6 context and bundle sealing retain one survivor-scoped authority."""
+def test_surface_exposes_survivor_images_but_bundle_copies_only_final_choices(tmp_path: Path) -> None:
+	"""LLMs may choose any survivor image while final Markdown alone selects bytes."""
 	base = _packet("vosslab/first", "selected.png")
 	unselected = daily_blog.schema.EvidenceItem.create(
 		"screenshot", "vosslab/first", "a" * 40, "unselected.png", "d" * 40,
@@ -179,18 +179,15 @@ def test_surface_uses_exact_survivors_and_only_their_bundle_asset_paths(tmp_path
 	recovery_context = surface.stage6_prompt_context.render_recovery_context(
 		daily_blog.recovery.RecoveryRung.REPOSITORY_STORY_MERGE,
 	)
-	assets = daily_blog.publication_admission.survivor_assets(surface, {
-		"assets/selected.png": b"selected", "assets/unselected.png": b"unselected",
-	})
-
 	post = daily_blog.artifacts.CompletePost.create(
 		packet.report_date, surface.source_packets, surface.narrative_repositories,
-		"# Visible survivor evidence\n\nI used the approved screenshot. <!-- evidence: "
-		+ ", ".join(surface.allowed_evidence_ids) + " -->\n\n"
-		+ "\n".join("![fixture](" + path + ")" for path in surface.allowed_image_paths),
-		surface.allowed_evidence_ids, packet.report_date, str(tmp_path / "post.md"),
-		surface.allowed_image_paths,
+		"# Visible survivor evidence\n\nI chose one available screenshot. <!-- evidence: "
+		+ ", ".join(selected_ids) + " -->\n\n![fixture](" + selected_path + ")",
+		selected_ids, packet.report_date, str(tmp_path / "post.md"), (selected_path,),
 	)
+	assets = daily_blog.publication_admission.survivor_assets(surface, {
+		"assets/selected.png": b"selected", "assets/unselected.png": b"unselected",
+	}, post)
 	roster = daily_blog.repository_contracts.RepositoryRoster.create("vosslab", [
 		daily_blog.repository_contracts.RepositoryRecord.from_dict({
 			"repository": "vosslab/first", "repository_url": "https://github.com/vosslab/first",
@@ -211,9 +208,10 @@ def test_surface_uses_exact_survivors_and_only_their_bundle_asset_paths(tmp_path
 
 	assert (
 		selected_screenshot.evidence_id in rendered_context and selected_path in rendered_context
-		and unselected.evidence_id not in rendered_context
-		and unselected.publish_path not in rendered_context
+		and unselected.evidence_id in rendered_context
+		and unselected.publish_path in rendered_context
 		and "assets/selected.png" not in rendered_context
+		and "assets/unselected.png" not in rendered_context
 		and selected_path in recovery_context
 		and "assets/selected.png" not in recovery_context
 	)

@@ -116,9 +116,6 @@ def validate_publication_surface_value(
 		packet, tuple(value["repositories"]),
 	)):
 		raise RuntimeError("Publication surface source packets do not match aggregate evidence.")
-	projection_ids = sorted({excerpt.evidence_id for excerpt in projection.excerpts})
-	if value["allowed_evidence_ids"] != projection_ids:
-		raise RuntimeError("Publication surface evidence scope does not equal its projection.")
 	if not isinstance(value["source_artifacts"], list) or not value["source_artifacts"]:
 		raise RuntimeError("Publication surface source artifacts are invalid.")
 	artifact_keys = []
@@ -172,6 +169,9 @@ def validate_publication_surface_value(
 		image_keys.append((evidence_id, asset_path, publish_path))
 	if image_keys != sorted(image_keys):
 		raise RuntimeError("Publication surface images are not canonical.")
+	projection_ids = {excerpt.evidence_id for excerpt in projection.excerpts}
+	if value["allowed_evidence_ids"] != sorted(projection_ids | seen_evidence_ids):
+		raise RuntimeError("Publication surface evidence scope does not equal its evidence channels.")
 	return dict(value)
 
 

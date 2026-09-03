@@ -1,6 +1,7 @@
 """Permanent offline tests for the typed Stage 6 complete-post boundary."""
 
 # Standard Library
+import dataclasses
 from pathlib import Path
 import types
 
@@ -247,6 +248,37 @@ def test_stage6_balanced_reviewer_loss_preserves_a_peer(tmp_path: Path) -> None:
 		value, "review-loss", config(tmp_path), daily_blog.agents.RouteBudget(2), Runner(),
 	)
 	assert type(result.artifact) is daily_blog.artifacts.CompletePost
+
+
+#============================================
+def test_stage6_reviewer_prompt_overflow_preserves_generated_peer(tmp_path: Path) -> None:
+	"""An unavailable optional review wave cannot discard usable generated posts."""
+	value = input_value(tmp_path)
+	base = config(tmp_path)
+	limits = dict(base.complete_post.prompt_limits)
+	limits["reviewer_chars"] = 1
+	limited = dataclasses.replace(base, complete_post=dataclasses.replace(
+		base.complete_post, prompt_limits=limits,
+	))
+
+	class Runner:
+		def run(
+			self, route: daily_blog.editorial_stage_config.RoleRoute,
+			_prompt: str, _directory: str,
+		) -> str:
+			return post(value, route.name)
+
+	result = daily_blog.stage6.run_stage6(
+		value, "review-overflow", limited, daily_blog.agents.RouteBudget(2), Runner(),
+	)
+
+	assert type(result.artifact) is daily_blog.artifacts.CompletePost
+	assert not result.review.work
+	assert all(
+		item.role != "reviewer"
+		for observation in result.primary_observations
+		for item in observation.materialization.attempts
+	)
 
 
 #============================================

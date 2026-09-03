@@ -94,6 +94,16 @@
 
 ### Fixes and Maintenance
 
+- Removed the outline/story image-selection gate from the Stage 6 publication surface. Every
+  provenance-validated survivor screenshot is now available to the final author and optional image
+  decorator; deterministic final-Markdown resolution still copies only images the selected post
+  actually references.
+- Corrected publication-surface evidence validation to recognize its two typed channels: bounded
+  prose excerpts and the available screenshot catalog. A screenshot no longer has to consume prose
+  projection space merely to remain available for later editorial selection.
+- Made primary Stage 6 observation tolerate an unavailable optional reviewer wave. When a complete
+  peer set exists but its review prompt exceeds the configured bound, only observed generation slots
+  are materialized and a usable peer continues instead of raising a missing-result `KeyError`.
 - Fixed the August 17 `site_import` failure caused by the producer checking the renderer's removed
   `data/publications/` tree after a successful import. Removed the obsolete archive/record validation
   code and its tests rather than recreating renderer persistence that the current ownership boundary
@@ -128,6 +138,13 @@
 
 ### Developer Tests and Notes
 
+- Focused Stage 6, recovery, publication-surface, bundle, publisher, Stage 7, and publication-
+  validation checks passed 96 tests. A live August 27 rerun degraded across unavailable outline,
+  writer, editor, reviewer, and synthesis work, then replaced the post, copied its one selected
+  image, and verified the rendered page in 11m31s.
+- The complete Python 3.12 permanent suite passed all 3,989 tests in 30.11 seconds. The controlled
+  publication E2E passed initial import, same-date replacement, selected-image transfer, rendered-
+  page verification, and preservation of the imported state after an expected page-check failure.
 - Focused publisher, publication-state, and evidence tests passed 62 cases. The controlled
   producer-to-renderer publication E2E passed initial import, same-date replacement, selected-image
   transfer, rendered-page verification, and the expected post-import page failure. The Git evidence

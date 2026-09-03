@@ -130,11 +130,14 @@ class PublicationSurface:
 			list(self.evidence_context.repositories), list(self.evidence_context.excerpts),
 		)
 		# The full packet and source-artifact lineage preserve all provenance. The
-		# projection remains the bounded LLM view and never expands to repeat every
-		# raw evidence item referenced by an already-compressed editorial artifact.
+		# projection remains the bounded prose-evidence view, while the typed image
+		# catalog independently exposes every screenshot the final author or optional
+		# decorator may choose.  Only the final post's references select image bytes.
 		projection.render_context()
-		if {item.evidence_id for item in projection.excerpts} != allowed_ids:
-			raise RuntimeError("Publication surface projection does not cover its allowed evidence.")
+		projection_ids = {item.evidence_id for item in projection.excerpts}
+		image_ids = {image.evidence_id for image in allowed_images}
+		if projection_ids | image_ids != allowed_ids:
+			raise RuntimeError("Publication surface evidence channels do not cover their allowed evidence.")
 		# ASVS 2.2.3: later editorial stages read the cross-validated artifacts
 		# from this authority instead of accepting a parallel outline/story copy.
 		object.__setattr__(self, "daily_outline", outline[0])
@@ -283,26 +286,16 @@ def _resolve_artifact_images(
 	outline: daily_blog.artifacts.DailyOutline,
 	narrative_stories: tuple[daily_blog.artifacts.RepoStory, ...],
 ) -> tuple[daily_blog.stage6_context.PublicationImage, ...]:
-	"""Resolve cited or embedded narrative screenshots against survivor packets."""
+	"""Expose survivor screenshots while validating artifact-provided paths."""
 	all_images = _packet_screenshot_images(packet)
-	by_evidence_id = {item.evidence_id: item for item in all_images}
 	by_publish_path = {item.publish_path: item for item in all_images}
 	artifacts = (outline,) + narrative_stories
-	cited_screenshots = {
-		evidence_id for artifact in artifacts for evidence_id in artifact.evidence_ids
-		if evidence_id in by_evidence_id
-	}
 	embedded_paths = {
 		path for artifact in artifacts for path in artifact.image_paths
 	}
 	if not embedded_paths.issubset(by_publish_path):
 		raise RuntimeError("Publication surface exposes an unapproved survivor image.")
-	selected = {
-		by_evidence_id[evidence_id] for evidence_id in cited_screenshots
-	} | {by_publish_path[path] for path in embedded_paths}
-	return tuple(sorted(selected, key=lambda item: (
-		item.evidence_id, item.asset_path, item.publish_path,
-	)))
+	return all_images
 
 
 #============================================

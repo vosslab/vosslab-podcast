@@ -3937,3 +3937,29 @@ Tests
 
 Next actions
 1. Observe the compact durations on the next live daily-blog publication.
+
+---
+Session Update: 2026-09-03 (August 27 image authority and partial-review repair)
+
+Change
+- Removed preselection of screenshots by daily-outline and repository-story citations. Stage 6 now
+  exposes every provenance-validated survivor screenshot to the final author and optional image
+  decorator, while deterministic final-post resolution transports only referenced image bytes.
+- Reconciled the portable publication surface with its two evidence channels: bounded prose
+  excerpts and typed screenshot metadata. Image availability no longer requires inclusion in the
+  prose excerpt projection.
+- Made primary Stage 6 observations omit optional reviewer slots when bounded prompt construction
+  makes the entire review wave unavailable. Usable generated peers continue through promotion.
+
+Tests
+- Focused Stage 6, recovery, publication admission, bundle, publisher, Stage 7, and publication
+  validation coverage passed 96 tests.
+- The complete Python 3.12 permanent suite passed all 3,989 tests in 30.11 seconds.
+- The controlled producer-to-renderer E2E passed initial import, same-date replacement, selected-
+  image transfer, rendered-page verification, and expected post-import page-failure preservation.
+- `./make_blog.py -y -d 2026-08-27` completed in 11m31s with degraded editorial availability,
+  replaced the publication, copied one selected Ferrum image beside the post, and verified the page.
+
+Next actions
+1. Keep image choice editorial and optional; retain deterministic provenance, path, byte, and
+   final-reference validation at the publication boundary.
