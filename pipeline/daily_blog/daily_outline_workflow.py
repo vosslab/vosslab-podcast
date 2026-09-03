@@ -321,10 +321,9 @@ class RankingReviewObservation:
 	result: daily_blog.agents.AgentResult
 	verdict: tuple[tuple[str, object], ...] | None
 	failure: str = ""
-	repaired: bool = False
 
 	def __post_init__(self) -> None:
-		if type(self.candidate_id) is not str or not self.candidate_id or type(self.request) is not daily_blog.agents.RouteRequest or type(self.result) is not daily_blog.agents.AgentResult or type(self.repaired) is not bool:
+		if type(self.candidate_id) is not str or not self.candidate_id or type(self.request) is not daily_blog.agents.RouteRequest or type(self.result) is not daily_blog.agents.AgentResult:
 			raise RuntimeError("Ranking-review observation provenance is invalid.")
 		if self.verdict is None:
 			if self.failure not in daily_blog.replication.REVIEW_FAILURES:
@@ -425,7 +424,6 @@ def _request(
 	contract_identity: dict[str, object],
 	input_ids: tuple[str, ...] = (),
 	assignment: daily_blog.replication.ReviewAssignment | None = None,
-	repair_of: str = "",
 	role_context: daily_blog.daily_outline_context.DailyOutlineComparisonContext | None = None,
 ) -> daily_blog.agents.RouteRequest:
 	assignment_value = {} if assignment is None else {
@@ -461,9 +459,11 @@ def _request(
 		str(contract_identity["integrity_sha256"]),
 	))
 	return daily_blog.agents.RouteRequest(
-		f"stage5_{step}_{role}_{ordinal}_{input_hash[:12]}",
-		f"daily_outline_{step}", route, prompt, value.working_directory, role,
-		config.route_retry_attempts, config.maximum_parallel_calls, repair_of,
+		request_id=f"stage5_{step}_{role}_{ordinal}_{input_hash[:12]}",
+		step=f"daily_outline_{step}", route=route, prompt=prompt,
+		working_directory=value.working_directory, role=role,
+		retry_attempts=config.route_retry_attempts,
+		maximum_parallel_calls=config.maximum_parallel_calls,
 		input_hash=input_hash, contract_version=contract_version, cache_input_hash=input_hash,
 	)
 
@@ -581,7 +581,7 @@ def _ranking_promotion_reliability(reviews: tuple[RankingReviewObservation, ...]
 	if reviews and not any(item.verdict is not None for item in reviews): reasons.add("review_unavailable")
 	if not had_candidates: reasons.add("ranking_fallback_used")
 	succeeded = sum(item.verdict is not None for item in reviews)
-	return daily_blog.replication.StepReliability("5.2", "degraded" if reasons else "succeeded", len(reviews), succeeded, len(reviews) - succeeded, sum(item.result.ok and item.result.resumed for item in reviews), sum(item.repaired and item.verdict is not None for item in reviews), 0, "" if promoted is None else promoted.promotion_id, tuple(sorted(reasons)))
+	return daily_blog.replication.StepReliability("5.2", "degraded" if reasons else "succeeded", len(reviews), succeeded, len(reviews) - succeeded, sum(item.result.ok and item.result.resumed for item in reviews), 0, 0, "" if promoted is None else promoted.promotion_id, tuple(sorted(reasons)))
 
 
 def _review_reliability(review: daily_blog.replication.ReviewResult) -> daily_blog.replication.StepReliability:
@@ -590,7 +590,7 @@ def _review_reliability(review: daily_blog.replication.ReviewResult) -> daily_bl
 		if vote.status == "succeeded": by_pair.setdefault(tuple(sorted((vote.first_artifact_id, vote.second_artifact_id))), set()).add(vote.winner_artifact_id)
 	disagreements = sum(len(items) > 1 for items in by_pair.values())
 	reasons = daily_blog.replication.review_reasons(review.votes, disagreements)
-	return daily_blog.replication.StepReliability("5.4", "degraded" if reasons else "succeeded", len(review.votes), sum(item.status == "succeeded" for item in review.votes), sum(item.status == "failed" for item in review.votes), 0, sum(item.repaired and item.status == "succeeded" for item in review.votes), disagreements, "", reasons)
+	return daily_blog.replication.StepReliability("5.4", "degraded" if reasons else "succeeded", len(review.votes), sum(item.status == "succeeded" for item in review.votes), sum(item.status == "failed" for item in review.votes), 0, 0, disagreements, "", reasons)
 
 
 def _promote_ranking(candidates: tuple[RankingCandidate, ...], reviews: tuple[RankingReviewObservation, ...]) -> PromotedRanking | None:
@@ -599,43 +599,31 @@ def _promote_ranking(candidates: tuple[RankingCandidate, ...], reviews: tuple[Ra
 	for candidate in candidates:
 		observations = tuple(item for item in reviews if item.candidate_id == candidate.candidate_id and item.verdict is not None)
 		verdicts = tuple(dict(item.verdict) for item in observations)
-		review_ids = tuple(sorted(
-			item.request.repair_of or item.request.request_id for item in observations
-		))
+		review_ids = tuple(sorted(item.request.request_id for item in observations))
 		accepted = any(item["decision"] == "ACCEPT" for item in verdicts)
 		score = sum(int(item["score"]) for item in verdicts) / len(verdicts) if verdicts else -1
 		available.append((candidate, verdicts, review_ids, accepted, score))
 	if not available:
 		return None
-	best = sorted(
-		available,
-		key=lambda item: (
-			not item[3], -item[4], item[0].content_sha256, item[0].candidate_id,
-		),
-	)[0]
+	best = sorted(available, key=lambda item: (
+		not item[3], -item[4], item[0].content_sha256, item[0].candidate_id,
+	))[0]
 	candidate, verdicts, review_ids, _accepted, _score = best
 	method = "review_preferred_ranking" if verdicts else "available_ranking"
-	return PromotedRanking(
-		candidate.candidate_id, candidate.content_sha256, candidate.artifact_ids,
-		candidate.scores, candidate.rationale, review_ids, method,
-	)
+	return PromotedRanking(candidate.candidate_id, candidate.content_sha256,
+		candidate.artifact_ids, candidate.scores, candidate.rationale, review_ids, method)
 
 
 def _deterministic_ranking(value: DailyOutlineInput) -> PromotedRanking:
 	"""Use every available story when no ranker returns a parseable preference."""
 	artifact_ids = value.story_ranking_aliases.content_hashes
-	scores = tuple(sorted((artifact_id, 50) for artifact_id in artifact_ids))
+	scores = tuple((artifact_id, 50) for artifact_id in artifact_ids)
 	rationale = "Use every repository story in stable repository order."
-	ranking_content = json.dumps({
-		"artifact_ids": list(artifact_ids), "rationale": rationale,
-		"scores": dict(scores),
-	}, sort_keys=True, separators=(",", ":"))
+	ranking_content = json.dumps({"artifact_ids": list(artifact_ids),
+		"rationale": rationale, "scores": dict(scores)}, sort_keys=True, separators=(",", ":"))
 	ranking_hash = daily_blog.io_utils.sha256_text(ranking_content)
-	candidate_id = "ranking-fallback-" + ranking_hash[:24]
-	method = "deterministic_story_order"
-	return PromotedRanking(
-		candidate_id, ranking_hash, artifact_ids, scores, rationale, (), method,
-	)
+	return PromotedRanking("ranking-fallback-" + ranking_hash[:24], ranking_hash,
+		artifact_ids, scores, rationale, (), "deterministic_story_order")
 
 
 @dataclasses.dataclass(frozen=True)
@@ -653,8 +641,6 @@ class _DailyOutlinePreparation:
 
 
 #============================================
-
-
 def _prepare_daily_outline(
 	value: DailyOutlineInput,
 	config: daily_blog.editorial_stage_config.DailyOutlineConfig,
@@ -737,7 +723,7 @@ def _observe_ranking_reviews(
 	cache_load: collections.abc.Callable[[daily_blog.agents.RouteRequest], daily_blog.agents.AgentResult | None] | None,
 	cache_accept: collections.abc.Callable[[daily_blog.agents.RouteRequest, daily_blog.agents.AgentResult], None] | None,
 ) -> tuple[RankingReviewObservation, ...]:
-	"""Review every ranking candidate, then run one ordered repair pass."""
+	"""Review ranking candidates without requiring a second model to repair syntax."""
 	pairs = [(candidate, index) for candidate in candidates for index in range(config.reviewer_count)]
 	requests = tuple(
 		_request(
@@ -758,7 +744,6 @@ def _observe_ranking_reviews(
 			list(requests), prepared.route_runner, config.maximum_parallel_calls, budget, cache_load,
 		)
 	observations: list[RankingReviewObservation] = []
-	repairs: list[tuple[RankingCandidate, daily_blog.agents.RouteRequest, daily_blog.agents.AgentResult]] = []
 	for (candidate, _index), request, result in zip(pairs, requests, results, strict=True):
 		try:
 			verdict = None
@@ -774,61 +759,9 @@ def _observe_ranking_reviews(
 			observations.append(RankingReviewObservation(
 				candidate.candidate_id, request, result, None, "invalid_verdict",
 			))
-			repairs.append((candidate, request, result))
-	_observe_ranking_review_repairs(
-		value, config, budget, prepared, repairs, observations, cache_load, cache_accept,
-	)
 	return tuple(sorted(observations, key=lambda item: (
-		item.candidate_id, item.request.repair_of or item.request.request_id,
-		bool(item.request.repair_of), item.request.request_id,
+		item.candidate_id, item.request.request_id,
 	)))
-
-
-def _observe_ranking_review_repairs(
-	value: DailyOutlineInput,
-	config: daily_blog.editorial_stage_config.DailyOutlineConfig,
-	budget: daily_blog.agents.RouteBudget,
-	prepared: _DailyOutlinePreparation,
-	repairs: list[tuple[RankingCandidate, daily_blog.agents.RouteRequest, daily_blog.agents.AgentResult]],
-	observations: list[RankingReviewObservation],
-	cache_load: collections.abc.Callable[[daily_blog.agents.RouteRequest], daily_blog.agents.AgentResult | None] | None,
-	cache_accept: collections.abc.Callable[[daily_blog.agents.RouteRequest, daily_blog.agents.AgentResult], None] | None,
-) -> None:
-	"""Append repair observations without replacing malformed source attempts."""
-	if not repairs:
-		return
-	requests = tuple(
-		_request(
-			value, "5_2_repair", "ranking_reviewer_repair", source.request_id,
-			config.outline_reviewer_route,
-			daily_blog.daily_outline_prompts.render_story_ranking_review_repair(
-				result.text, prepared.prompts,
-			),
-			config, prepared.identity, (candidate.candidate_id,), None, source.request_id,
-		)
-		for candidate, source, result in repairs
-	)
-	results = daily_blog.agents.execute_requests(
-		list(requests), prepared.route_runner, config.maximum_parallel_calls, budget, cache_load,
-	)
-	for (candidate, _source, _original), request, result in zip(repairs, requests, results, strict=True):
-		try:
-			verdict = None
-			if result.ok:
-				verdict = daily_blog.daily_outline_prompts.parse_story_ranking_review_verdict(result.text)
-			if verdict is not None and not result.resumed and cache_accept is not None:
-				cache_accept(request, result)
-			observations.append(RankingReviewObservation(
-				candidate.candidate_id, request, result,
-				None if verdict is None else tuple(sorted(verdict.items())),
-				result.failure if verdict is None else "", True,
-			))
-		except daily_blog.daily_outline_prompts.DailyOutlineVerdictParseError:
-			observations.append(RankingReviewObservation(
-				candidate.candidate_id, request, result, None, "invalid_verdict", True,
-			))
-
-
 def _replicate_outlines(
 	value: DailyOutlineInput,
 	config: daily_blog.editorial_stage_config.DailyOutlineConfig,
@@ -884,11 +817,14 @@ def _review_outlines(
 		context = contexts.get(key)
 		if context is None:
 			first, second = sorted((left.content, right.content))
-			context = daily_blog.daily_outline_context.DailyOutlineComparisonContext.create(
-				value.repo_stories, value.repo_outlines, value.packets,
-				value.evidence_context, first, second,
-				prepared.prompts,
-			)
+			try:
+				context = daily_blog.daily_outline_context.DailyOutlineComparisonContext.create(
+					value.repo_stories, value.repo_outlines, value.packets,
+					value.evidence_context, first, second,
+					prepared.prompts,
+				)
+			except daily_blog.daily_outline_context.DailyOutlineContextCapacityError as error:
+				raise daily_blog.replication.ReviewUnavailable from error
 			contexts[key] = context
 		request = _request(
 			value, "5_4", "outline_reviewer",
@@ -913,23 +849,9 @@ def _review_outlines(
 			raise daily_blog.agents.RepairableStructuredOutput(str(error)) from error
 		return {"A": item.first_artifact_id, "B": item.second_artifact_id}.get(verdict["winner"], "")
 
-	def repair(item: daily_blog.replication.ReviewWork, response: str) -> daily_blog.replication.ReviewWork:
-		request = _request(
-			value, "5_4_repair", "outline_reviewer_repair", item.request.cache_input_hash,
-			config.outline_reviewer_route,
-			daily_blog.daily_outline_prompts.render_daily_outline_verdict_repair(
-				response, prepared.prompts,
-			),
-			config, prepared.identity, (daily_blog.io_utils.sha256_text(response),),
-			item.assignment, item.request.cache_input_hash,
-		)
-		return daily_blog.replication.ReviewWork(
-			request, item.first_artifact_id, item.second_artifact_id, item.assignment,
-		)
-
 	return daily_blog.replication.review(
 		peers, daily_blog.artifacts.DailyOutline, config.reviewer_count, work, winner,
-		prepared.route_runner, budget, repair, None, cache_load, cache_accept,
+		prepared.route_runner, budget, None, cache_load, cache_accept,
 	)
 
 
@@ -962,8 +884,6 @@ def _daily_outline_result(
 
 
 #============================================
-
-
 def run_daily_outline(value: DailyOutlineInput, config: daily_blog.editorial_stage_config.DailyOutlineConfig, budget: daily_blog.agents.RouteBudget, runner: object | None = None, prompts: daily_blog.prompt_registry.loader.LoadedPromptSet | None = None, cache_load: collections.abc.Callable[[daily_blog.agents.RouteRequest], daily_blog.agents.AgentResult | None] | None = None, cache_accept: collections.abc.Callable[[daily_blog.agents.RouteRequest, daily_blog.agents.AgentResult], None] | None = None) -> DailyOutlineResult:
 	"""Coordinate ranking, replication, review, and promotion for Stage 5."""
 	prepared = _prepare_daily_outline(value, config, budget, runner, prompts)

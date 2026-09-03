@@ -210,7 +210,8 @@ class PublicationStorage:
 	def write(self, artifacts: dict[str, bytes]) -> str:
 		"""Stage fixed artifacts and assets then atomically name `publication`."""
 		required = {
-			"bundle.json", "evidence.json", "repository_roster.json", "editorial_projection.json",
+			"bundle.json", "evidence.json", "repository_roster.json", "daily_active_roster.json",
+			"editorial_projection.json",
 			"publication_surface.json", "post.md",
 		}
 		if not required <= set(artifacts):
@@ -262,6 +263,7 @@ class PublicationStorage:
 					"bundle.json": _read_regular_at(publication_fd, "bundle.json", MAX_JSON_BYTES),
 					"evidence.json": _read_regular_at(publication_fd, "evidence.json", MAX_EVIDENCE_BYTES),
 					"repository_roster.json": _read_regular_at(publication_fd, "repository_roster.json", MAX_JSON_BYTES),
+					"daily_active_roster.json": _read_regular_at(publication_fd, "daily_active_roster.json", MAX_JSON_BYTES),
 					"editorial_projection.json": _read_regular_at(publication_fd, "editorial_projection.json", MAX_JSON_BYTES),
 					"publication_surface.json": _read_regular_at(publication_fd, "publication_surface.json", MAX_JSON_BYTES),
 					"post.md": _read_regular_at(publication_fd, "post.md", MAX_POST_BYTES),

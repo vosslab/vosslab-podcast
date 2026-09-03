@@ -5,6 +5,10 @@ pipeline reports failure. It complements [PYTEST_STYLE.md](PYTEST_STYLE.md): tha
 whether a test deserves permanent residence, while this document decides whether the behavior being
 tested should be a publication gate at all.
 
+This is the primary policy for continued daily-blog gate cleanup. Apply it across generation,
+promotion, bundle construction, publisher preflight, import, and rendered-page verification whenever
+a usable grounded article fails to reach publication.
+
 > **When in doubt, remove the gate and its test.**
 
 The burden of proof is on keeping a publication gate. Model disobedience, malformed presentation,
@@ -12,9 +16,9 @@ or editorial weakness is not sufficient reason to prevent publication.
 
 ## The boundary
 
-A hard gate protects a mechanical fact the system must know before it can publish a mechanically 
-valid artifact. Keep gates for wrong publication identity, unknown or out-of-scope evidence, unsafe 
-source or asset paths, unconfined output, corrupt durable state, and failed publisher-integrity 
+A hard gate protects a mechanical fact the system must know before it can publish a mechanically
+valid artifact. Keep gates for wrong publication identity, unknown or out-of-scope evidence, unsafe
+source or asset paths, unconfined output, corrupt durable state, and failed publisher-integrity
 checks.
 
 An editorial preference describes how good or polished an LLM response is. Word bands, heading
@@ -60,6 +64,16 @@ For every `eligible`, `reject`, `blocked`, `mismatch`, `validate`, `repair`, `wi
   compatibility adapters, migration fixtures, or legacy tests for an unused design.
 - [ ] Keep unknown evidence references, cross-repository scope, unsafe links or images, wrong dates,
   unconfined paths, and corrupt artifacts as hard failures.
+- [ ] Keep deterministic rosters authoritative throughout the run. Model prose may omit an active
+  repository, but that omission must become coverage metadata, never a new roster or a publication
+  veto. Carry identity forward mechanically instead of asking finalization to rediscover it.
+- [ ] Treat a single repository's remote unavailability as local evidence loss. Record it and
+  continue with usable repositories; do not promote a network or clone failure into a whole-day
+  editorial failure. Keep local path, origin, and content-integrity violations hard.
+- [ ] At a cross-component rejection, recover the exact downstream reason before removing a check.
+  If the producer emitted contradictory identity or provenance metadata, repair that ownership bug
+  while keeping the genuine integrity boundary. Selection may reduce work without inventing a new
+  authority identity.
 - [ ] Delete permanent tests whose success requires a fake or live LLM to obey exact prose,
   formatting, ranking, reviewer, or procedural instructions.
 - [ ] Test robustness by injecting realistic model failures and asserting the resulting artifact or

@@ -10,6 +10,10 @@ import shutil
 import stat
 from collections.abc import Callable, Iterator
 
+# PIP3 modules
+import rich.text
+import rich.console
+
 # local repo modules
 import daily_blog.io_utils
 import daily_blog.recovery
@@ -17,7 +21,7 @@ import daily_blog.replication
 import daily_blog.run_contracts
 
 
-TERMINAL_SUMMARY_SCHEMA_VERSION = "vosslab.daily-blog.terminal-summary.v2"
+TERMINAL_SUMMARY_SCHEMA = "vosslab.daily-blog.terminal-summary"
 MAX_EVENT_LINE_BYTES = 4096
 MAX_SUMMARY_LINE_BYTES = 16384
 # The authoritative record is a retained, inspectable artifact. Keep every
@@ -168,10 +172,10 @@ def validate_terminal_summary(value: object) -> dict[str, object]:
 	"""Return a normalized exact terminal-summary copy or reject unsafe input."""
 	if type(value) is not dict or set(value) != _SUMMARY_FIELDS:
 		raise RuntimeError("Terminal summary uses unsupported fields.")
-	if value["schema_version"] != TERMINAL_SUMMARY_SCHEMA_VERSION:
+	if value["schema_version"] != TERMINAL_SUMMARY_SCHEMA:
 		raise RuntimeError("Terminal summary schema is unsupported.")
 	result: dict[str, object] = {
-		"schema_version": TERMINAL_SUMMARY_SCHEMA_VERSION,
+		"schema_version": TERMINAL_SUMMARY_SCHEMA,
 		"summary_id": _sha256(value["summary_id"], "Terminal summary identity"),
 		"terminal_record_sha256": _sha256(value["terminal_record_sha256"], "Terminal record identity"),
 		"report_date": _report_date(value["report_date"]),
@@ -301,6 +305,7 @@ class RunEventSink:
 		"""Create a descriptor-consuming sink for one selected run."""
 		self.report_date = _opaque(report_date, "Event report date")
 		self.run_id = _opaque(run_id, "Event run identity")
+		self.journal_name = f"runlog-{self.report_date}.jsonl"
 		if max_events is None:
 			self.max_events = 513
 		elif type(max_events) is int and max_events > 0:
@@ -428,7 +433,7 @@ class RunEventSink:
 	def _event_descriptor_at(self, run_fd: int) -> Iterator[int]:
 		"""Open the direct journal below a RunStore-held run descriptor."""
 		file_flags = os.O_RDWR | os.O_CREAT | os.O_APPEND | getattr(os, "O_NOFOLLOW", 0)
-		descriptor = os.open("events.jsonl", file_flags, 0o600, dir_fd=run_fd)
+		descriptor = os.open(self.journal_name, file_flags, 0o600, dir_fd=run_fd)
 		try:
 			if not stat.S_ISREG(os.fstat(descriptor).st_mode):
 				raise EventJournalError("Daily-publication event journal is invalid.")
@@ -460,6 +465,124 @@ class RunEventSink:
 		# and append must share one no-follow descriptor.  # ASVS 2.3.1, 5.3.2
 		with self._event_descriptor_at(run_fd) as descriptor:
 			return self._replay_editorial_from_descriptor(descriptor, line)
+
+
+class HumanProgress:
+	"""Render validated publication progress without owning workflow decisions."""
+
+	_STEP_LABELS = {
+		"3.1": "repository outlines received", "3.2": "repository outlines merged",
+		"3.3": "repository outlines reviewed", "3.4": "repository outlines promoted",
+		"4.1": "repository summaries received", "4.2": "repository summaries edited",
+		"4.3": "repository summaries reviewed", "4.4": "repository summaries promoted",
+		"5.1": "daily rankings received", "5.2": "daily rankings reviewed",
+		"5.3": "daily outlines received", "5.4": "daily outlines reviewed",
+		"5.5": "daily outline promoted", "6.1": "complete posts received",
+		"6.2": "complete posts edited", "6.3": "complete posts reviewed",
+		"6.4": "complete post promoted", "7.1": "final syntheses received",
+		"7.2": "final syntheses reviewed", "7.3": "final post selected",
+		"publication_validation": "publication-ready posts prepared",
+		"repository_job": "repository editorial jobs completed",
+		"stage6_complete_post": "complete-post candidates processed",
+	}
+	_STEP_CODES = {
+		"3.1": "B1", "3.2": "B2", "3.3": "B3", "3.4": "B4",
+		"repository_job": "C5",
+		"4.1": "C1", "4.2": "C2", "4.3": "C3", "4.4": "C4",
+		"5.1": "D1", "5.2": "D2", "5.3": "D3", "5.4": "D4", "5.5": "D5",
+		"6.1": "E1", "6.2": "E2", "6.3": "E3", "6.4": "E4",
+		"stage6_complete_post": "E5",
+		"7.1": "F1", "7.2": "F2", "7.3": "F3",
+		"publication_validation": "G1",
+	}
+	_PHASE_STARTS = {
+		"repository_discovery": "Finding the account repository roster",
+		"mirror_refresh": "Refreshing repositories with report-day commits",
+		"activity_location": "Locating exact report-day commits",
+		"evidence_assembly": "Summarizing repository commits and changelogs",
+		"repository_editorial": "Preparing repository outlines and summaries",
+		"stage5_daily_outline": "Building the daily outline",
+		"stage6_complete_post": "Writing complete blog candidates",
+		"stage7_final_synthesis": "Optionally improving the publishable post",
+		"publication_validation": "Preparing publication metadata",
+		"bundle_creation": "Sealing the publication bundle",
+		"publisher_preflight": "Checking the bundle with the publisher",
+		"post_write": "Writing the selected post", "site_import": "Importing the post",
+		"page_verification": "Verifying the rendered page",
+	}
+	_PHASE_CODES = {
+		"repository_discovery": "A1", "mirror_refresh": "A3",
+		"activity_location": "A4", "evidence_assembly": "A5",
+		"repository_editorial": "B", "stage5_daily_outline": "D",
+		"stage6_complete_post": "E", "stage7_final_synthesis": "F",
+		"publication_validation": "G1", "bundle_creation": "G2",
+		"publisher_preflight": "G3", "post_write": "G4", "site_import": "G5",
+		"page_verification": "G6",
+	}
+
+	def __init__(self, report_date: str, journal_path: str) -> None:
+		"""Create one terminal renderer for a validated date and confined journal path."""
+		self.report_date = _opaque(report_date, "Progress report date")
+		self.journal_path = os.path.abspath(journal_path)
+		self.console = rich.console.Console(highlight=False)
+
+	def _write(self, message: str, style: str = "") -> None:
+		"""Encode plain display text at the final terminal boundary. ASVS 1.1.2."""
+		self.console.print(rich.text.Text(message, style=style), soft_wrap=True)
+
+	def announce(self) -> None:
+		"""Announce durable machine output before reporting human progress."""
+		self._write(f"JSON run log: {self.journal_path}", "bold cyan")
+		self._write(f"Preparing daily blog for {self.report_date}", "bold")
+
+	def note(self, step: str, message: str, style: str = "cyan") -> None:
+		"""Render one coordinator-owned human step without creating a machine event."""
+		self._write(f"{step} | {message}", style)
+
+	def event(self, event: str, details: dict[str, object]) -> None:
+		"""Render one validated lifecycle or editorial event."""
+		if event == "daily_publication.phase_started":
+			phase = str(details["phase"])
+			message = self._PHASE_STARTS.get(phase)
+			if message:
+				self.note(self._PHASE_CODES[phase], message + "...")
+		elif event == "daily_publication.editorial_step_completed":
+			step = str(details["step"])
+			code = self._STEP_CODES.get(step, step)
+			label = self._STEP_LABELS.get(step, "editorial results received")
+			message = f"{code} | {details['succeeded']} {label}"
+			if details["failed"]:
+				message += f"; {details['failed']} unavailable"
+			if details["reused"]:
+				message += f"; {details['reused']} reused"
+			self._write(message, "green" if details["succeeded"] else "yellow")
+		elif event == "daily_publication.phase_failed":
+			self._write(f"Stopped during {details['phase']}: {details['failure_kind']}", "bold red")
+		elif event == "daily_publication.run_completed":
+			self._write(
+				f"Published {self.report_date}: {details['site_import_status']} ({details['outcome']})",
+				"bold green",
+			)
+
+	def phase_result(self, phase: str, output: object, reused: bool) -> None:
+		"""Summarize one coordinator-owned phase result without affecting control flow."""
+		suffix = " (reused)" if reused else ""
+		if phase == "repository_discovery" and isinstance(output, dict):
+			self.note(
+				"A1",
+				f"Found {len(output.get('repositories', ()))} repositories in the account roster{suffix}",
+				"green",
+			)
+		elif phase == "mirror_refresh" and isinstance(output, list):
+			self.note(
+				"A3",
+				f"Found {len(output)} repos with commits on {self.report_date}{suffix}", "bold green",
+			)
+		elif phase == "activity_location" and isinstance(output, list):
+			commits = sum(len(item.get("commits", ())) for item in output if isinstance(item, dict))
+			self.note("A4", f"Located {commits} exact commits across {len(output)} repos{suffix}", "green")
+		elif phase == "evidence_assembly" and isinstance(output, dict):
+			self.note("A5", f"Prepared {len(output.get('items', ()))} evidence items{suffix}", "green")
 
 
 class RetentionResult:

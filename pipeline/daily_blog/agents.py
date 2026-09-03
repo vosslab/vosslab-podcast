@@ -5,7 +5,6 @@ import collections.abc
 import concurrent.futures
 import contextlib
 import dataclasses
-import enum
 import math
 import re
 import threading
@@ -19,23 +18,13 @@ import daily_blog.routes
 import daily_blog.stage6_cache_identity
 
 
-AGENT_RESULT_SCHEMA_VERSION = "vosslab.daily-blog.agent-result.v2"
+AGENT_RESULT_SCHEMA = "vosslab.daily-blog.agent-result"
 RECOVERABLE_FAILURES = frozenset({
 	"timeout", "start_failure", "process_failure", "empty_response",
 })
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
-class FailureClass(enum.StrEnum):
-	"""The five bounded outcomes crossing the editorial route boundary."""
-
-	RECOVERABLE_ROUTE = "recoverable_route"
-	REPAIRABLE_STRUCTURED_OUTPUT = "repairable_structured_output"
-	REPOSITORY_EVIDENCE_UNAVAILABLE = "repository_evidence_unavailable"
-	TERMINAL = "terminal"
-	IMPLEMENTATION_DEFECT = "implementation_defect"
-
-
 class RepairableStructuredOutput(RuntimeError):
-	"""A returned response needs its one allowed structured-output repair."""
+	"""A returned response has no mechanically usable structured content."""
 
 
 class RepositoryEvidenceUnavailable(RuntimeError):
@@ -48,10 +37,6 @@ class EditorialTerminalError(RuntimeError):
 
 class EditorialIdentityError(EditorialTerminalError):
 	"""A request or cache result does not attest to the same immutable identity."""
-
-
-class DuplicateRepairAdmission(EditorialTerminalError):
-	"""A logical source response already consumed its sole repair admission."""
 
 
 class RouteBudgetExhausted(RuntimeError):
@@ -70,7 +55,6 @@ class RouteRequest:
 	role: str = "editorial"
 	retry_attempts: int = 0
 	maximum_parallel_calls: int = 1
-	repair_of: str = ""
 	model: str = "openai-codex"
 	model_options: tuple[str, ...] = ()
 	input_hash: str = "unbound"
@@ -91,10 +75,6 @@ class RouteRequest:
 			raise EditorialTerminalError("Editorial retry attempts must be a nonnegative integer.")
 		if type(self.maximum_parallel_calls) is not int or self.maximum_parallel_calls <= 0:
 			raise EditorialTerminalError("Editorial parallel-call limit must be a positive integer.")
-		if type(self.repair_of) is not str:
-			raise EditorialIdentityError("Editorial repair source identity must be a string.")
-		if self.repair_of and self.repair_of == self.request_id:
-			raise EditorialIdentityError("Editorial repair source must differ from repair request.")
 		if type(self.model_options) is not tuple or any(
 			type(option) is not str or not option for option in self.model_options
 		):
@@ -104,7 +84,7 @@ class RouteRequest:
 				daily_blog.stage6_cache_identity.validate_route_request_witness(
 					self.stage6_cache_identity, request_id=self.request_id, step=self.step,
 					role=self.role, route_name=self.route.name, prompt=self.prompt,
-					route_contract_sha256=self.route_contract_sha256, repair_of=self.repair_of,
+					route_contract_sha256=self.route_contract_sha256,
 				)
 			except daily_blog.stage6_cache_identity.Stage6CacheIdentityError as error:
 				raise EditorialIdentityError("Stage 6 cache identity does not bind this route request.") from error
@@ -135,7 +115,6 @@ class RouteRequest:
 			"working_directory": self.working_directory,
 			"retry_attempts": self.retry_attempts,
 			"maximum_parallel_calls": self.maximum_parallel_calls,
-			"repair_of": self.repair_of,
 			"stage6_cache_identity": (
 				None if self.stage6_cache_identity is None
 				else self.stage6_cache_identity.identity_dict()
@@ -148,13 +127,6 @@ class RouteRequest:
 		"""Return the SHA-256 identity bound into every resumable result."""
 		return daily_blog.io_utils.hash_value(self.identity_dict())
 
-	#============================================
-	@property
-	def is_repair(self) -> bool:
-		"""Expose repair provenance without accepting a caller-controlled Boolean."""
-		return bool(self.repair_of)
-
-
 @dataclasses.dataclass(frozen=True)
 class AgentResult:
 	"""One complete transport result, suitable for strict cache restoration."""
@@ -165,20 +137,19 @@ class AgentResult:
 	failure: str
 	attempts: int
 	duration_s: float
-	repaired: bool
 	resumed: bool
 	route_name: str
 	request_id: str
 	request_identity_sha256: str
 	text_sha256: str
-	schema_version: str = AGENT_RESULT_SCHEMA_VERSION
+	schema: str = AGENT_RESULT_SCHEMA
 
 	#============================================
 	def __post_init__(self) -> None:
 		"""Fail closed on malformed in-memory or deserialized transport state."""
 		strings = (
 			self.role, self.text, self.failure, self.route_name, self.request_id,
-			self.request_identity_sha256, self.text_sha256, self.schema_version,
+			self.request_identity_sha256, self.text_sha256, self.schema,
 		)
 		if any(type(value) is not str for value in strings):
 			raise EditorialIdentityError("Editorial agent result has invalid string fields.")
@@ -191,7 +162,6 @@ class AgentResult:
 			raise EditorialIdentityError("Editorial agent result hashes must be lowercase SHA-256.")
 		if (
 			type(self.ok) is not bool
-			or type(self.repaired) is not bool
 			or type(self.resumed) is not bool
 		):
 			raise EditorialIdentityError("Editorial agent result Boolean fields are invalid.")
@@ -203,7 +173,7 @@ class AgentResult:
 			or self.duration_s < 0
 		):
 			raise EditorialIdentityError("Editorial agent duration must be nonnegative.")
-		if self.schema_version != AGENT_RESULT_SCHEMA_VERSION:
+		if self.schema != AGENT_RESULT_SCHEMA:
 			raise EditorialIdentityError("Editorial agent result schema is unsupported.")
 		if self.ok != (self.failure == "") or self.ok != bool(self.text.strip()):
 			raise EditorialIdentityError("Editorial agent success fields conflict.")
@@ -214,18 +184,12 @@ class AgentResult:
 
 	#============================================
 	def matches(self, request: RouteRequest) -> bool:
-		"""Return whether this result is safely bound to one exact request.
-
-		The repaired flag is provenance, not presentation metadata: a cached repair
-		can satisfy only the repair request which produced it.  Keep that binding
-		here so every cache consumer uses the same fail-closed identity check.
-		"""
+		"""Return whether this result is safely bound to one exact request."""
 		return (
 			self.request_id == request.request_id
 			and self.request_identity_sha256 == request.identity_sha256
 			and self.role == request.role
 			and self.route_name == request.route.name
-			and self.repaired == request.is_repair
 		)
 
 	#============================================
@@ -234,14 +198,13 @@ class AgentResult:
 		if not self.ok:
 			raise EditorialIdentityError("Failed editorial agent results are not resumable cache entries.")
 		return {
-			"schema_version": self.schema_version,
+			"schema": self.schema,
 			"role": self.role,
 			"text": self.text,
 			"ok": self.ok,
 			"failure": self.failure,
 			"attempts": self.attempts,
 			"duration_s": self.duration_s,
-			"repaired": self.repaired,
 			"route_name": self.route_name,
 			"request_id": self.request_id,
 			"request_identity_sha256": self.request_identity_sha256,
@@ -254,8 +217,8 @@ class AgentResult:
 		"""Restore one exact successful result from untrusted durable JSON."""
 		# ASVS 1.5.2 and 2.2.1: exact fields/types reject cache confusion.
 		fields = {
-			"schema_version", "role", "text", "ok", "failure", "attempts",
-			"duration_s", "repaired", "route_name", "request_id",
+			"schema", "role", "text", "ok", "failure", "attempts",
+			"duration_s", "route_name", "request_id",
 			"request_identity_sha256", "text_sha256",
 		}
 		if type(value) is not dict or set(value) != fields:
@@ -263,11 +226,10 @@ class AgentResult:
 		return cls(
 			role=value["role"], text=value["text"], ok=value["ok"],
 			failure=value["failure"], attempts=value["attempts"],
-			duration_s=value["duration_s"], repaired=value["repaired"],
-			resumed=True, route_name=value["route_name"],
+			duration_s=value["duration_s"], resumed=True, route_name=value["route_name"],
 			request_id=value["request_id"],
 			request_identity_sha256=value["request_identity_sha256"],
-			text_sha256=value["text_sha256"], schema_version=value["schema_version"],
+			text_sha256=value["text_sha256"], schema=value["schema"],
 		)
 
 
@@ -287,29 +249,6 @@ class RouteBudget:
 		self.used_calls = 0
 		self._lock = threading.Lock()
 		self._semaphore = threading.BoundedSemaphore(parallel)
-		self._repaired_sources: set[str] = set()
-
-	#============================================
-	def admit_repair(self, repair_of: str) -> None:
-		"""Atomically reserve the sole structured-output repair for one source response."""
-		self.admit_repairs((repair_of,))
-
-	#============================================
-	def admit_repairs(self, repair_sources: collections.abc.Collection[str]) -> None:
-		"""Atomically reserve an all-or-nothing set of repair source identities."""
-		if any(type(source) is not str or not source for source in repair_sources):
-			raise EditorialIdentityError("Editorial repair admission requires a source identity.")
-		sources = set(repair_sources)
-		if len(sources) != len(repair_sources):
-			raise DuplicateRepairAdmission(
-				"Editorial batch contains duplicate structured-output repair sources."
-			)
-		with self._lock:
-			if sources & self._repaired_sources:
-				raise DuplicateRepairAdmission(
-					"Editorial source response already used its structured-output repair."
-				)
-			self._repaired_sources.update(sources)
 
 	#============================================
 	@contextlib.contextmanager
@@ -352,7 +291,7 @@ def _result(
 	"""Construct one validated result without external diagnostics."""
 	return AgentResult(
 		role=request.role, text=text, ok=ok, failure=failure, attempts=attempts,
-		duration_s=duration_s, repaired=request.is_repair, resumed=False,
+		duration_s=duration_s, resumed=False,
 		route_name=request.route.name, request_id=request.request_id,
 		request_identity_sha256=request.identity_sha256,
 		text_sha256=daily_blog.io_utils.sha256_text(text),
@@ -404,11 +343,6 @@ def execute_requests(
 	identifiers = [request.request_id for request in requests]
 	if len(set(identifiers)) != len(identifiers):
 		raise EditorialIdentityError("Editorial route request identities must be unique.")
-	repair_sources = [request.repair_of for request in requests if request.repair_of]
-	if len(set(repair_sources)) != len(repair_sources):
-		raise DuplicateRepairAdmission(
-			"Editorial batch contains duplicate structured-output repair sources."
-		)
 	results: dict[str, AgentResult] = {}
 	missing: list[RouteRequest] = []
 	for request in requests:
@@ -419,9 +353,6 @@ def execute_requests(
 		if not cached.ok or not cached.resumed or not cached.matches(request):
 			raise EditorialIdentityError("Cached editorial result does not match its request.")
 		results[request.request_id] = cached
-	# Validate every cache entry before mutating repair state. A cached repair
-	# does not consume a new external repair path.
-	budget.admit_repairs(tuple(request.repair_of for request in missing if request.repair_of))
 	if missing:
 		workers = min(maximum_parallel_calls, budget.maximum_parallel_calls, len(missing))
 		with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as executor:

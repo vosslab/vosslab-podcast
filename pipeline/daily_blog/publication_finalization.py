@@ -8,6 +8,7 @@ import os
 
 # local repo modules
 import daily_blog.artifacts
+import daily_blog.activity
 import daily_blog.io_utils
 import daily_blog.locks
 import daily_blog.publication_contract
@@ -37,6 +38,7 @@ class SealedPublicationInput:
 	publication_surface: daily_blog.publication_admission.PublicationSurface
 	assets: dict[str, bytes]
 	selected_post: daily_blog.artifacts.CompletePost
+	active_roster: dict[str, object]
 
 	#============================================
 	def __post_init__(self) -> None:
@@ -71,6 +73,7 @@ class SealedPublicationInput:
 			raise RuntimeError("Publication finalization input report date is inconsistent.")
 		if any(type(path) is not str or type(contents) is not bytes for path, contents in self.assets.items()):
 			raise RuntimeError("Publication finalization assets are invalid.")
+		daily_blog.activity.validate_daily_active_roster(self.active_roster)
 
 
 #============================================
@@ -173,6 +176,7 @@ class PublicationFinalizationCoordinator:
 		projection = surface.projection
 		surface_value = daily_blog.publication_surface_contract.publication_surface_value(surface)
 		phase_input = {
+			"active_roster": value.active_roster,
 			"repository_roster": value.roster.to_dict(),
 			"packet_id": packet.packet_id,
 			"projection_id": projection.projection_id,
@@ -196,7 +200,7 @@ class PublicationFinalizationCoordinator:
 			)
 			bundle_path, bundle, transfer = writer.write(
 				value.run_id, surface, value.assets, value.roster,
-				value.selected_post,
+				value.selected_post, value.active_roster,
 			)
 			self.cache.store_json("bundle_creation", input_hash, "bundle.json", {
 				"bundle_path": bundle_path, "bundle": bundle,
@@ -207,7 +211,7 @@ class PublicationFinalizationCoordinator:
 			)
 			bundle_path, bundle, transfer = daily_blog.publication_contract.load_reusable_bundle(
 				dict(cached), date_root, surface, value.assets,
-				value.generator_identity, value.roster,
+				value.generator_identity, value.roster, value.active_roster,
 			)
 		if bundle.get("best_artifact_id") != value.selected_post.artifact_id:
 			raise RuntimeError("Publication bundle does not bind the selected artifact.")

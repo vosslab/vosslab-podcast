@@ -13,6 +13,7 @@ import pytest
 # local repo modules
 import automation.publish_daily_blog
 import daily_blog.artifacts
+import daily_blog.activity
 import daily_blog.acquisition_workflow
 import daily_blog.activation
 import daily_blog.prompt_registry.editorial_contracts
@@ -71,7 +72,8 @@ def _transfer() -> daily_blog.publication_contract.SealedBundleTransfer:
 			daily_blog.io_utils.sha256_bytes(b"{}" if path.endswith(".json") else b"post\n"),
 		)
 		for path in sorted((
-			"bundle.json", "evidence.json", "repository_roster.json", "editorial_projection.json",
+			"bundle.json", "evidence.json", "repository_roster.json", "daily_active_roster.json",
+			"editorial_projection.json",
 			"publication_surface.json", "post.md",
 		))
 	)
@@ -115,6 +117,20 @@ def _surface(
 
 
 #============================================
+def _active_roster(
+	packet: daily_blog.schema.EvidencePacket,
+	roster: daily_blog.repository_contracts.RepositoryRoster,
+) -> dict:
+	"""Return the machine-observed roster provenance for one synthetic packet."""
+	repository = packet.items[0].repository
+	return daily_blog.activity.build_daily_active_roster("vosslab", packet.report_date, roster.roster_id, [{
+		"repository": repository, "sha": packet.items[0].commit,
+		"author_timestamp": packet.report_date + "T12:00:00Z",
+		"author_name": "Fixture", "message": "Fixture work",
+	}])
+
+
+#============================================
 def _current_publication_config(tmp_path: pathlib.Path) -> types.SimpleNamespace:
 	"""Create one complete publisher-owned date publication for integrity tests."""
 	report_date = "2026-08-26"
@@ -146,7 +162,13 @@ def _current_publication_config(tmp_path: pathlib.Path) -> types.SimpleNamespace
 	producer_root.mkdir()
 	bundle_path, bundle, _transfer_value = daily_blog.publication_contract.BundleWriter(
 		str(producer_root), "vosslab", _bundle_identity()
-	).write("run-one", surface, {}, roster, selected)
+	).write("run-one", surface, {}, roster, selected, daily_blog.activity.build_daily_active_roster(
+		"vosslab", report_date, roster.roster_id, [{
+			"repository": "vosslab/project", "sha": "a" * 40,
+			"author_timestamp": report_date + "T12:00:00Z",
+			"author_name": "Fixture", "message": "Fixture work",
+		}],
+	))
 	publisher_root = tmp_path / "publisher"
 	publisher_root.mkdir()
 	(publisher_root / "mkdocs.yml").write_text(
@@ -433,7 +455,7 @@ def test_finalization_keeps_bundle_logical_while_importer_receives_absolute_path
 	value = daily_blog.publication_finalization.SealedPublicationInput(
 		packet.report_date, coordinator.run_id, config.output_root, config.output_owner,
 		config.daily_blog_repository, coordinator.generator_identity,
-		coordinator.force_regeneration, roster, _surface(packet), {}, post,
+		coordinator.force_regeneration, roster, _surface(packet), {}, post, _active_roster(packet, roster),
 	)
 	def finalizer_start(phase: str, value: object) -> str:
 		"""Record the bundle handoff while retaining the run's real phase transition."""
@@ -497,7 +519,7 @@ def test_finalization_stops_before_post_write_when_publisher_preflight_rejects(
 	value = daily_blog.publication_finalization.SealedPublicationInput(
 		packet.report_date, coordinator.run_id, config.output_root, config.output_owner,
 		config.daily_blog_repository, coordinator.generator_identity,
-		coordinator.force_regeneration, roster, _surface(packet), {}, post,
+		coordinator.force_regeneration, roster, _surface(packet), {}, post, _active_roster(packet, roster),
 	)
 	def reject_preflight(*_args: object) -> dict:
 		"""Model the publisher's safe typed validation rejection."""
@@ -591,7 +613,9 @@ def test_orchestrator_records_publisher_preflight_as_an_operational_fault(
 			"repository_discovery", "mirror_refresh", "activity_location", "evidence_assembly",
 		):
 			complete(orchestrator, phase)
-		return types.SimpleNamespace(roster=roster, packet=packet, assets={})
+		return types.SimpleNamespace(
+			roster=roster, packet=packet, assets={}, active_roster=_active_roster(packet, roster),
+		)
 
 	def repository_editorial() -> object:
 		"""Return the narrow Stage 5 handoff after the repository editorial phase."""

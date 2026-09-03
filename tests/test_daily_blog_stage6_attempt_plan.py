@@ -57,41 +57,12 @@ def test_batch_identity_is_fresh_while_transport_identity_is_stable() -> None:
 
 
 #============================================
-def test_repair_binds_the_exact_preceding_review_identity() -> None:
-	"""Repairs cannot be relinked to a different review slot."""
-	plan = daily_blog.stage6_attempt_plan.build_stage6_attempt_plan(make_policy())
-	repair = next(item for item in plan.attempts if item.work_kind == "review_repair")
-	review = next(item for item in plan.attempts if (
-		item.work_kind == "review"
-		and item.rung == repair.rung
-		and item.batch_index == repair.batch_index
-		and item.replica_index == repair.replica_index
-		and item.pair_index == repair.pair_index
-		and item.display_order == repair.display_order
-	))
-	assert repair.repair_of_identity == review.semantic_identity
-	with pytest.raises(RuntimeError, match="repair source"):
-		dataclasses.replace(repair, repair_of_identity="0" * 64)
-
-
-#============================================
 def test_materialization_rejects_generation_outside_its_terminal_boundary() -> None:
 	"""Generation materialization stays within its named terminal boundary."""
 	plan = daily_blog.stage6_attempt_plan.build_stage6_attempt_plan(make_policy())
 	later = next(item for item in plan.attempts if item.rung == "daily_outline_expansion")
 	with pytest.raises(RuntimeError, match="noncanonical or post-terminal"):
 		plan.materialize("primary", 0, (later.semantic_identity,))
-
-
-#============================================
-def test_materialization_rejects_orphan_repair_slot() -> None:
-	"""A repair is derived only with its materialized review dependency."""
-	plan = daily_blog.stage6_attempt_plan.build_stage6_attempt_plan(make_policy())
-	repair = next(item for item in plan.attempts if item.work_kind == "review_repair")
-	with pytest.raises(RuntimeError, match="dependency-closed"):
-		daily_blog.stage6_attempt_plan.MaterializedStage6AttemptPlan(
-			plan, "repository_story_merge", 0, (), (), (repair,),
-		)
 
 
 #============================================
@@ -136,34 +107,12 @@ def test_candidate_pair_binding_requires_canonical_prefix_coordinates() -> None:
 
 
 #============================================
-def test_materialization_derives_review_and_repair_from_valid_dynamic_pair_subset() -> None:
-	"""A canonical dynamic subset derives all reviewers and repairs, never bare slots."""
+def test_materialization_derives_reviews_from_valid_dynamic_pair_subset() -> None:
+	"""A canonical dynamic subset derives all reviewer slots, never bare slots."""
 	plan = daily_blog.stage6_attempt_plan.build_stage6_attempt_plan(make_policy())
 	binding = candidate_pair("primary", 0, 1)
-	review_slots = tuple(
-		item.semantic_identity for item in plan.attempts_for("primary", 0)
-		if item.work_kind == "review" and item.pair_index == 1
-	)
 	materialization = plan.materialize(
-		"primary", 0, generation_ids(plan, "primary", 0), (binding,), review_slots,
+		"primary", 0, generation_ids(plan, "primary", 0), (binding,),
 	)
 	reviews = tuple(item for item in materialization.attempts if item.work_kind == "review")
-	repairs = tuple(item for item in materialization.attempts if item.work_kind == "review_repair")
 	assert {item.pair_index for item in reviews} == {1}
-	assert {item.repair_of_identity for item in repairs} == {item.semantic_identity for item in reviews}
-
-
-#============================================
-def test_materialization_requires_canonical_repair_source_order() -> None:
-	"""A repair witness sequence follows its immutable planned-review order."""
-	plan = daily_blog.stage6_attempt_plan.build_stage6_attempt_plan(make_policy())
-	binding = candidate_pair("primary", 0, 1)
-	review_slots = tuple(
-		item.semantic_identity for item in plan.attempts_for("primary", 0)
-		if item.work_kind == "review" and item.pair_index == 1
-	)
-	with pytest.raises(RuntimeError, match="canonical planned-review order"):
-		plan.materialize(
-			"primary", 0, generation_ids(plan, "primary", 0), (binding,),
-			tuple(reversed(review_slots)),
-		)

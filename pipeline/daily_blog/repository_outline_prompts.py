@@ -7,7 +7,7 @@ import daily_blog.prompt_registry.definitions
 import daily_blog.prompt_registry.loader
 
 
-REPOSITORY_OUTLINE_PROMPT_VERSION = "repository-outline-v1"
+REPOSITORY_OUTLINE_PROMPT_CONTRACT = "repository-outline"
 MAX_EVIDENCE_CONTEXT_CHARS = 60000
 MAX_CANDIDATE_OUTLINES_CHARS = 60000
 MAX_COMPARISON_PROMPT_CHARS = 90000
@@ -30,7 +30,7 @@ def _loaded(value: daily_blog.prompt_registry.loader.LoadedPromptSet | None) -> 
 def repository_outline_prompt_identity(
 	loaded: daily_blog.prompt_registry.loader.LoadedPromptSet | None = None,
 ) -> dict[str, object]:
-	"""Return durable Stage 3 prompt provenance in its legacy payload form."""
+	"""Return durable Stage 3 prompt provenance in its registered payload form."""
 	return _loaded(loaded).identity_dict()
 
 
@@ -80,13 +80,6 @@ def render_repository_outline_comparison(evidence_json: str, candidate_a: str, c
 		"candidate_a": _bounded_text(candidate_a, "candidate A", MAX_CANDIDATE_OUTLINES_CHARS),
 		"candidate_b": _bounded_text(candidate_b, "candidate B", MAX_CANDIDATE_OUTLINES_CHARS),
 	}, MAX_COMPARISON_PROMPT_CHARS)
-
-
-def render_repository_outline_verdict_repair(response: str,
-	loaded: daily_blog.prompt_registry.loader.LoadedPromptSet | None = None) -> str:
-	return _render(loaded, daily_blog.prompt_registry.definitions.REPOSITORY_OUTLINE_VERDICT_REPAIR_RESOURCE, {
-		"response": _bounded_text(response, "repair response", MAX_REPAIR_RESPONSE_CHARS),
-	}, MAX_REPAIR_RESPONSE_CHARS + 3000)
 
 
 def parse_repository_outline_verdict(response: str,

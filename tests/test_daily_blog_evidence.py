@@ -33,54 +33,6 @@ def collection_limits(supporting_total_chars: int = 60) -> dict[str, int]:
 
 
 #============================================
-def test_evidence_budget_reserves_one_citable_item_per_active_repository() -> None:
-	"""Routine evidence cannot consume the coverage needed by later projection."""
-	items = [
-		daily_blog.schema.EvidenceItem.create(
-			"changed_documentation",
-			f"vosslab/repo-{name}",
-			name * 40,
-			"docs/NOTES.md",
-			name * 40,
-			name * 100,
-			"git show",
-		)
-		for name in ("a", "b", "c")
-	]
-	assembler = daily_blog.evidence.EvidenceAssembler(
-		"2026-08-26",
-		"America/Chicago",
-		collection_limits(30),
-	)
-
-	selected = assembler._budget_items(
-		items,
-		["vosslab/repo-a", "vosslab/repo-b", "vosslab/repo-c"],
-	)
-
-	assert {item.repository for item in selected} == {
-		"vosslab/repo-a", "vosslab/repo-b", "vosslab/repo-c",
-	}
-	assert sum(len(item.content) for item in selected) <= 30
-
-
-#============================================
-def test_evidence_budget_fails_when_an_active_repository_has_no_source_item() -> None:
-	"""Missing active-repository provenance fails at assembly rather than prompt time."""
-	item = daily_blog.schema.EvidenceItem.create(
-		"commit_metadata", "vosslab/repo-a", "a" * 40, "", "", "commit", "git show"
-	)
-	assembler = daily_blog.evidence.EvidenceAssembler(
-		"2026-08-26",
-		"America/Chicago",
-		collection_limits(),
-	)
-
-	with pytest.raises(RuntimeError, match="vosslab/repo-b"):
-		assembler._budget_items([item], ["vosslab/repo-a", "vosslab/repo-b"])
-
-
-#============================================
 def test_extracts_every_exact_date_section_until_any_next_h2() -> None:
 	"""Matching changelog entries retain full text and respect level-two boundaries."""
 	changelog = (
@@ -275,7 +227,7 @@ def test_run_store_persists_safe_structured_phase_event(
 		{"phase": "mirror_refresh", "failure_kind": "runtime_error"},
 	)
 
-	event_path = tmp_path / "vosslab" / "daily_blog" / "2026-08-23" / "runs" / "run-log" / "events.jsonl"
+	event_path = tmp_path / "vosslab" / "daily_blog" / "2026-08-23" / "runs" / "run-log" / "runlog-2026-08-23.jsonl"
 	with open(event_path, "r", encoding="utf-8") as handle:
 		event = json.loads(handle.read())
 	stdout_event = json.loads(capsys.readouterr().out)

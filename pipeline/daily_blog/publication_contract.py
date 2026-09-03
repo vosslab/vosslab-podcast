@@ -8,6 +8,7 @@ import re
 
 # local repo modules
 import daily_blog.schema
+import daily_blog.activity
 import daily_blog.repository_contracts
 import daily_blog.io_utils
 import daily_blog.artifacts
@@ -31,7 +32,8 @@ SEALED_BUNDLE_TRANSFER_SCHEMA_VERSION = "vosslab.daily-blog.bundle-transfer.v1"
 SEALED_BUNDLE_TRANSFER_MAGIC = (SEALED_BUNDLE_TRANSFER_SCHEMA_VERSION + "\n").encode("ascii")
 MAX_TRANSFER_BYTES = daily_blog.publication_storage.MAX_EVIDENCE_BYTES
 _CORE_TRANSFER_PATHS = frozenset({
-	"bundle.json", "evidence.json", "repository_roster.json", "editorial_projection.json",
+	"bundle.json", "evidence.json", "repository_roster.json", "daily_active_roster.json",
+	"editorial_projection.json",
 	"publication_surface.json", "post.md",
 })
 
@@ -125,7 +127,8 @@ def _transfer_path_limit(path: object) -> int:
 	if path == "evidence.json":
 		return daily_blog.publication_storage.MAX_EVIDENCE_BYTES
 	if path in {
-		"bundle.json", "repository_roster.json", "editorial_projection.json", "publication_surface.json",
+		"bundle.json", "repository_roster.json", "daily_active_roster.json",
+		"editorial_projection.json", "publication_surface.json",
 	}:
 		return daily_blog.publication_storage.MAX_JSON_BYTES
 	if path == "post.md":
@@ -204,7 +207,7 @@ def publication_identity(
 
 #============================================
 def _validate_contract_identity(value: object) -> dict[str, object]:
-	"""Copy the primitive contract fields required by the bundle-v9 manifest."""
+	"""Copy the primitive contract fields required by the bundle manifest."""
 	base_fields = {
 		"evidence_schema", "editorial_projection_schema", "prompt_version",
 		"rubric_version", "candidate_validation",
@@ -382,7 +385,7 @@ def validate_bundle_manifest_coherence(
 	packet: daily_blog.schema.EvidencePacket,
 	evidence_value: object,
 ) -> None:
-	"""Bind the v9 manifest-wide publication identity to active evidence."""
+	"""Bind the manifest-wide publication identity to active evidence."""
 	if (
 		bundle.get("report_date") != packet.report_date
 		or bundle.get("timezone") != packet.timezone
@@ -398,6 +401,28 @@ def validate_bundle_manifest_coherence(
 	}
 	if bundle.get("evidence") != expected_manifest:
 		raise RuntimeError("Cached publication bundle evidence manifest is invalid.")
+
+
+#============================================
+def _validate_active_roster_binding(
+	value: object,
+	roster: daily_blog.repository_contracts.RepositoryRoster,
+	report_date: str,
+) -> dict[str, object]:
+	"""Bind daily activity provenance to its account roster and report date."""
+	active = daily_blog.activity.validate_daily_active_roster(value)
+	active_repositories = {
+		entry["repository"] for entry in active["repositories"]
+	}
+	account_repositories = {entry.repository for entry in roster.repositories}
+	if (
+		active["owner"].casefold() != roster.owner.casefold()
+		or active["report_date"] != report_date
+		or active["repository_roster_id"] != roster.roster_id
+		or not active_repositories <= account_repositories
+	):
+		raise RuntimeError("Daily active roster is outside its account roster or report date.")
+	return active
 
 
 #============================================
@@ -420,7 +445,7 @@ def _surface_assets(surface_value: dict[str, object]) -> dict[str, dict[str, obj
 
 #============================================
 def sealed_bundle_transfer(bundle: object, artifacts: object) -> SealedBundleTransfer:
-	"""Validate one v9 byte snapshot and freeze it for one publisher invocation."""
+	"""Validate one sealed byte snapshot and freeze it for one publisher invocation."""
 	if type(bundle) is not dict or type(artifacts) is not dict:
 		raise RuntimeError("Sealed bundle transfer requires exact bundle artifacts.")
 	if not _CORE_TRANSFER_PATHS <= set(artifacts) or any(
@@ -455,6 +480,14 @@ def sealed_bundle_transfer(bundle: object, artifacts: object) -> SealedBundleTra
 		raise RuntimeError("Sealed bundle transfer roster manifest is invalid.")
 	if not {activity.repository for activity in packet.activity} <= {item.repository for item in roster.repositories}:
 		raise RuntimeError("Sealed bundle transfer activity exceeds its roster.")
+	active_value = daily_blog.publication_storage.json_artifact(artifacts["daily_active_roster.json"])
+	active_value = _validate_active_roster_binding(active_value, roster, packet.report_date)
+	if bundle.get("daily_active_roster") != {
+		"path": "daily_active_roster.json",
+		"active_roster_id": active_value["active_roster_id"],
+		"sha256": daily_blog.io_utils.hash_value(active_value),
+	}:
+		raise RuntimeError("Sealed bundle transfer active roster provenance is invalid.")
 	projection_value = daily_blog.publication_storage.json_artifact(artifacts["editorial_projection.json"])
 	if not isinstance(projection_value, dict):
 		raise RuntimeError("Sealed bundle transfer projection is invalid.")
@@ -533,6 +566,7 @@ def load_reusable_bundle(
 	assets: dict[str, bytes],
 	identity: PublicationIdentity,
 	repository_roster: daily_blog.repository_contracts.RepositoryRoster | None = None,
+	daily_active_roster: dict[str, object] | None = None,
 ) -> tuple[str, dict, SealedBundleTransfer]:
 	"""Verify and return the completed bundle at the stable date path."""
 	if type(surface) is not daily_blog.publication_admission.PublicationSurface:
@@ -577,6 +611,15 @@ def load_reusable_bundle(
 		or roster != current_roster
 	):
 		raise RuntimeError("Cached publication bundle repository roster integrity is invalid.")
+	if daily_active_roster is None:
+		raise RuntimeError("Reusable publication bundles require current roster provenance.")
+	active_value = _validate_active_roster_binding(daily_active_roster, roster, packet.report_date)
+	if bundle.get("daily_active_roster") != {
+		"path": "daily_active_roster.json",
+		"active_roster_id": active_value["active_roster_id"],
+		"sha256": daily_blog.io_utils.hash_value(active_value),
+	} or daily_blog.publication_storage.json_artifact(artifacts["daily_active_roster.json"]) != active_value:
+		raise RuntimeError("Cached publication bundle active roster provenance is invalid.")
 	contracts = bundle.get("contracts", {})
 	expected_contracts = identity.contracts_dict()
 	if (
@@ -710,6 +753,7 @@ class BundleWriter:
 		assets: dict[str, bytes],
 		repository_roster: daily_blog.repository_contracts.RepositoryRoster,
 		selected_post: daily_blog.artifacts.CompletePost,
+		daily_active_roster: dict[str, object],
 	) -> tuple[str, dict, SealedBundleTransfer]:
 		"""Write and atomically promote the current date-owned publication bundle."""
 		_require_identity(self.identity)
@@ -743,6 +787,9 @@ class BundleWriter:
 		projection_hash = daily_blog.io_utils.hash_value(projection_value)
 		roster_value = roster.to_dict()
 		roster_hash = daily_blog.io_utils.hash_value(roster_value)
+		active_roster_value = _validate_active_roster_binding(
+			daily_active_roster, roster, packet.report_date,
+		)
 		asset_manifest = self._asset_manifest(surface_value, packet, assets)
 		bundle = {
 			"schema_version": daily_blog.schema.BUNDLE_SCHEMA_VERSION,
@@ -766,6 +813,11 @@ class BundleWriter:
 				"path": "repository_roster.json",
 				"roster_id": roster.roster_id,
 				"sha256": roster_hash,
+			},
+			"daily_active_roster": {
+				"path": "daily_active_roster.json",
+				"active_roster_id": active_roster_value["active_roster_id"],
+				"sha256": daily_blog.io_utils.hash_value(active_roster_value),
 			},
 			"editorial_projection": {
 				"path": "editorial_projection.json",
@@ -793,6 +845,7 @@ class BundleWriter:
 			"bundle.json": daily_blog.io_utils.stable_json_text(bundle).encode("utf-8"),
 			"evidence.json": daily_blog.io_utils.stable_json_text(evidence_value).encode("utf-8"),
 			"repository_roster.json": daily_blog.io_utils.stable_json_text(roster_value).encode("utf-8"),
+			"daily_active_roster.json": daily_blog.io_utils.stable_json_text(active_roster_value).encode("utf-8"),
 			"editorial_projection.json": daily_blog.io_utils.stable_json_text(projection_value).encode("utf-8"),
 			"publication_surface.json": daily_blog.io_utils.stable_json_text(surface_value).encode("utf-8"),
 			"post.md": post.encode("utf-8"),

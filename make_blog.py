@@ -186,7 +186,6 @@ def _prepare_publication(argv: list[str] | None) -> tuple[object, str, argparse.
 	args = parse_args(argv)
 	config = daily_blog.config.load_config(str(SETTINGS_PATH), output_root=str(OUTPUT_ROOT))
 	report_date = selected_report_date(args, config.report_timezone)
-	print(f"Selected report date: {report_date}")
 	return config, report_date, args
 
 

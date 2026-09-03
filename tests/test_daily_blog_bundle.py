@@ -32,6 +32,7 @@ def storage_artifacts() -> dict[str, bytes]:
 		"bundle.json": b"{}\n",
 		"evidence.json": b"{}\n",
 		"repository_roster.json": b"{}\n",
+		"daily_active_roster.json": b"{}\n",
 		"editorial_projection.json": b"{}\n",
 		"publication_surface.json": b"{}\n",
 		"post.md": b"A complete post.\n",
@@ -105,7 +106,8 @@ def test_authoritative_evidence_uses_its_transfer_bound_while_other_json_stays_c
 			path, b"post\n" if path == "post.md" else b"{}",
 			daily_blog.io_utils.sha256_bytes(b"post\n" if path == "post.md" else b"{}"),
 		) for path in (
-			"bundle.json", "repository_roster.json", "editorial_projection.json",
+			"bundle.json", "repository_roster.json", "daily_active_roster.json",
+			"editorial_projection.json",
 			"publication_surface.json", "post.md",
 		)],
 	), key=lambda entry: entry.path))
@@ -183,6 +185,30 @@ def bundle_roster(
 
 
 #============================================
+def bundle_active_roster(packet: daily_blog.schema.EvidencePacket) -> dict:
+	"""Return machine-owned daily roster provenance for one synthetic packet."""
+	commits = []
+	for activity in packet.activity:
+		for commit in activity.commits:
+			commits.append({
+				"repository": activity.repository, "sha": commit.sha,
+				"author_timestamp": commit.author_timestamp, "author_name": commit.author_name,
+				"message": commit.message,
+			})
+	if not commits:
+		for item in packet.items:
+			commits.append({
+				"repository": item.repository, "sha": item.commit,
+				"author_timestamp": packet.report_date + "T12:00:00Z",
+				"author_name": "Fixture", "message": "Fixture work",
+			})
+	active = daily_blog.activity.build_daily_active_roster(
+		"vosslab", packet.report_date, bundle_roster(packet).roster_id, commits,
+	)
+	return active
+
+
+#============================================
 def selected_post(
 	tmp_path: pathlib.Path, packet: daily_blog.schema.EvidencePacket, content: str,
 ) -> daily_blog.artifacts.CompletePost:
@@ -254,7 +280,7 @@ def test_bundle_writer_hashes_and_promotes_one_date_owned_publication(
 	)
 
 	bundle_path, bundle, transfer = writer.write(
-		"run-one", surface, {}, bundle_roster(packet), complete_post
+		"run-one", surface, {}, bundle_roster(packet), complete_post, bundle_active_roster(packet)
 	)
 
 	with open(f"{bundle_path}/bundle.json", "r", encoding="utf-8") as handle:
@@ -275,7 +301,7 @@ def test_bundle_writer_hashes_and_promotes_one_date_owned_publication(
 	(pathlib.Path(bundle_path) / "post.md").write_text("changed after sealing\n", encoding="utf-8")
 	assert next(entry.contents for entry in transfer.entries if entry.path == "post.md") == complete_post.content.encode("utf-8")
 	replacement_path, replacement, _replacement_transfer = writer.write(
-		"run-two", surface, {}, bundle_roster(packet), complete_post
+		"run-two", surface, {}, bundle_roster(packet), complete_post, bundle_active_roster(packet)
 	)
 
 	assert replacement_path == bundle_path
@@ -298,7 +324,8 @@ def test_sealed_transfer_rejects_an_aggregate_payload_larger_than_the_importer_c
 		for ordinal in range(8)
 	]
 	for path in (
-		"bundle.json", "evidence.json", "repository_roster.json", "editorial_projection.json",
+		"bundle.json", "evidence.json", "repository_roster.json", "daily_active_roster.json",
+		"editorial_projection.json",
 		"publication_surface.json", "post.md",
 	):
 		contents = b"post\n" if path == "post.md" else b"{}"
@@ -400,6 +427,7 @@ def make_v4_bundle(
 		{},
 		bundle_roster(packet),
 		selected_post(tmp_path, packet, post),
+		bundle_active_roster(packet),
 	)
 	record = {"bundle_path": bundle_path, "bundle": bundle}
 	date_root = str(tmp_path / "vosslab" / "daily_blog" / packet.report_date)
@@ -424,6 +452,7 @@ def test_active_factory_identity_writes_and_reuses_issued_contract(
 		{},
 		identity,
 		bundle_roster(packet),
+		bundle_active_roster(packet),
 	)
 
 	assert bundle_path == record["bundle_path"]
@@ -467,11 +496,12 @@ def test_publication_identity_seals_caller_owned_nested_inputs(
 	bundle_path, bundle, _transfer = writer.write(
 		"sealed-caller-inputs", surface, {}, bundle_roster(packet),
 		selected_post(tmp_path, packet, "sealed selected post\n"),
+		bundle_active_roster(packet),
 	)
 	_, reused, _transfer = daily_blog.publication_contract.load_reusable_bundle(
 		{"bundle_path": bundle_path, "bundle": bundle},
 		str(tmp_path / "vosslab" / "daily_blog" / packet.report_date),
-		surface, {}, identity, bundle_roster(packet),
+		surface, {}, identity, bundle_roster(packet), bundle_active_roster(packet),
 	)
 
 	assert reused["contracts"] == expected_contracts
@@ -500,7 +530,7 @@ def test_active_bundle_reuse_rejects_an_altered_activation_receipt(
 
 	with pytest.raises(RuntimeError, match="generator contracts have changed"):
 		daily_blog.publication_contract.load_reusable_bundle(
-		record, date_root, surface, {}, identity, bundle_roster(packet)
+		record, date_root, surface, {}, identity, bundle_roster(packet), bundle_active_roster(packet)
 		)
 
 
@@ -531,7 +561,7 @@ def test_reusable_bundle_rejects_a_rechecksummed_different_publication_identity(
 
 	with pytest.raises(RuntimeError, match="date or timezone"):
 		daily_blog.publication_contract.load_reusable_bundle(
-			record, date_root, surface, {}, identity, bundle_roster(packet)
+			record, date_root, surface, {}, identity, bundle_roster(packet), bundle_active_roster(packet)
 		)
 
 
@@ -553,7 +583,7 @@ def test_reusable_bundle_rejects_a_rechecksummed_altered_evidence_manifest(
 
 	with pytest.raises(RuntimeError, match="evidence manifest"):
 		daily_blog.publication_contract.load_reusable_bundle(
-			record, date_root, surface, {}, identity, bundle_roster(packet)
+			record, date_root, surface, {}, identity, bundle_roster(packet), bundle_active_roster(packet)
 		)
 
 
@@ -575,7 +605,7 @@ def test_reusable_bundle_rejects_a_rechecksummed_retired_bundle_schema(
 
 	with pytest.raises(RuntimeError, match="schema has changed"):
 		daily_blog.publication_contract.load_reusable_bundle(
-			record, date_root, surface, {}, identity, bundle_roster(packet)
+			record, date_root, surface, {}, identity, bundle_roster(packet), bundle_active_roster(packet)
 		)
 
 
@@ -600,7 +630,7 @@ def test_v4_reuse_rejects_tampered_persisted_prompt_contract(
 
 	with pytest.raises(RuntimeError, match="prompt contract"):
 		daily_blog.publication_contract.load_reusable_bundle(
-		record, date_root, surface, {}, identity, bundle_roster(packet)
+		record, date_root, surface, {}, identity, bundle_roster(packet), bundle_active_roster(packet)
 		)
 
 
@@ -621,7 +651,8 @@ def test_reusable_bundle_rejects_a_changed_authoritative_roster(
 		str(tmp_path), "vosslab", bundle_identity()
 	)
 	bundle_path, bundle, _transfer = writer.write(
-		"roster-scope", surface, {}, bundle_roster(packet), selected_post(tmp_path, packet, post)
+		"roster-scope", surface, {}, bundle_roster(packet), selected_post(tmp_path, packet, post),
+		bundle_active_roster(packet),
 	)
 	quiet = daily_blog.repository_contracts.RepositoryRecord.from_dict({
 		"repository": "vosslab/quiet-repository",
@@ -639,7 +670,7 @@ def test_reusable_bundle_rejects_a_changed_authoritative_roster(
 			str(tmp_path / "vosslab" / "daily_blog" / packet.report_date),
 			surface,
 			{},
-			bundle_identity(), changed_roster,
+			bundle_identity(), changed_roster, bundle_active_roster(packet),
 		)
 
 
@@ -660,7 +691,8 @@ def test_reuse_rejects_a_tampered_candidate_validation_artifact(
 		str(tmp_path), "vosslab", bundle_identity()
 	)
 	bundle_path, bundle, _transfer = writer.write(
-		"tampered-policy", surface, {}, bundle_roster(packet), selected_post(tmp_path, packet, post)
+		"tampered-policy", surface, {}, bundle_roster(packet), selected_post(tmp_path, packet, post),
+		bundle_active_roster(packet),
 	)
 	tampered = copy.deepcopy(bundle)
 	tampered["contracts"]["candidate_validation"]["version"] = "retired"
@@ -672,5 +704,5 @@ def test_reuse_rejects_a_tampered_candidate_validation_artifact(
 	with pytest.raises(RuntimeError, match="generator contracts have changed"):
 		daily_blog.publication_contract.load_reusable_bundle(
 			record, date_root, surface, {},
-		bundle_identity(), bundle_roster(packet)
+		bundle_identity(), bundle_roster(packet), bundle_active_roster(packet)
 		)

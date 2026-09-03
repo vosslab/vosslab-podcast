@@ -10,6 +10,7 @@ import pytest
 # local repo modules
 import daily_blog.activation
 import daily_blog.artifacts
+import daily_blog.activity
 import daily_blog.daily_outline_workflow
 import daily_blog.editorial
 import daily_blog.io_utils
@@ -197,7 +198,13 @@ def test_surface_uses_exact_survivors_and_only_their_bundle_asset_paths(tmp_path
 	])
 	_bundle_path, _bundle, transfer = daily_blog.publication_contract.BundleWriter(
 		str(tmp_path), "vosslab", _identity(),
-	).write("run-1", surface, assets, roster, post)
+	).write("run-1", surface, assets, roster, post, daily_blog.activity.build_daily_active_roster(
+		"vosslab", packet.report_date, roster.roster_id, [{
+			"repository": "vosslab/first", "sha": "a" * 40,
+			"author_timestamp": packet.report_date + "T12:00:00Z",
+			"author_name": "Fixture", "message": "Fixture work",
+		}],
+	))
 	transfer_entries = {item.path: item.contents for item in transfer.entries}
 	portable_surface = json.loads(transfer_entries["publication_surface.json"])
 
@@ -384,6 +391,11 @@ def test_sealed_input_keeps_full_roster_while_its_evidence_surface_is_survivor_o
 		first.report_date, "run-1", str(tmp_path), "owner", str(tmp_path), _identity(), False,
 		roster, surface,
 		daily_blog.publication_admission.survivor_assets(surface, {"assets/first.png": b"first"}), post,
+		daily_blog.activity.build_daily_active_roster("vosslab", first.report_date, roster.roster_id, [{
+			"repository": "vosslab/first", "sha": "a" * 40,
+			"author_timestamp": first.report_date + "T12:00:00Z",
+			"author_name": "Fixture", "message": "Fixture work",
+		}]),
 	)
 
 	assert [item.repository for item in value.roster.repositories] == ["vosslab/failed", "vosslab/first"]

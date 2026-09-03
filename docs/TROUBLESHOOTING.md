@@ -32,10 +32,10 @@ the named stage's input before deleting or regenerating cached files. See
 Symptom: a date-owned daily publication needs diagnosis or recovery.
 
 Start with `out/<owner>/daily_blog/YYYY-MM-DD/summary.jsonl`, then inspect the
-selected `runs/RUN_ID/run_state.json` and `runs/RUN_ID/events.jsonl`. The
-summary is the bounded terminal receipt and authoritative Stage-6 attempt
-summary. The run state contains the response-free attempt ledger and phase
-state; the event journal contains bounded lifecycle facts for that one attempt.
+selected `runs/RUN_ID/run_state.json` and `runs/RUN_ID/runlog-YYYY-MM-DD.jsonl`. The
+summary is the bounded terminal receipt and authoritative editorial-step
+summary. The run state contains phase state and selected-artifact identity; the
+event journal contains bounded lifecycle facts for that one attempt.
 They intentionally omit prompts, model responses, credentials, and raw external
 diagnostics. Use
 [DAILY_BLOG_OPERATIONS.md](DAILY_BLOG_OPERATIONS.md) for the current layout and
@@ -117,14 +117,9 @@ before a terminal receipt is an incomplete operational failure. The public CLI
 emits a bounded `pipeline_fault` JSON record and exits with status 2 only for a
 diagnosed terminal pipeline fault.
 
-For Stage 6, inspect `attempt_summary` in `summary.jsonl`. Its fresh, cache,
-skipped, physical-call, transport, admission-gate, review, rejection-reason,
-selection, and exhaustion totals are derived from the materialized attempt
-ledger in `run_state.json`. Treat a primary no-selection result as an observed
-prefix while recovery remains applicable; only the final recovery/batch
-materialization can record plan exhaustion. Use the event with type
-`daily_publication.stage6_attempt_reliability_persisted` as a bounded lifecycle
-projection, not as a replacement terminal summary.
+For Stage 6, inspect the advisory editorial step summaries in `summary.jsonl`.
+They report actual route success, failure, reuse, repair, and reviewer disagreement without deciding
+whether a mechanically valid post may publish.
 
 Route unavailability, malformed output, and failed candidate or review work are
 editorial degradation only while an eligible whole artifact survives. Exhausted
@@ -152,18 +147,17 @@ publication-repair incumbent transitions; it validates the prior and next
 artifact identities with the associated reliability observation. A rejected
 transition is a state-integrity or implementation fault. Preserve the bounded
 error and terminal summary, correct the underlying configuration or code, then
-rerun the public command for the same report date. A record written under a
-pre-v13 run schema is regeneration-required.
+rerun the public command for the same report date. Pre-production readers accept only the current
+run-record shape.
 
 ## Terminal summary or advisory report unavailable
 
-Symptom: `summary.jsonl` has no valid terminal-summary v2 receipt, or the
+Symptom: `summary.jsonl` has no valid terminal-summary receipt, or the
 advisory report exits with `Reliability report input is unavailable or invalid.`
 
 The terminal summary is a bounded, redacted receipt rather than a raw log. It
 binds the report date, run identity, terminal record digest, outcome, failure
-classification, page-verification digest, per-step reliability counts, and the
-authoritative Stage-6 attempt summary. `events.jsonl` records the bounded
+classification, page-verification digest, and per-step reliability counts. `runlog-YYYY-MM-DD.jsonl` records the bounded
 terminal lifecycle event but does not own the terminal-summary receipt. Inspect
 the date-owned run first. To aggregate retained summaries without changing
 them, run:
@@ -184,11 +178,10 @@ Symptom: work from a newly created repository is absent from `activity.json`,
 `evidence.json`, `editorial_projection.json`, and the post headline. The
 August 26 audit found this exact failure for `vosslab/cancer-clicker`.
 
-Current runs write `daily_commits.md` before repository or mirror work. Check it
-first. A missing commit there means the account/date GitHub search did not
-return that repository/SHA. A present commit with a missing
-`repository_roster.json` record means repository discovery excluded or missed
-the owner repository. A present roster record with no mirror entry means
+Current runs write `repository_roster.json` first. If the repository is absent there, A1 discovery
+excluded or missed it. Next inspect `daily_active_roster.json`; a missing commit means the
+account/date GitHub search did not return that repository/SHA within the A1 universe. A present
+active record with no mirror entry means
 owner-qualified clone or origin validation failed. A present activity record
 with no first-day story signal means the GitHub creation time falls outside the
 selected local report day or the repository is a fork.
@@ -227,7 +220,7 @@ producer-owned run history.
 
 Use the exact bounded rejection code in the terminal receipt to identify the failed relationship.
 Surface-related eligibility codes include `unknown_evidence_reference`, `unapproved_image_path`,
-`unapproved_screenshot_path`, `project_coverage_mismatch`, and `publication_policy_mismatch`.
+`unapproved_screenshot_path`, `project_coverage_mismatch`, and `unsafe_publication_source`.
 An importer contract failure instead uses the bounded `snapshot_rejected` failure category. These
 are trust-boundary faults, not an editorial-quality signal. Preserve the receipt and sealed bundle,
 correct the contract or source artifact, then rerun the ordinary date-owned workflow. An editor may
@@ -240,8 +233,7 @@ Bundle v9 also binds the source-safety policy version and digest:
 Markdown source is an editorial-ineligibility result, not a publication fallback: resolve the
 candidate or source condition, then use the ordinary date-owned workflow to generate and validate
 a current bundle. Do not reconstruct a candidate from a rejected manifest.
-Publication-v3 handling is historical occupied-date inspection/replacement
-only, never an import downgrade path.
+The pre-production publisher does not interpret obsolete publication-record shapes.
 
 ## Unexpected cache miss or reuse
 

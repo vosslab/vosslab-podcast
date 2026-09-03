@@ -205,27 +205,6 @@ def test_cache_request_identity_mismatch_stops_before_route_work() -> None:
 		)
 
 
-def test_cached_repair_provenance_mismatch_stops_before_route_work() -> None:
-	"""A cache entry cannot alter repair provenance while retaining its valid checksums."""
-	normal = request("normal", maximum_parallel_calls=1)
-	result = daily_blog.agents.execute_requests(
-		[normal], SequenceRunner(["sealed response"]), 1,
-		daily_blog.agents.RouteBudget(1, 1),
-	)[0]
-	altered = result.to_cache_dict()
-	altered["repaired"] = True
-	cached = daily_blog.agents.AgentResult.from_cache_dict(altered)
-	with pytest.raises(daily_blog.agents.EditorialIdentityError, match="does not match"):
-		daily_blog.agents.execute_requests(
-			[normal], SequenceRunner([AssertionError("provenance mismatch must stop route work")]), 1,
-			daily_blog.agents.RouteBudget(1, 1),
-			cache_load=lambda _request: cached,
-		)
-
-	assert result.matches(normal)
-	assert not cached.matches(normal)
-
-
 @pytest.mark.parametrize(("first", "second"), [
 	(
 		{"retry_attempts": 0, "maximum_parallel_calls": 1},
@@ -244,139 +223,11 @@ def test_request_identity_changes_when_execution_policy_changes(
 	assert request(**first).identity_sha256 != request(**second).identity_sha256
 
 
-def test_repair_request_marks_the_result_and_admits_one_source_repair() -> None:
-	"""The M1 transport boundary retains repair provenance for one stage-owned repair call."""
-	repair = daily_blog.agents.RouteRequest(
-		request_id="repair", step="review_repair",
-		route=daily_blog.editorial_stage_config.RoleRoute("reviewer", ("fake",)),
-		prompt="repair this structured response", working_directory="/work",
-		role="referee_repair", maximum_parallel_calls=1, repair_of="review_one",
-		input_hash="projection", contract_version="v4",
-	)
-	result = daily_blog.agents.execute_requests(
-		[repair], SequenceRunner(["{\"winner\":\"A\"}"]), 1,
-		daily_blog.agents.RouteBudget(1, 1),
-	)[0]
-
-	assert (result.ok, result.repaired, result.role) == (True, True, "referee_repair")
-	assert result.matches(repair)
-
-
-def test_duplicate_repair_source_fails_without_consuming_a_route_slot() -> None:
-	"""The budget admits exactly one repair for a logical response identity."""
-	budget = daily_blog.agents.RouteBudget(2, 1)
-	first = daily_blog.agents.RouteRequest(
-		"repair_one", "review_repair", daily_blog.editorial_stage_config.RoleRoute("reviewer", ("fake",)),
-		"repair", "/work", repair_of="review_one",
-	)
-	second = daily_blog.agents.RouteRequest(
-		"repair_two", "review_repair", daily_blog.editorial_stage_config.RoleRoute("reviewer", ("fake",)),
-		"repair", "/work", repair_of="review_one",
-	)
-	daily_blog.agents.execute_requests([first], SequenceRunner(["fixed"]), 1, budget)
-	with pytest.raises(daily_blog.agents.DuplicateRepairAdmission, match="already used"):
-		daily_blog.agents.execute_requests(
-			[second], SequenceRunner([AssertionError("route must not run")]), 1, budget
-		)
-
-
-def test_duplicate_repair_batch_does_not_poison_a_later_valid_admission() -> None:
-	"""A rejected duplicate batch changes neither call count nor repair admission state."""
-	budget = daily_blog.agents.RouteBudget(1, 1)
-	first = daily_blog.agents.RouteRequest(
-		"repair_one", "review_repair", daily_blog.editorial_stage_config.RoleRoute("reviewer", ("fake",)),
-		"repair", "/work", repair_of="review_one",
-	)
-	duplicate = daily_blog.agents.RouteRequest(
-		"repair_two", "review_repair", daily_blog.editorial_stage_config.RoleRoute("reviewer", ("fake",)),
-		"repair", "/work", repair_of="review_one",
-	)
-	with pytest.raises(daily_blog.agents.DuplicateRepairAdmission, match="duplicate"):
-		daily_blog.agents.execute_requests(
-			[first, duplicate], SequenceRunner([AssertionError("route must not run")]), 1, budget
-		)
-	result = daily_blog.agents.execute_requests([first], SequenceRunner(["fixed"]), 1, budget)[0]
-	assert result.ok
-
-
-def test_cached_repair_does_not_consume_admission_for_a_later_external_repair() -> None:
-	"""A resumed repair is evidence, not a newly admitted external repair route."""
-	repair = daily_blog.agents.RouteRequest(
-		"cached_repair", "review_repair",
-		daily_blog.editorial_stage_config.RoleRoute("reviewer", ("fake",)), "repair", "/work",
-		maximum_parallel_calls=1, repair_of="source_one",
-	)
-	cached = daily_blog.agents.execute_requests(
-		[repair], SequenceRunner(["cached"]), 1,
-		daily_blog.agents.RouteBudget(1, 1),
-	)[0]
-	budget = daily_blog.agents.RouteBudget(1, 1)
-	resumed = daily_blog.agents.execute_requests(
-		[repair], SequenceRunner([AssertionError("cache must prevent route work")]), 1, budget,
-		cache_load=lambda _request: daily_blog.agents.AgentResult.from_cache_dict(
-			cached.to_cache_dict()
-		),
-	)[0]
-	later = daily_blog.agents.RouteRequest(
-		"later_repair", "review_repair",
-		daily_blog.editorial_stage_config.RoleRoute("reviewer", ("fake",)), "repair", "/work",
-		maximum_parallel_calls=1, repair_of="source_one",
-	)
-	assert resumed.resumed is True
-	assert daily_blog.agents.execute_requests(
-		[later], SequenceRunner(["fresh"]), 1, budget
-	)[0].text == "fresh"
-
-
-def test_invalid_cache_result_does_not_consume_repair_admission() -> None:
-	"""Cache validation errors leave a repair source eligible for its real route call."""
-	repair = daily_blog.agents.RouteRequest(
-		"repair", "review_repair", daily_blog.editorial_stage_config.RoleRoute("reviewer", ("fake",)),
-		"repair", "/work", maximum_parallel_calls=1, repair_of="source_one",
-	)
-	wrong_request = request("wrong", maximum_parallel_calls=1)
-	wrong_result = daily_blog.agents.execute_requests(
-		[wrong_request], SequenceRunner(["other"]), 1,
-		daily_blog.agents.RouteBudget(1, 1),
-	)[0]
-	budget = daily_blog.agents.RouteBudget(1, 1)
-	with pytest.raises(daily_blog.agents.EditorialIdentityError, match="does not match"):
-		daily_blog.agents.execute_requests(
-			[repair], SequenceRunner([AssertionError("invalid cache must stop first")]), 1, budget,
-			cache_load=lambda _request: wrong_result,
-		)
-	assert daily_blog.agents.execute_requests(
-		[repair], SequenceRunner(["fresh"]), 1, budget
-	)[0].text == "fresh"
-
-
-def test_mixed_repair_admission_rejection_does_not_reserve_new_sources() -> None:
-	"""All-or-nothing batch admission preserves new sources after one duplicate fails."""
-	budget = daily_blog.agents.RouteBudget(3, 1)
-	used = daily_blog.agents.RouteRequest(
-		"used", "review_repair", daily_blog.editorial_stage_config.RoleRoute("reviewer", ("fake",)),
-		"repair", "/work", maximum_parallel_calls=1, repair_of="used_source",
-	)
-	daily_blog.agents.execute_requests([used], SequenceRunner(["used"]), 1, budget)
-	new = daily_blog.agents.RouteRequest(
-		"new", "review_repair", daily_blog.editorial_stage_config.RoleRoute("reviewer", ("fake",)),
-		"repair", "/work", maximum_parallel_calls=1, repair_of="new_source",
-	)
-	with pytest.raises(daily_blog.agents.DuplicateRepairAdmission, match="already used"):
-		daily_blog.agents.execute_requests(
-			[new, used], SequenceRunner([AssertionError("batch must not run")]), 1, budget
-		)
-	result = daily_blog.agents.execute_requests(
-		[new], SequenceRunner(["new"]), 1, budget
-	)[0]
-	assert result.text == "new"
-
-
 def agent_result_values() -> dict[str, object]:
 	"""Build one valid in-memory agent result payload for invariant tests."""
 	return {
 		"role": "author", "text": "answer", "ok": True, "failure": "", "attempts": 1,
-		"duration_s": 0.1, "repaired": False, "resumed": False, "route_name": "author",
+		"duration_s": 0.1, "resumed": False, "route_name": "author",
 		"request_id": "one",
 		"request_identity_sha256": daily_blog.io_utils.sha256_text("request"),
 		"text_sha256": daily_blog.io_utils.sha256_text("answer"),

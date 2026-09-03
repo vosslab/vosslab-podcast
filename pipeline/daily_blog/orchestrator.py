@@ -14,6 +14,7 @@ import daily_blog.config
 import daily_blog.editorial
 import daily_blog.io_utils
 import daily_blog.locks
+import daily_blog.observability
 import daily_blog.prompt_registry.definitions
 import daily_blog.prompt_registry.editorial_contracts
 import daily_blog.publication_contract
@@ -216,13 +217,21 @@ class DailyPublicationOrchestrator:
 		)
 		self.generator_revision = self.generator_identity.revision
 		self.run_id = new_run_id()
+		run_dir = os.path.join(
+			config.output_root, config.output_owner, "daily_blog", report_date, "runs", self.run_id,
+		)
+		progress = daily_blog.observability.HumanProgress(
+			report_date, os.path.join(run_dir, f"runlog-{report_date}.jsonl"),
+		)
 		self.store = daily_blog.run_state.RunStore(
 			config.output_root,
 			config.output_owner,
 			report_date,
 			self.run_id,
 			max_events_per_run=config.logging.max_events_per_run,
+			progress=progress,
 		)
+		progress.announce()
 		self.record = daily_blog.run_contracts.RunRecord.create(
 			self.run_id,
 			report_date,
@@ -257,6 +266,8 @@ class DailyPublicationOrchestrator:
 		self.store.append_event(
 			"daily_publication.phase_completed", {"phase": phase, "reused": reused}
 		)
+		if self.store.progress is not None:
+			self.store.progress.phase_result(phase, output_value, reused)
 		return output_hash
 
 	#============================================
@@ -312,7 +323,7 @@ class DailyPublicationOrchestrator:
 					self.force_regeneration, acquisition.roster, surface,
 					daily_blog.publication_admission.survivor_assets(
 						surface, acquisition.assets,
-					), validated.post,
+					), validated.post, acquisition.active_roster,
 				),
 				self.cache, self.store, self.record, self._start, self._complete,
 				invoke_publisher, self.publisher_function, self.publisher_validator,

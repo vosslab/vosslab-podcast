@@ -41,15 +41,17 @@ replacement is verified.
 
 ## Pipeline and outcomes
 
-Before the nine editorial/publication stages, Step 0 searches GitHub for commits in every repository
-owned by the configured account on the `report_date`. It writes `daily_commits.md` in the run
-directory before any model work. Commit-message previews use only the first line and are capped at
-160 characters; exact Git objects remain the evidence authority.
+Before model work, A1 fetches the complete account roster and writes `repository_roster.json`. A2
+then searches GitHub for report-day commits within that universe and writes
+`daily_active_roster.json`. Commit-message previews use only the first line and are capped at 160
+characters; exact Git objects remain the evidence authority. Both sets are derived anew for every
+run rather than fixed in configuration or permanent expected-count fixtures.
+Both are run snapshots, not fixed configuration or permanent expected-count fixtures.
 
 The current pipeline then has nine operator-visible stages:
 
-1. Discover the repository roster and refresh exact local mirrors only for repositories named by
-   Step 0.
+1. Discover the repository roster, derive report-day activity within it, and refresh exact local
+   mirrors only for active repositories. Selected mirror records retain the full roster identity.
 2. Locate date-bounded Git activity and assemble evidence packets.
 3. Produce and promote repository outlines.
 4. Produce and promote repository stories.
@@ -60,9 +62,10 @@ The current pipeline then has nine operator-visible stages:
 9. Import, build, and verify the reader-visible page through the publisher.
 
 Every subjective stage produces independent candidates, keeps eligible survivors after ordinary route
-failures, uses bounded review and verdict repair, and promotes an eligible whole artifact. It never
-mechanically joins prose. Stage 7 preserves the already-grounded Stage-6 incumbent unless an
-eligible synthesis wins its direct comparison.
+failures, treats bounded review as advisory, and promotes an eligible whole artifact. A malformed or
+unavailable review cannot veto usable material. The pipeline never mechanically joins prose. Stage 7
+preserves the already-grounded Stage-6 incumbent unless an eligible synthesis wins its direct
+comparison.
 
 Stage 6 is a bounded editorial subflow: it freezes one survivor-scoped `PublicationSurface`, then
 uses that same authority for writer and editor context, evidence citations, repository coverage,
@@ -143,26 +146,30 @@ Each run is stored under:
 out/<owner>/daily_blog/YYYY-MM-DD/runs/RUN_ID/
 ```
 
+The interactive command prints a Rich progress summary instead of streaming machine JSON. Its first
+line names the absolute `runlog-YYYY-MM-DD.jsonl` path, followed by the selected date, repositories
+with commits, exact commit and evidence counts, and per-step received, reviewed, unavailable, and
+reused totals. Color is enabled on capable terminals and omitted automatically when output is
+redirected. The human display is observational and never controls publication. The canonical step
+and filename map lives in the dedicated publication-flow reference.
+
 The date directory also owns `summary.jsonl`, a bounded terminal receipt for each completed or failed
-run. Inspect `summary.jsonl` first for the terminal outcome, authoritative Stage-6 attempt summary,
+run. Inspect `summary.jsonl` first for the terminal outcome,
 publication status, terminal run-record digest, and verified-page digest. Then inspect
-`daily_commits.md` for Step 0's account-wide date inventory, `run_state.json` for phase state,
-selected artifact, and the response-free Stage-6 ledger, and `events.jsonl` for bounded lifecycle and
+`daily_active_roster.json` for Step 0's machine-owned active repository roster, `run_state.json` for phase state,
+selected artifact, and `runlog-YYYY-MM-DD.jsonl` for bounded lifecycle and
 bundle facts. These records intentionally omit prompts, model responses, credentials, and raw
 external diagnostics.
 
-Run state uses `vosslab.daily-blog.run.v13`. Each editorial summary carries an exact typed incumbent
+Run state uses `vosslab.daily-blog.run`. Each editorial summary carries an exact typed incumbent
 transition: observe, establish, editorial replacement, or publication repair. Replay validates the
 transition chain and `best_artifact_id`; stage names are observability labels, never authority to
-replace a post. The v13 record also stores the complete materialized Stage-6 attempt ledger and its
-derived summary. Each production retry creates a new auditable run and reuses only compatible phase
+replace a post. Each production retry creates a new auditable run and reuses only compatible phase
 and route-cache work. `RunStore.reopen()` is reconciliation-only: it can resolve a pending transition
 in an existing run once, but it does not make that run the retry target.
 
-Run v13 proceeds from evidence assembly to repository editorial; the survivor-scoped surface owns
-editorial projection. Mutable run state and terminal-summary receipts from another schema are
-regeneration-required. Production readers and writers use only the current phase set; inspect older
-internal JSON through a disposable diagnostic reader when historical analysis requires it.
+The current run proceeds from evidence assembly to repository editorial; the survivor-scoped surface
+owns editorial projection. Pre-production readers and writers accept only the current shape.
 
 Hash-verified phase-cache entries reuse matching activity, evidence, projections, and successful
 route results. Failed route calls remain retryable, and compatible ordinal calls can be reused when
@@ -174,9 +181,8 @@ Changes to selected evidence, narrative scope, image mapping, or commits invalid
 editorial work. Cache reuse saves work; it cannot relax evidence, eligibility, identity, or
 publication validation.
 
-Stage-6 route reuse also requires the exact materialized v2 cache witness. It binds the planned slot,
-prompt digest, ordered candidate hashes, positive feedback-envelope digest, review-repair source and
-response digests, and route execution contract. Same-request transport retries retain that semantic
+Stage-6 route reuse also requires the exact materialized cache witness. It binds the planned slot,
+prompt digest, ordered candidate hashes, and route execution contract. Same-request transport retries retain that semantic
 slot; a new fresh batch receives a different planned identity.
 
 Complete-post candidates reused from cache are admitted again against the current frozen
@@ -229,7 +235,7 @@ disguised, or otherwise unapproved active markup make a candidate editorially in
 publisher independently rechecks the same policy and surface scope at import. A cached bundle is
 reused only when its current v9 schema, surface identity, safety identity, and sealed artifacts
 validate; otherwise the producer rebuilds it. Earlier publication receipts are retained only for
-read-only historical inspection; new imports use v9 bundles and v6 records.
+archive inspection outside the runtime; the publisher reads and writes only the current record.
 
 The importer reports actual prior-state results under its date lock:
 
@@ -268,13 +274,10 @@ pipeline operation.
 
 ## Observability and reliability
 
-The terminal summary exposes the authoritative bounded Stage-6 attempt projection: materialized
-planned slots, fresh and cached dispatch, promotion skips, physical calls, transport outcomes,
-admission gates, completed or rejected reviews, rejection reasons, selection, and final exhaustion.
-`run_state.json` retains the exact response-free ledger behind those counts. The
-`daily_publication.stage6_attempt_reliability_persisted` event repeats only bounded scalar lifecycle
-facts; use `summary.jsonl` for the terminal result. Candidate, prompt, reviewer-response, and provider
-prose remain outside all three records.
+The terminal summary exposes bounded editorial step observations such as route success, failure,
+reuse, repair, and reviewer disagreement. These facts are advisory and never become another
+publication gate. Candidate, prompt, reviewer-response, and provider prose remain outside retained
+records.
 
 The read-only reliability reporter aggregates those receipts across runs. Its rates preserve raw
 numerators and denominators and report an absent population as `n/a`; it is advisory only. It does

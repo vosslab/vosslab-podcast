@@ -70,7 +70,7 @@ def recovery_generation(
 	)
 	text = "fixture" if ok else ""
 	result = daily_blog.agents.AgentResult(
-		"recovery", text, ok, "" if ok else "timeout", 1, 0.0, False, False,
+		"recovery", text, ok, "" if ok else "timeout", 1, 0.0, False,
 		route.name, request.request_id, request.identity_sha256,
 		daily_blog.io_utils.sha256_text(text),
 	)

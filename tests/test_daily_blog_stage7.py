@@ -103,7 +103,7 @@ def _stage7_input(
 	request = daily_blog.agents.RouteRequest("stage6-source", "stage6", daily_blog.editorial_stage_config.RoleRoute("writer", ("fixture",)),
 		"prompt", str(tmp_path), input_hash="a" * 64, contract_version="v4")
 	result: daily_blog.agents.AgentResult = daily_blog.agents.AgentResult(
-		"writer", alternative.content, True, "", 1, 0, False, False,
+		"writer", alternative.content, True, "", 1, 0, False,
 		"writer", request.request_id, request.identity_sha256, daily_blog.io_utils.sha256_text(alternative.content))
 	candidate = daily_blog.replication.ReplicatedCandidate(request, result, alternative,
 		daily_blog.artifacts.evaluate_eligibility(alternative, value.packets, (value.output_root,)))

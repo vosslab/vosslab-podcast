@@ -3481,3 +3481,233 @@ Next actions
 2. Run the bounded comparison, apply its evidence-selected default, perform the explicit-date live
    publication, and record the run, bundle, and rendered-page digests.
 3. Run the dependent final review and closeout verification.
+
+---
+Session Update: 2026-09-02 (availability-first LLM gate removal)
+
+Change
+- Diagnosed failed run `20260903T014825Z-b4fcd1e057` as gating and evidence discovery, not prompt
+  quality. The run reached repository editorial with empty activity and made no LLM calls. A live
+  account/date GitHub search found August 17 commit
+  `92672c25d91d825eef0038d84480db71eddc4b25` in `vosslab/vosslab-skills`.
+- Added Step 0: each run writes a local, account-wide `daily_commits.md` before mirror work, with
+  bounded commit-message previews and exact repository/SHA links. Only active repositories are
+  refreshed; a day with no commits completes as a no-op.
+- Applied the user-edited `docs/LLM_GATE_STYLE.md` boundary throughout the editorial path. Evidence
+  provenance, publication identity, source/path safety, and publisher integrity remain hard. Model
+  formatting, rankings, reviews, style, headings, and optional citation packaging do not control
+  availability.
+- Removed the repair-feedback subsystem, Stage-6 attempt ledger, historical publication readers,
+  retired candidate selection, reviewer repair calls, repair slots, repair cache identity, and four
+  dead repair prompt assets. Model reviewers are now advisory; malformed or negative output falls
+  back to a stable mechanically eligible candidate.
+- Replaced affected internal pre-production schemas in place without compatibility readers or
+  migration fixtures. Deleted tests that existed to enforce retired repair machinery, historical
+  schemas, or strict model-obedience gates. Preserved unrelated user-owned `bulk_run_log.jsonl`.
+
+Tests
+- Python compilation and Pyflakes passed.
+- Focused transport, replication, Stage-6, route-cache, Stage-7, run-state, prompt-registry, source
+  size, guidance-format, and Markdown-link checks passed.
+- The complete permanent suite passed: 3,944 passed in 30.60 seconds.
+- One-time controlled checks passed: exact-Git evidence E2E, new-repository E2E, and complete
+  producer-to-publisher import/replacement/page-verification E2E. In the publication E2E, both Stage
+  7 synthesis calls failed and the Stage-6 incumbent still published after deterministic packaging
+  normalization, directly proving the intended degraded-success behavior.
+
+Next actions
+1. Run a fresh explicit-date production publication only when the operator wants to exercise live
+   model and publisher routes; no production publication was performed in this change.
+
+---
+Session Update: 2026-09-02 (optional improvement gates)
+
+Change
+- Removed the dead citation-density, presentation-policy, and publication-policy rejection codes
+  from the active editorial artifact contract and corrected the operator guide's obsolete verdict-
+  repair description.
+- Made optional repository-outline merging and repository-story editing skip safely when their
+  expanded prompts exceed configured resource bounds. Their already eligible generator or writer
+  artifacts remain available for promotion.
+- Added one shared `ReviewUnavailable` result path so an oversized optional comparison wave records
+  no review instead of aborting promotion. Stage 6 retains mechanically eligible posts under the
+  same condition, and Stage 7 preserves its validated Stage-6 incumbent when synthesis context is
+  too large. Writer and evidence limits remain hard prerequisites.
+- Added no permanent tests; these changes remove failure authority rather than introducing another
+  model-output contract.
+
+Tests
+- The focused replication, repository-outline, repository-story, Stage-6, recovery, and Stage-7
+  suite passed all 43 tests.
+- Pyflakes and whitespace validation passed after the change.
+- The complete permanent suite passed all 3,944 tests in 30.78 seconds.
+- The controlled producer-to-publisher E2E passed its import, same-date replacement, and expected
+  page-verification-failure scenarios. Both Stage-7 synthesis calls failed in the successful import
+  path, and the Stage-6 incumbent still reached a verified reader page.
+
+Next actions
+1. Run a live explicit-date publication only when the operator wants to invoke production model and
+   publisher routes; none was run during this change.
+
+---
+Session Update: 2026-09-03 (authoritative roster identity repair)
+
+Change
+- Replayed failed run `20260903T131949Z-fb3f1f8cb1` through the publisher's validation core without
+  importing it. The exact rejected condition was `Evidence mirror is outside the sealed repository
+  roster.`
+- Found that Step 0 correctly selected only `vosslab/vosslab-skills` for mirror work but incorrectly
+  constructed a second one-repository roster. Evidence carried that subset roster ID while the
+  bundle correctly sealed the complete owner roster.
+- Changed mirror selection to operate beneath the authoritative roster instead of replacing it.
+  `MirrorManager` can refresh an exact selected subset, but emitted entries retain the full roster's
+  identity. The publisher's real provenance validation remains unchanged.
+- Made `docs/LLM_GATE_STYLE.md` explicit as the primary policy for continued gate cleanup. Added the
+  preserved-run lesson: recover the exact downstream reason, distinguish an unnecessary gate from
+  contradictory upstream identity, and retain genuine integrity checks while fixing their producer.
+- Added no permanent test or fixture for the historical run. Temporary diagnostic scripts were
+  deleted after use, and the failed generated bundle was left untouched.
+
+Tests
+- Focused mirror, multi-repository coordinator, contract integration, and bundle tests passed all
+  39 cases.
+- A one-time no-network check against the preserved August 17 roster selected only
+  `vosslab/vosslab-skills` and produced the full authoritative roster ID on its mirror entry.
+- The controlled producer-to-publisher E2E passed import, same-date replacement, and expected
+  page-verification failure scenarios.
+- The complete permanent suite passed all 3,944 tests in 30.86 seconds.
+
+Next actions
+1. Let the operator rerun `./make_blog.py -y -d 2026-08-17`; no live publication or sibling-repo
+   mutation was performed during this repair.
+
+---
+Session Update: 2026-09-03 (human publication progress)
+
+Change
+- Replaced raw JSON events on the public command's stdout with a Rich human-progress renderer. The
+  first line gives the absolute `runlog-YYYY-MM-DD.jsonl` path, followed by the report date and
+  plain-language phase progress.
+- Added coordinator-owned repository, commit, and evidence counts plus editorial-step summaries for
+  received, edited, reviewed, promoted, unavailable, and reused work. The display consumes already
+  validated facts and cannot change orchestration or admission.
+- Renamed the per-run canonical machine journal from `events.jsonl` to
+  `runlog-YYYY-MM-DD.jsonl` and updated current operator and format documentation. Rich automatically
+  emits color only to capable terminals; redirected output remains plain text.
+- Kept `docs/LLM_GATE_STYLE.md` authoritative over publication gates. The safe log-path and terminal
+  rendering work adds no admission check, retry requirement, or failure condition.
+- Updated existing journal path-safety tests for the current filename and removed one brittle CLI
+  assertion that required the obsolete pre-run selection line. Added no fixture or model-output test.
+- Added `docs/PUBLICATION_FLOW.md` to own the human A1-through-G6 names and their durable filenames.
+  Its availability section explicitly allows zero-count and degraded model steps, prohibits tests
+  that freeze route topology or instruction-perfect behavior, and gives `docs/LLM_GATE_STYLE.md`
+  overriding authority.
+- Recorded the human filename rule in `docs/HUMAN_GUIDANCE.md` and the flow contract: filenames are
+  deterministic and code-owned, never selected or influenced by model output.
+
+Tests
+- Focused observability, CLI, fault, integration, typing, Pyflakes, source-size, and Markdown checks
+  passed all 857 cases.
+- The controlled producer-to-publisher E2E passed all import, replacement, and expected page-failure
+  paths while demonstrating the complete human-readable output flow.
+- The complete permanent suite passed all 3,944 tests in 31.11 seconds after the final
+  deterministic-filename documentation update.
+
+Next actions
+1. Let the operator evaluate the colored output during the next live date-owned publication.
+
+---
+Session Update: 2026-09-03 (dynamic repository snapshots and pytest audit)
+
+Change
+- Clarified that deterministic repository-set derivation does not mean fixed membership. The
+  complete account roster is fetched fresh for every run, and the active repository set is derived
+  fresh from commits on `report_date`; each is immutable only within that run.
+- Recorded the user's dynamic-roster guidance and the settled ownership decision. Repository agents
+  receive deterministic repository-scoped evidence from the one run snapshot, while publication
+  seals the same active evidence together with the fresh full roster.
+- Audited roster-related permanent tests against `docs/PYTEST_STYLE.md`. They use small inline
+  synthetic sets to test derivation and containment behavior; none freezes live repository names,
+  real account counts, model compliance, or network results, so no deletion was justified.
+
+Tests
+- The explicitly requested `source source_me.sh && pytest tests/` completed with 3,944 passing tests
+  in 31.15 seconds.
+- No failing test gate was present. No permanent test, fixture, temporary test, or production
+  workaround was added.
+
+Next actions
+1. Use a future real-account run only as one-time operational evidence; do not convert its repository
+   membership or counts into permanent pytest expectations.
+
+---
+Session Update: 2026-09-03 (machine-owned daily roster and availability gates)
+
+Change
+- Replaced `daily_commits.md` with `daily_active_roster.json`, whose deterministic repository and
+  commit records are created before LLM work and include a content-derived active-roster identity.
+- Carried `daily_active_roster.json` into the descriptor-pinned producer-publisher bundle and bound
+  its identity and bytes in the bundle manifest. No comparison to model prose was added.
+- Kept concrete clone and fetch outcomes in `mirror_manifest.json`; no parallel availability roster
+  or recovery-domain artifact was added.
+- Removed the whole-day failure caused by one unavailable clone or fetch. Activity location skips
+  failed mirror entries and continues with usable repository evidence.
+- Kept path confinement, canonical mirror origin, roster identity, date, evidence provenance, and
+  sealed-byte integrity as hard faults. Only the explicit remote-unavailability condition degrades.
+- Updated `LLM_GATE_STYLE.md`, `DESIGN_DECISIONS.md`, `PUBLICATION_FLOW.md`, and format/operator docs
+  to state that LLM prose never owns repository identity and roster mismatch remains recoverable.
+
+Tests
+- Focused repository discovery, mirror, and controlled daily-publication tests passed 12 cases.
+- Pyflakes passed the changed Python modules.
+- Focused bundle, storage, publication-finalization, publisher, and controlled E2E checks passed 89
+  cases across the two focused runs. The complete permanent suite passed all 3,949 tests in 30.98
+  seconds after the sealed active-roster provenance change.
+
+Next actions
+1. Stop changing the architecture and evaluate the next real publication run.
+
+---
+Session Update: 2026-09-03 (six-pass gate audit)
+
+Change
+- Ran six independent plan, test, style, documentation, legacy, and comment audits over the complete
+  working-tree change under `docs/LLM_GATE_STYLE.md` and the pre-production clean-break policy.
+- Removed the evidence and projection gates requiring one citable item for every active repository;
+  deleted the two permanent pytests that preserved that veto.
+- Bound the daily active roster to its A1 roster identity, owner, report date, and repository universe
+  in the sealed bundle without comparing it to LLM prose.
+- Corrected A1/A2 and sealed-file documentation, removed stale review-repair descriptions, fixed the
+  misplaced import, and removed the unused `FailureClass` enum.
+
+Tests
+- Focused post-audit evidence, projection, roster, bundle, publisher, and finalization checks passed
+  all 115 cases.
+- The complete permanent suite passed all 3,947 tests in 31.31 seconds. Pyflakes passed the changed
+  audit modules.
+
+Next actions
+1. Perform the remaining coordinated pre-production cutover from active versioned prompt/schema
+   identities and filenames; delete superseded prompt families rather than adding aliases.
+
+---
+Session Update: 2026-09-03 (publication-flow ownership audit)
+
+Change
+- Added explicit machine-owned, LLM-derived machine-wrapped, and LLM-authored publication labels to
+  every step in `PUBLICATION_FLOW.md`. Deterministic code owns every JSON envelope; models do not have
+  to emit the envelope correctly.
+- Replaced gate-like editorial wording and renamed `reliability` artifacts to descriptive editorial
+  filenames without compatibility aliases.
+- Shortened the flow-table ownership labels to MOA, LDMW, and LAP, with the full meanings and
+  authority rules defined before the tables.
+- Made daily-outline comparison context overflow degrade the optional review rather than destroy a
+  usable incumbent.
+
+Tests
+- Focused documentation, daily-outline review, Stage 7, and observability checks passed 108 cases.
+- The complete permanent suite passed all 3,947 tests in 31.08 seconds.
+
+Next actions
+1. Redesign the remaining Stage-6 all-survivor prompt-capacity boundary deliberately; do not hide it
+   with broad exception recovery or arbitrary repository truncation.

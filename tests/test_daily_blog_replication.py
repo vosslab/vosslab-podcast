@@ -84,8 +84,8 @@ def test_replicate_retains_eligible_peer_after_one_generator_failure() -> None:
 
 
 #============================================
-def test_review_salvages_original_response_after_repair_fails() -> None:
-	"""A failed repair retains one unambiguous identity from the original verdict."""
+def test_review_salvages_an_unambiguous_identity_from_malformed_output() -> None:
+	"""Usable reviewer intent survives a malformed response without another model call."""
 	source = packet()
 	first, second = outline(source, "First"), outline(source, "Second")
 	def build(
@@ -110,39 +110,13 @@ def test_review_salvages_original_response_after_repair_fails() -> None:
 			prompt: str,
 			_directory: str,
 		) -> str:
-			if prompt.endswith("_repair"):
-				return "repair did not produce a usable verdict"
 			return "malformed verdict " + first.artifact_id
-	def repair(
-		work: daily_blog.replication.ReviewWork,
-		_text: str,
-	) -> daily_blog.replication.ReviewWork:
-		repair_request = daily_blog.agents.RouteRequest(
-			work.request.request_id + "_repair", "review", work.request.route,
-			work.request.request_id + "_repair", "/work", maximum_parallel_calls=2,
-			repair_of=work.request.cache_input_hash,
-			cache_input_hash=daily_blog.io_utils.hash_value({
-				"test": "replication-repair",
-				"source_cache_input_hash": work.request.cache_input_hash,
-				"malformed_response": _text,
-			}),
-		)
-		return daily_blog.replication.ReviewWork(
-			repair_request,
-			work.first_artifact_id,
-			work.second_artifact_id,
-			work.assignment,
-		)
 	result = daily_blog.replication.review(
 		(first, second), daily_blog.artifacts.RepoOutline, 1, build, parse,
-		SalvageRunner(), daily_blog.agents.RouteBudget(4, 1), repair, salvage,
+		SalvageRunner(), daily_blog.agents.RouteBudget(2, 1), salvage,
 	)
 
-	assert all(
-		vote.winner_artifact_id == first.artifact_id
-		and not vote.repaired and not vote.review_id.endswith("_repair")
-		for vote in result.votes
-	)
+	assert all(vote.winner_artifact_id == first.artifact_id for vote in result.votes)
 
 
 #============================================

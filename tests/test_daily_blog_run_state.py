@@ -27,7 +27,7 @@ def editorial_summary(
 
 
 #============================================
-def test_v11_run_record_replays_typed_incumbent_transitions() -> None:
+def test_run_record_replays_typed_incumbent_transitions() -> None:
 	"""Typed transition replay preserves the selected publication artifact."""
 	record = daily_blog.run_contracts.RunRecord.create("run-transitions", "2026-08-23", CREATED_AT)
 	first = "artifact-0123456789abcdef01234567"
@@ -84,7 +84,7 @@ def test_v11_run_record_replays_typed_incumbent_transitions() -> None:
 		),
 	),
 )
-def test_v11_rejects_forged_successor_relations(
+def test_run_record_rejects_forged_successor_relations(
 	transition: daily_blog.run_contracts.IncumbentTransition,
 	summary_artifact_id: str,
 ) -> None:
@@ -101,7 +101,7 @@ def test_v11_rejects_forged_successor_relations(
 
 
 #============================================
-def test_v11_rejects_transition_stream_with_wrong_replayed_final_identity() -> None:
+def test_run_record_rejects_transition_stream_with_wrong_replayed_final_identity() -> None:
 	"""Durable state cannot retain a final identity absent from its transition chain."""
 	record = daily_blog.run_contracts.RunRecord.create("run-replay", "2026-08-23", CREATED_AT)
 	artifact_id = "artifact-0123456789abcdef01234567"

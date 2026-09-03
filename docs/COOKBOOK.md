@@ -60,7 +60,7 @@ run record and event log before opening larger artifacts.
 ```bash
 source source_me.sh && python3 -m json.tool \
   out/OWNER/daily_blog/YYYY-MM-DD/runs/RUN_ID/run_state.json
-sed -n '1,160p' out/OWNER/daily_blog/YYYY-MM-DD/runs/RUN_ID/events.jsonl
+sed -n '1,160p' out/OWNER/daily_blog/YYYY-MM-DD/runs/RUN_ID/runlog-YYYY-MM-DD.jsonl
 source source_me.sh && python3 -m json.tool \
   out/OWNER/daily_blog/YYYY-MM-DD/runs/RUN_ID/publication_bundle.json
 ```

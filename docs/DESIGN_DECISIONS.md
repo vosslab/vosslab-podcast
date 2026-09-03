@@ -212,6 +212,46 @@ not mutable mirror inventory such as a default branch revision or ref fingerprin
 `pipeline/daily_blog/stage6.py`, `pipeline/daily_blog/publication_contract.py`,
 `pipeline/daily_blog/publication_finalization.py`, and the publisher bundle importer and validators.
 
+### Repository sets are per-run snapshots
+
+**Decision.** Each run fetches a fresh complete account roster and independently derives its active
+repository set from commits on `report_date`. The sets are immutable within that run but are never
+fixed across dates or runs.
+
+**Why.** Repositories are created frequently, and activity changes daily. Freezing either set in
+configuration, code, or a real-account fixture would omit legitimate work. Recomputing membership
+once and carrying it forward gives every repository agent and the publisher consistent inputs
+without asking an LLM to discover or reconstruct repository scope.
+
+**Consequence.** Permanent tests use inline synthetic repository sets and verify derivation,
+containment, and handoff behavior rather than real repository names or counts. Step 0 owns the
+report-day active set; the fresh account roster proves ownership at mirror and publisher boundaries.
+
+**Owner.** `pipeline/daily_blog/acquisition_workflow.py`, `pipeline/daily_blog/activity.py`,
+`pipeline/daily_blog/repositories.py`, and `pipeline/daily_blog/repository_contracts.py`.
+
+### Active repository identity is never model-owned
+
+**Decision.** `daily_active_roster.json` is the report-date authority established before model work.
+It records exact GitHub repository and commit identities with a content-derived identity. The fresh
+complete `repository_roster.json` separately records the account universe. Mirror results may record
+an operational fetch failure, but neither LLM output nor a downstream survivor set
+rewrites the active roster.
+
+**Why.** A Markdown commit report looks interpretive and allows repository identity to disappear
+implicitly as model stages summarize, rank, or omit prose. Machine-owned JSON keeps facts distinct
+from editorial interpretation. Robustness requires preserving omissions as observable coverage loss,
+not converting a JSON mismatch into a newer, stricter publication gate.
+
+**Consequence.** `mirror_manifest.json` records a clone or fetch failure where it occurs. An
+individual remote loss may degrade locally while other repositories continue. Filesystem
+confinement, mirror origin, report date, evidence provenance, and content integrity remain hard
+boundaries. Finalization assembles mechanically carried identities; it never asks a model to recreate
+the day's roster from prose.
+
+**Owner.** `pipeline/daily_blog/activity.py`, `pipeline/daily_blog/acquisition_workflow.py`,
+`pipeline/daily_blog/mirrors.py`, and the publication bundle boundary.
+
 ### Propagation records consumer maintenance
 
 **Decision.** A successful, non-dry-run single-repository propagation that changes files adds one

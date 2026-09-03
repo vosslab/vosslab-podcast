@@ -46,9 +46,6 @@ MAX_RECORD_BYTES = 128 * 1024
 MAX_POST_BYTES = 2 * 1024 * 1024
 MAX_PAGE_BYTES = 8 * 1024 * 1024
 MAX_ASSET_BYTES = 8 * 1024 * 1024
-# The retained v3 archive stores a 304,383-byte evidence packet. This applies
-# only to read-only historical state inspection, never new v9 imports.
-HISTORICAL_V3_EVIDENCE_MAX_BYTES = 512 * 1024
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 SLUG_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 
@@ -307,7 +304,8 @@ class PublicationArchiveReader:
 	"""Read one held publisher archive through its fixed public artifact surface."""
 
 	_JSON_ARTIFACTS = frozenset({
-		"bundle.json", "evidence.json", "repository_roster.json", "editorial_projection.json",
+		"bundle.json", "evidence.json", "repository_roster.json", "daily_active_roster.json",
+		"editorial_projection.json",
 		"publication_surface.json",
 	})
 
@@ -325,14 +323,6 @@ class PublicationArchiveReader:
 			if name == "evidence.json" else MAX_RECORD_BYTES
 		)
 		return _read_regular_at(self._archive_fd, name, maximum, label)
-
-	#============================================
-	def read_historical_v3_evidence(self) -> bytes:
-		"""Read the larger retained evidence artifact while the archive is held."""
-		return _read_regular_at(
-			self._archive_fd, "evidence.json", HISTORICAL_V3_EVIDENCE_MAX_BYTES,
-			"historical evidence",
-		)
 
 	#============================================
 	def read_post(self) -> bytes:
@@ -645,9 +635,10 @@ def _validate_publication_record(record: dict, report_date: str, bundle_sha256: 
 
 #============================================
 def _archive_artifacts(archive: PublicationArchiveReader) -> tuple[dict, dict[str, bytes]]:
-	"""Read and validate the complete v9 archive snapshot under one descriptor."""
+	"""Read and validate the complete archive snapshot under one descriptor."""
 	core_names = {
-		"bundle.json", "evidence.json", "repository_roster.json", "editorial_projection.json",
+		"bundle.json", "evidence.json", "repository_roster.json", "daily_active_roster.json",
+		"editorial_projection.json",
 		"publication_surface.json", "post.md",
 	}
 	bundle_bytes = archive.read_json_artifact("bundle.json", "bundle manifest")
@@ -655,6 +646,7 @@ def _archive_artifacts(archive: PublicationArchiveReader) -> tuple[dict, dict[st
 	json_artifacts = {"bundle.json": bundle_bytes}
 	for name, label in (
 		("evidence.json", "evidence"), ("repository_roster.json", "repository roster"),
+		("daily_active_roster.json", "daily active roster"),
 		("editorial_projection.json", "editorial projection"), ("publication_surface.json", "publication surface"),
 	):
 		contents = archive.read_json_artifact(name, label)

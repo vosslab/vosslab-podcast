@@ -12,13 +12,19 @@ import daily_blog.artifacts
 import daily_blog.io_utils
 
 
-EDITORIAL_RELIABILITY_SCHEMA_VERSION = "vosslab.daily-blog.editorial-reliability.v3"
+EDITORIAL_RELIABILITY_SCHEMA = "vosslab.daily-blog.editorial-reliability"
 MAX_REJECTION_CODES = 64
 REJECTION_CODE_RE = re.compile(r"[a-z][a-z0-9_]{0,63}\Z")
 STEP_OUTCOMES = frozenset({"succeeded", "degraded"})
 REVIEW_FAILURES = frozenset({
 	"timeout", "start_failure", "process_failure", "empty_response", "invalid_verdict",
 })
+
+
+class ReviewUnavailable(RuntimeError):
+	"""Signal that an optional comparison wave cannot be constructed safely."""
+
+
 @dataclasses.dataclass(frozen=True)
 class StepReliability:
 	"""One factual bounded summary for a subjective editorial step."""
@@ -34,14 +40,14 @@ class StepReliability:
 	best_artifact_id: str
 	reasons: tuple[str, ...]
 	rejection_counts: tuple[tuple[str, int], ...] = ()
-	schema_version: str = EDITORIAL_RELIABILITY_SCHEMA_VERSION
+	schema_version: str = EDITORIAL_RELIABILITY_SCHEMA
 
 	#============================================
 	def validate(self) -> None:
 		"""Reject inconsistent or unbounded reliability metadata."""
 		counts = (self.attempted, self.succeeded, self.failed, self.reused,
 			self.repaired, self.disagreements)
-		if self.schema_version != EDITORIAL_RELIABILITY_SCHEMA_VERSION:
+		if self.schema_version != EDITORIAL_RELIABILITY_SCHEMA:
 			raise RuntimeError("Editorial reliability schema is unsupported.")
 		if type(self.step) is not str or not self.step or self.outcome not in STEP_OUTCOMES:
 			raise RuntimeError("Editorial reliability step or outcome is invalid.")
@@ -157,8 +163,7 @@ def generation_reliability(
 			all_reasons.add("ineligible_generation")
 		for reason in item.eligibility.reasons:
 			all_reasons.add(reason)
-			if reason != "publication_policy_mismatch":
-				rejection_counts[reason] = rejection_counts.get(reason, 0) + 1
+			rejection_counts[reason] = rejection_counts.get(reason, 0) + 1
 	attempted = len(values)
 	succeeded = sum(
 		item.result.ok and item.eligibility is not None and item.eligibility.eligible
@@ -212,7 +217,7 @@ class ReviewWork:
 
 @dataclasses.dataclass(frozen=True)
 class ReviewVote:
-	"""One parse/repair/salvage-resolved review observation."""
+	"""One parsed or mechanically salvaged review observation."""
 
 	review_id: str
 	first_artifact_id: str
@@ -220,7 +225,6 @@ class ReviewVote:
 	status: str
 	winner_artifact_id: str
 	failure: str = ""
-	repaired: bool = False
 	resumed: bool = False
 
 	#============================================
@@ -230,7 +234,7 @@ class ReviewVote:
 			raise RuntimeError("Editorial review status is unsupported.")
 		if self.first_artifact_id == self.second_artifact_id:
 			raise RuntimeError("Editorial review requires two distinct artifact identities.")
-		if type(self.repaired) is not bool or type(self.resumed) is not bool:
+		if type(self.resumed) is not bool:
 			raise RuntimeError("Editorial review provenance flags are invalid.")
 		if self.status == "succeeded":
 			if self.winner_artifact_id not in {self.first_artifact_id, self.second_artifact_id}:
@@ -357,7 +361,6 @@ def review(
 	parse_winner: collections.abc.Callable[[str, ReviewWork], str],
 	runner: object,
 	budget: daily_blog.agents.RouteBudget,
-	build_repair: collections.abc.Callable[[ReviewWork, str], ReviewWork] | None = None,
 	salvage_winner: collections.abc.Callable[[str, ReviewWork], str | None] | None = None,
 	cache_load: collections.abc.Callable[
 		[daily_blog.agents.RouteRequest], daily_blog.agents.AgentResult | None,
@@ -388,7 +391,10 @@ def review(
 					left, right = (
 						(first, second) if display_order == 0 else (second, first)
 					)
-					item = build_work(left, right, assignment)
+					try:
+						item = build_work(left, right, assignment)
+					except ReviewUnavailable:
+						return ReviewResult((), ())
 					if (
 						item.first_artifact_id != left.artifact_id
 						or item.second_artifact_id != right.artifact_id
@@ -408,68 +414,30 @@ def review(
 		budget, cache_load,
 	)
 	votes = []
-	repairs = []
 	for item, result in zip(work, results):
 		if observe_result is not None:
 			observe_result(item.request, result)
-		vote = _parse_vote(item, result, parse_winner, False)
-		if vote is None and result.ok and build_repair is not None:
-			repair = build_repair(item, result.text)
-			if repair.request.repair_of not in {
-				item.request.cache_input_hash, item.request.request_id,
-			}:
-				raise RuntimeError("Review repair must attest to its source request identity.")
-			if (repair.first_artifact_id, repair.second_artifact_id) != (
-				item.first_artifact_id, item.second_artifact_id,
-			):
-				raise RuntimeError("Review repair must preserve its candidate pair identity.")
-			repairs.append((item, result, repair))
-		else:
-			resolved = vote or _salvage_vote(item, result, salvage_winner, False)
-			resolved = resolved or _failed_vote(item, "invalid_verdict", False)
-			if resolved.status == "succeeded" and not result.resumed and cache_accept is not None:
-				cache_accept(item.request, result)
-			votes.append(resolved)
-	if repairs:
-		if len({item.request.request_id for _source, _result, item in repairs}) != len(repairs):
-			raise RuntimeError("Editorial review repairs require unique request identities.")
-		repair_results = daily_blog.agents.execute_requests(
-			[item.request for _source, _result, item in repairs], runner,
-			repairs[0][2].request.maximum_parallel_calls, budget, cache_load,
-		)
-		for (source, source_result, repair), result in zip(repairs, repair_results):
-			if observe_result is not None:
-				observe_result(repair.request, result)
-			vote = _parse_vote(repair, result, parse_winner, True)
-			vote = vote or _salvage_vote(repair, result, salvage_winner, True)
-			if vote is not None and vote.status == "succeeded":
-				resolved = dataclasses.replace(vote, review_id=source.request.request_id)
-				if not result.resumed and cache_accept is not None:
-					cache_accept(repair.request, result)
-			else:
-				resolved = _salvage_vote(source, source_result, salvage_winner, False)
-				if resolved is not None:
-					if not source_result.resumed and cache_accept is not None:
-						cache_accept(source.request, source_result)
-				else:
-					resolved = vote or _failed_vote(source, "invalid_verdict", True)
-					resolved = dataclasses.replace(resolved, review_id=source.request.request_id)
-			votes.append(resolved)
+		vote = _parse_vote(item, result, parse_winner)
+		resolved = vote or _salvage_vote(item, result, salvage_winner)
+		resolved = resolved or _failed_vote(item, "invalid_verdict")
+		if resolved.status == "succeeded" and not result.resumed and cache_accept is not None:
+			cache_accept(item.request, result)
+		votes.append(resolved)
 	return ReviewResult(tuple(work), tuple(sorted(votes, key=lambda item: item.review_id)))
 
 
 #============================================
 def _vote_id(work: ReviewWork) -> str:
-	"""Return the original review identity for an initial call or its repair."""
+	"""Return the review request identity."""
 	return work.request.request_id
 
 
 #============================================
-def _failed_vote(work: ReviewWork, failure: str, repaired: bool) -> ReviewVote:
+def _failed_vote(work: ReviewWork, failure: str) -> ReviewVote:
 	"""Return one categorical failed vote without raw route details."""
 	return ReviewVote(
 		_vote_id(work), work.first_artifact_id, work.second_artifact_id,
-		"failed", "", failure, repaired, False,
+		"failed", "", failure, False,
 	)
 
 
@@ -477,11 +445,10 @@ def _failed_vote(work: ReviewWork, failure: str, repaired: bool) -> ReviewVote:
 def _parse_vote(
 	work: ReviewWork, result: daily_blog.agents.AgentResult,
 	parse_winner: collections.abc.Callable[[str, ReviewWork], str],
-	repaired: bool,
 ) -> ReviewVote | None:
 	"""Resolve only a strict structured reviewer verdict."""
 	if not result.ok:
-		return _failed_vote(work, result.failure, repaired)
+		return _failed_vote(work, result.failure)
 	try:
 		winner = parse_winner(result.text, work)
 	except daily_blog.agents.RepairableStructuredOutput:
@@ -489,7 +456,7 @@ def _parse_vote(
 	if winner in {work.first_artifact_id, work.second_artifact_id}:
 		return ReviewVote(
 			_vote_id(work), work.first_artifact_id, work.second_artifact_id,
-			"succeeded", winner, "", repaired, result.resumed,
+			"succeeded", winner, "", result.resumed,
 		)
 	return None
 
@@ -499,7 +466,6 @@ def _salvage_vote(
 	work: ReviewWork,
 	result: daily_blog.agents.AgentResult,
 	salvage_winner: collections.abc.Callable[[str, ReviewWork], str | None] | None,
-	repaired: bool,
 ) -> ReviewVote | None:
 	"""Salvage only one mechanically proven identity from a usable response."""
 	if not result.ok or salvage_winner is None:
@@ -509,7 +475,7 @@ def _salvage_vote(
 		return None
 	return ReviewVote(
 		_vote_id(work), work.first_artifact_id, work.second_artifact_id,
-		"succeeded", winner, "", repaired, result.resumed,
+		"succeeded", winner, "", result.resumed,
 	)
 
 

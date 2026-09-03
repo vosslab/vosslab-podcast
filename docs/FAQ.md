@@ -87,14 +87,14 @@ Generated artifacts are owner-scoped below `out/<owner>/`. Each daily publicatio
 `out/<owner>/daily_blog/<report_date>/`. Its `runs/<run_id>/` directory holds bounded run state and
 events, while `summary.jsonl` records terminal outcomes and `publication/` holds the sealed
 `bundle.json`, `evidence.json`, `editorial_projection.json`, `repository_roster.json`, selected
-`publication_surface.json`, `post.md`, and declared assets. The date is the publication identity;
+`daily_active_roster.json`, `publication_surface.json`, `post.md`, and declared assets. The date is the publication identity;
 `bundle_sha256` verifies the manifest. See
 [OUT_DIRECTORY_ORGANIZATION_SPEC.md](OUT_DIRECTORY_ORGANIZATION_SPEC.md).
 
 ## What proves publication provenance?
 
-The `vosslab.daily-blog.bundle.v9` manifest binds the report date, selected
-`best_artifact_id`, evidence packet, repository roster, editorial projection, immutable
+The bundle manifest binds the report date, selected `best_artifact_id`, evidence packet, account
+roster, daily active-roster provenance, editorial projection, immutable
 `publication_surface.json`, declared assets, activation and prompt-contract identities, generator
 revision, and hashes. The surface binds the survivor-scoped evidence IDs, repository coverage, and
 image paths used by both producer and publisher. The producer sends its validated immutable byte
@@ -123,9 +123,8 @@ sealed in bundle v9: `publication_source_safety.v1` has an executable 35-case co
 post independently against the same surface. A cache entry with another schema, policy, prompt, or
 semantic evidence identity is rebuilt rather than reused.
 
-Legacy `publication.v3` is only an exact historical record reader for an existing occupied date;
-pre-surface `publication.v5` records are also read-only occupied-date evidence. New bundle-v9
-imports create publication-v6 records.
+The pre-production publisher reads and writes only the current publication record. Obsolete record
+shapes have no compatibility reader.
 
 ## When does editorial work reuse its cache?
 

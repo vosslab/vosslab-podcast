@@ -390,12 +390,6 @@ REPOSITORY_OUTLINE_PROMPT_SET = RegisteredPromptSet(
 			("rubric", "evidence_json", "candidate_a", "candidate_b"),
 			"repository-outline-verdict-json.v1",
 		),
-		_resource(
-			"verdict_repair",
-			"repository_outline_verdict_repair_v1.txt",
-			"75fab060d5bb1a8bc25a219a896762a06d7284d30e893bfe9426f810c1b2e718",
-			("response",), "repository-outline-verdict-json.v1",
-		),
 	),
 )
 REPOSITORY_STORY_PROMPT_SET = RegisteredPromptSet(
@@ -424,12 +418,6 @@ REPOSITORY_STORY_PROMPT_SET = RegisteredPromptSet(
 			),
 			"repository-story-verdict-json.v1",
 		),
-		_resource(
-			"verdict_repair",
-			"daily_blog_repository_story_verdict_repair_v1.txt",
-			"ccbc7c3f8c2c55f7a30d9bbbac1e297f99af2d1191373eb2145741071d3f24c7",
-			("response",), "repository-story-verdict-json.v1",
-		),
 	),
 )
 STORY_RANKING_RESOURCES: tuple[RegisteredPromptResource, ...] = (
@@ -456,12 +444,6 @@ STORY_RANKING_RESOURCES: tuple[RegisteredPromptResource, ...] = (
 			),
 			"story-ranking-review-verdict-json.v1",
 		),
-		_resource(
-			"review_repair",
-			"daily_blog_story_ranking_review_repair_v1.txt",
-			"e82b58cdfb8ce558771cc8be994d26d741b04342877b2dc14b1a4ed0cfbdfc46",
-			("response",), "story-ranking-review-verdict-json.v1",
-		),
 )
 DAILY_OUTLINE_PROMPT_SET = RegisteredPromptSet(
 	"stage5.daily-outline", "daily-outline-v1", STORY_RANKING_RESOURCES + (
@@ -487,12 +469,6 @@ DAILY_OUTLINE_PROMPT_SET = RegisteredPromptSet(
 				"candidate_b",
 			),
 			"daily-outline-verdict-json.v1",
-		),
-		_resource(
-			"verdict_repair",
-			"daily_blog_daily_outline_verdict_repair_v1.txt",
-			"c23be6c118e1144980f4d7139311c943cf608233e7677fa602a3b5605b83b329",
-			("response",), "daily-outline-verdict-json.v1",
 		),
 	),
 )
@@ -572,19 +548,15 @@ REPOSITORY_OUTLINE_GENERATOR_RESOURCE = REPOSITORY_OUTLINE_PROMPT_SET.resource_b
 REPOSITORY_OUTLINE_MERGER_RESOURCE = REPOSITORY_OUTLINE_PROMPT_SET.resource_by_key("merger")
 REPOSITORY_OUTLINE_RUBRIC_RESOURCE = REPOSITORY_OUTLINE_PROMPT_SET.resource_by_key("rubric")
 REPOSITORY_OUTLINE_COMPARISON_RESOURCE = REPOSITORY_OUTLINE_PROMPT_SET.resource_by_key("comparison")
-REPOSITORY_OUTLINE_VERDICT_REPAIR_RESOURCE = REPOSITORY_OUTLINE_PROMPT_SET.resource_by_key("verdict_repair")
 REPOSITORY_STORY_WRITER_RESOURCE = REPOSITORY_STORY_PROMPT_SET.resource_by_key("writer")
 REPOSITORY_STORY_EDITOR_RESOURCE = REPOSITORY_STORY_PROMPT_SET.resource_by_key("editor")
 REPOSITORY_STORY_COMPARISON_RESOURCE = REPOSITORY_STORY_PROMPT_SET.resource_by_key("comparison")
-REPOSITORY_STORY_VERDICT_REPAIR_RESOURCE = REPOSITORY_STORY_PROMPT_SET.resource_by_key("verdict_repair")
 STORY_RANKING_RESOURCE = DAILY_OUTLINE_PROMPT_SET.resource_by_key("ranking")
 STORY_RANKING_RUBRIC_RESOURCE = DAILY_OUTLINE_PROMPT_SET.resource_by_key("ranking_rubric")
 STORY_RANKING_REVIEW_RESOURCE = DAILY_OUTLINE_PROMPT_SET.resource_by_key("review")
-STORY_RANKING_REVIEW_REPAIR_RESOURCE = DAILY_OUTLINE_PROMPT_SET.resource_by_key("review_repair")
 DAILY_OUTLINE_WRITER_RESOURCE = DAILY_OUTLINE_PROMPT_SET.resource_by_key("writer")
 DAILY_OUTLINE_RUBRIC_RESOURCE = DAILY_OUTLINE_PROMPT_SET.resource_by_key("outline_rubric")
 DAILY_OUTLINE_COMPARISON_RESOURCE = DAILY_OUTLINE_PROMPT_SET.resource_by_key("comparison")
-DAILY_OUTLINE_VERDICT_REPAIR_RESOURCE = DAILY_OUTLINE_PROMPT_SET.resource_by_key("verdict_repair")
 COMPLETE_POST_EDITOR_RESOURCE = COMPLETE_POST_EDITOR_PROMPT_SET.resource_by_key("editor")
 V4_AUTHOR_RESOURCE = V4_MAKER_PROMPT_SET.resource_by_key("author")
 V4_REFEREE_RESOURCE = V4_MAKER_PROMPT_SET.resource_by_key("referee")

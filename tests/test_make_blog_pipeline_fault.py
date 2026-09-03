@@ -48,11 +48,11 @@ def test_command_serializes_each_terminal_fault_without_unsafe_diagnostics(
 
 
 #============================================
-def test_command_keeps_the_selected_date_on_stdout_and_fault_only_on_stderr(
+def test_command_keeps_terminal_fault_on_stderr(
 	monkeypatch: pytest.MonkeyPatch,
 	capsys: pytest.CaptureFixture[str],
 ) -> None:
-	"""The command preserves its normal selection notice while isolating terminal JSON."""
+	"""The command isolates its terminal machine fault on stderr."""
 	config = types.SimpleNamespace(report_timezone="America/Chicago")
 	monkeypatch.setattr(make_blog.daily_blog.config, "load_config", lambda *_args, **_kwargs: config)
 	def raise_fault(_config: object, _date: str, **_kwargs: object) -> None:
@@ -67,7 +67,6 @@ def test_command_keeps_the_selected_date_on_stdout_and_fault_only_on_stderr(
 	make_blog.command(["--date", "2026-08-27"])
 	captured = capsys.readouterr()
 
-	assert captured.out == "Selected report date: 2026-08-27\n"
 	assert captured.err.count("\n") == 1
 
 

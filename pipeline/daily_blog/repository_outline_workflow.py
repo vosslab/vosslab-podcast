@@ -126,7 +126,6 @@ def _request(
 	contract_identity: dict[str, object],
 	input_artifact_ids: tuple[str, ...] = (),
 	assignment: daily_blog.replication.ReviewAssignment | None = None,
-	repair_of: str = "",
 ) -> daily_blog.agents.RouteRequest:
 	"""Build one cache-safe request that attests to all Stage 3 inputs."""
 	assignment_value: dict[str, int] = {}
@@ -155,9 +154,9 @@ def _request(
 		request_id=f"stage3_{stage}_{role}_{ordinal}_{cache_input_hash[:12]}", step=f"repository_outline_{stage}",
 		route=route, prompt=prompt, working_directory=os.path.realpath(value.working_directory), role=role,
 		retry_attempts=config.route_retry_attempts,
-		maximum_parallel_calls=config.maximum_parallel_calls, repair_of=repair_of,
+		maximum_parallel_calls=config.maximum_parallel_calls,
 		input_hash=input_hash,
-		contract_version=(daily_blog.repository_outline_prompts.REPOSITORY_OUTLINE_PROMPT_VERSION
+		contract_version=(daily_blog.repository_outline_prompts.REPOSITORY_OUTLINE_PROMPT_CONTRACT
 			+ ":" + str(contract_identity["integrity_sha256"])),
 		cache_input_hash=cache_input_hash,
 	)
@@ -253,7 +252,7 @@ def _review_reliability(
 		"3.3", "degraded" if reasons else "succeeded", len(votes),
 		sum(vote.status == "succeeded" for vote in votes),
 		sum(vote.status == "failed" for vote in votes), 0,
-		sum(vote.repaired and vote.status == "succeeded" for vote in votes), disagreements,
+		0, disagreements,
 		best_artifact_id, tuple(sorted(reasons)),
 	)
 
@@ -346,11 +345,12 @@ def run_repository_outline(
 			for index in range(config.merger_count)
 		)
 		if any(len(request.prompt) > config.prompt_limits["merger_chars"] for request in merger_requests):
-			raise RuntimeError("Repository-outline merger prompt exceeds its configured limit.")
-		merger = daily_blog.replication.replicate(
-			merger_requests, route_runner, budget, daily_blog.artifacts.RepoOutline,
-			lambda result: _outline(value, result), lambda item: _eligible(value, item), cache_load, cache_accept,
-		)
+			merger_requests = ()
+		if merger_requests:
+			merger = daily_blog.replication.replicate(
+				merger_requests, route_runner, budget, daily_blog.artifacts.RepoOutline,
+				lambda result: _outline(value, result), lambda item: _eligible(value, item), cache_load, cache_accept,
+			)
 	merger_peers = _unique(merger.eligible)
 	# Losing every merger admits a whole generator outline as a typed editorial degradation.
 	peers = merger_peers or generator_peers
@@ -381,7 +381,9 @@ def run_repository_outline(
 			evidence_json, left.content, right.content, loaded_value,
 		)
 		if len(prompt) > config.prompt_limits["reviewer_chars"]:
-			raise RuntimeError("Repository-outline comparison prompt exceeds its configured limit.")
+			raise daily_blog.replication.ReviewUnavailable(
+				"Repository-outline comparison prompt exceeds its configured limit."
+			)
 		request = _request(value, "3_3", "reviewer",
 			f"{assignment.pair_index}_{assignment.reviewer_index}_{assignment.display_order}",
 			config.reviewer_route, prompt, config, contract_identity,
@@ -395,25 +397,13 @@ def run_repository_outline(
 			raise daily_blog.agents.RepairableStructuredOutput(str(error)) from error
 		return {"A": work.first_artifact_id, "B": work.second_artifact_id}.get(verdict["winner"], "")
 
-	def repair(work: daily_blog.replication.ReviewWork, response: str) -> daily_blog.replication.ReviewWork:
-		prompt = daily_blog.repository_outline_prompts.render_repository_outline_verdict_repair(
-			response, loaded_value,
-		)
-		if len(prompt) > config.prompt_limits["repair_chars"]:
-			raise RuntimeError("Repository-outline repair prompt exceeds its configured limit.")
-		request = _request(value, "3_3_repair", "reviewer_repair", work.request.request_id,
-			config.reviewer_route, prompt, config, contract_identity,
-			(daily_blog.io_utils.sha256_text(response),), work.assignment, work.request.cache_input_hash)
-		return daily_blog.replication.ReviewWork(request, work.first_artifact_id, work.second_artifact_id,
-			work.assignment)
-
 	def salvage(text: str, work: daily_blog.replication.ReviewWork) -> str | None:
 		label = daily_blog.replication.salvage_allowed_identifier(text, ("A", "B"))
 		return {"A": work.first_artifact_id, "B": work.second_artifact_id}.get(label)
 
 	review = daily_blog.replication.review(
 		peers, daily_blog.artifacts.RepoOutline, config.reviewer_count, build_work, parse_winner,
-		route_runner, budget, repair, salvage, cache_load, cache_accept,
+		route_runner, budget, salvage, cache_load, cache_accept,
 	)
 	promotion = daily_blog.replication.promote(
 		peers, daily_blog.artifacts.RepoOutline, lambda item: _eligible(value, item), review.votes, incumbent,

@@ -34,7 +34,7 @@ class PublicationSurface:
 	#============================================
 	@property
 	def allowed_image_paths(self) -> tuple[str, ...]:
-		"""Return the legacy post-body view derived from typed image authority."""
+		"""Return the post-body paths derived from typed image authority."""
 		return tuple(sorted(image.publish_path for image in self.allowed_images))
 
 	#============================================

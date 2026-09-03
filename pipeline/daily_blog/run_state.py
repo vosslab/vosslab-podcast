@@ -77,6 +77,7 @@ class RunStore:
 		report_date: str,
 		run_id: str,
 		max_events_per_run: int | None = None,
+		progress: daily_blog.observability.HumanProgress | None = None,
 	) -> None:
 		"""Create the unique run-state directory."""
 		self._initialize_layout(output_root, owner, report_date, run_id)
@@ -86,7 +87,8 @@ class RunStore:
 			except FileExistsError as error:
 				raise RuntimeError(f"Immutable run-state directory already exists: {self.run_dir}") from error
 		self.record_path = os.path.join(self.run_dir, "run_state.json")
-		self.event_path = os.path.join(self.run_dir, "events.jsonl")
+		self.event_path = os.path.join(self.run_dir, f"runlog-{report_date}.jsonl")
+		self.progress = progress
 		self.pending_editorial_step_path = os.path.join(
 			self.run_dir, self.PENDING_EDITORIAL_STEP_ARTIFACT,
 		)
@@ -109,7 +111,8 @@ class RunStore:
 		store = cls.__new__(cls)
 		store._initialize_layout(output_root, owner, report_date, run_id)
 		store.record_path = os.path.join(store.run_dir, cls.RUN_STATE_ARTIFACT)
-		store.event_path = os.path.join(store.run_dir, "events.jsonl")
+		store.event_path = os.path.join(store.run_dir, f"runlog-{report_date}.jsonl")
+		store.progress = None
 		store.pending_editorial_step_path = os.path.join(
 			store.run_dir, cls.PENDING_EDITORIAL_STEP_ARTIFACT,
 		)
@@ -453,9 +456,12 @@ class RunStore:
 		try:
 			self._append_event_file(line)
 		except (OSError, ValueError) as error:
-			self._write_sink_warning("events.jsonl", error)
+			self._write_sink_warning(self.event_sink.journal_name, error)
 		try:
-			print(line, flush=True)
+			if self.progress is None:
+				print(line, flush=True)
+			else:
+				self.progress.event(event, details)
 		except (OSError, ValueError) as error:
 			self._write_sink_warning("stdout", error)
 
@@ -469,7 +475,10 @@ class RunStore:
 		"""
 		line = self._event_line(event, details)
 		self._append_event_file(line)
-		print(line, flush=True)
+		if self.progress is None:
+			print(line, flush=True)
+		else:
+			self.progress.event(event, details)
 
 	#============================================
 	def _record_hash(self, record: daily_blog.run_contracts.RunRecord) -> str:
@@ -567,7 +576,15 @@ class RunStore:
 		"""Append the journaled event once, or prove its exact prior append."""
 		appended = self.event_sink.replay_editorial_at(run_fd, intent["event_line"])
 		if appended:
-			print(intent["event_line"], flush=True)
+			if self.progress is None:
+				print(intent["event_line"], flush=True)
+			else:
+				value = json.loads(intent["event_line"])
+				details = {
+					name: value[name]
+					for name in self.EVENT_FIELDS["daily_publication.editorial_step_completed"]
+				}
+				self.progress.event("daily_publication.editorial_step_completed", details)
 
 	#============================================
 	def _replace_record(
@@ -744,7 +761,7 @@ class RunStore:
 			"repaired": item["repaired"], "disagreements": item["disagreements"],
 		} for item in value["editorial_steps"]]
 		summary = {
-			"schema_version": daily_blog.observability.TERMINAL_SUMMARY_SCHEMA_VERSION,
+			"schema_version": daily_blog.observability.TERMINAL_SUMMARY_SCHEMA,
 			"summary_id": daily_blog.io_utils.sha256_text(f"{self.run_id}:{record_hash}"),
 			"terminal_record_sha256": record_hash,
 			"report_date": self.report_date, "run_id": self.run_id,

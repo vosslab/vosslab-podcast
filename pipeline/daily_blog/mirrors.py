@@ -11,6 +11,10 @@ import daily_blog.repository_contracts
 import daily_blog.io_utils
 
 
+class MirrorUnavailableError(RuntimeError):
+	"""Report an ordinary remote clone failure for one selected repository."""
+
+
 #============================================
 def _run_git(
 	cache_path: str,
@@ -89,7 +93,7 @@ def _object_available(cache_path: str, revision: str) -> bool:
 
 
 class MirrorManager:
-	"""Reconcile one authoritative owner roster into durable Git caches."""
+	"""Maintain durable Git caches for one authoritative owner roster."""
 
 	#============================================
 	def __init__(
@@ -146,11 +150,14 @@ class MirrorManager:
 		return self._safe_child_path(".locks", owner, f"{name}.lock")
 
 	#============================================
-	def _ensure_roster_clones(self) -> list[tuple[str, daily_blog.repository_contracts.RepositoryRecord]]:
-		"""Clone every roster repository that has no durable cache yet."""
+	def _ensure_clones(
+		self,
+		records: tuple[daily_blog.repository_contracts.RepositoryRecord, ...],
+	) -> list[tuple[str, daily_blog.repository_contracts.RepositoryRecord]]:
+		"""Clone each selected authoritative-roster repository without changing roster identity."""
 		self._ensure_safe_cache_root()
 		paths = []
-		for record in self.roster.repositories:
+		for record in records:
 			path = self._cache_path(record)
 			lock_path = self._lock_path(record)
 			with daily_blog.locks.FileLock(lock_path):
@@ -165,7 +172,7 @@ class MirrorManager:
 					)
 					if result.returncode:
 						message = result.stderr.strip() or result.stdout.strip()
-						raise RuntimeError(
+						raise MirrorUnavailableError(
 							f"Git mirror clone failed for {record.repository}: {message}"
 						)
 			if not is_git_cache(path):
@@ -240,7 +247,49 @@ class MirrorManager:
 	#============================================
 	def refresh_all(self, refresh: bool = True) -> list[dict]:
 		"""Refresh exactly the repositories in the authoritative owner roster."""
-		paths = self._ensure_roster_clones()
+		paths = self._ensure_clones(self.roster.repositories)
 		entries = [self._refresh_one(path, record, refresh) for path, record in paths]
+		entries.sort(key=lambda item: item["repository"].casefold())
+		return entries
+
+	#============================================
+	def refresh_selected(self, repositories: tuple[str, ...], refresh: bool = True) -> list[dict]:
+		"""Refresh a roster subset and record individual clone or fetch failures."""
+		if (
+			type(repositories) is not tuple
+			or not repositories
+			or any(type(repository) is not str for repository in repositories)
+			or tuple(sorted(set(repositories), key=str.casefold)) != repositories
+		):
+			raise RuntimeError("Selected mirror repositories must be a nonempty canonical tuple.")
+		selected = set(repositories)
+		records = tuple(
+			record for record in self.roster.repositories
+			if record.repository in selected
+		)
+		if {record.repository for record in records} != selected:
+			raise RuntimeError("Selected mirror repository is outside the authoritative roster.")
+		entries = []
+		for record in records:
+			try:
+				path, _record = self._ensure_clones((record,))[0]
+				entry = self._refresh_one(path, record, refresh)
+			except MirrorUnavailableError as error:
+				entry = {
+					"repository": record.repository,
+					"repository_url": record.repository_url,
+					"clone_url": record.clone_url,
+					"created_at": record.created_at,
+					"is_fork": record.is_fork,
+					"roster_id": self.roster.roster_id,
+					"cache_path": self._cache_path(record),
+					"refresh_result": "failed",
+					"refresh_error": str(error),
+					"default_revision": "",
+					"object_available": False,
+					"ref_fingerprint": "",
+					"refreshed_at": daily_blog.io_utils.utc_now(),
+				}
+			entries.append(entry)
 		entries.sort(key=lambda item: item["repository"].casefold())
 		return entries

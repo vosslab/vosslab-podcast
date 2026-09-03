@@ -19,10 +19,9 @@ ELIGIBILITY_REASONS = frozenset({
 	"evidence_report_date_mismatch", "packet_provenance_mismatch",
 	"unapproved_image_path", "report_date_mismatch", "publication_identity_mismatch",
 	"output_path_outside_root", "invalid_machine_metadata", "insufficient_evidence_density",
-	"unsafe_publication_source", "publication_policy_mismatch",
+	"unsafe_publication_source",
 	"repository_scope_mismatch", "unapproved_screenshot_path",
-	"citation_density_mismatch", "project_coverage_mismatch",
-	"presentation_policy_mismatch",
+	"project_coverage_mismatch",
 })
 NO_ARTIFACT_REASONS = frozenset({
 	"route_unavailable", "no_eligible_generation", "evidence_unavailable", "configuration",
@@ -615,7 +614,7 @@ def _repository_scope(value: object, field: str) -> tuple[str, ...]:
 def _packet_union_scope(
 	packets: collections.abc.Sequence[daily_blog.schema.EvidencePacket],
 ) -> tuple[str, ...]:
-	"""Return the authoritative repository ceiling for staged legacy callers."""
+	"""Return the authoritative repository ceiling when no narrower scope is supplied."""
 	return tuple(sorted({item.repository for packet in packets for item in packet.items}))
 
 

@@ -308,7 +308,7 @@ def test_recovery_reuses_grounded_writer_cache_when_editor_prompt_is_limited(
 			return None
 		text = _post(value.stage6_input)
 		return daily_blog.agents.AgentResult(
-			request.role, text, True, "", 1, 0.0, request.is_repair, True,
+			request.role, text, True, "", 1, 0.0, True,
 			request.route.name, request.request_id, request.identity_sha256,
 			daily_blog.io_utils.sha256_text(text),
 		)

@@ -194,19 +194,6 @@ def render_story_ranking_review(
 
 
 #============================================
-def render_story_ranking_review_repair(
-	response: str, prompts: daily_blog.prompt_registry.loader.LoadedPromptSet | None = None,
-) -> str:
-	"""Render the one bounded format-repair task for a ranking-review verdict."""
-	value = _loaded_prompts(prompts)
-	return _render(value, daily_blog.prompt_registry.definitions.STORY_RANKING_REVIEW_REPAIR_RESOURCE, {
-		"response": _untrusted_data_block(
-			"PRIOR_RESPONSE", response, "ranking review repair response", MAX_RESPONSE_CHARS,
-		),
-	}, MAX_RESPONSE_CHARS + 3000)
-
-
-#============================================
 def render_daily_outline_comparison(
 	stories_json: str, repository_outlines_json: str, evidence_json: str, candidate_a: str, candidate_b: str,
 	prompts: daily_blog.prompt_registry.loader.LoadedPromptSet | None = None,
@@ -232,19 +219,6 @@ def render_daily_outline_comparison(
 			"CANDIDATE_B", candidate_b, "candidate B", MAX_CANDIDATE_OUTLINE_CHARS,
 		),
 	}, MAX_COMPARISON_PROMPT_CHARS)
-
-
-#============================================
-def render_daily_outline_verdict_repair(
-	response: str, prompts: daily_blog.prompt_registry.loader.LoadedPromptSet | None = None,
-) -> str:
-	"""Render the one bounded format-repair task for an outline verdict."""
-	value = _loaded_prompts(prompts)
-	return _render(value, daily_blog.prompt_registry.definitions.DAILY_OUTLINE_VERDICT_REPAIR_RESOURCE, {
-		"response": _untrusted_data_block(
-			"PRIOR_RESPONSE", response, "repair response", MAX_RESPONSE_CHARS,
-		),
-	}, MAX_RESPONSE_CHARS + 3000)
 
 
 #============================================

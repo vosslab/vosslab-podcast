@@ -329,7 +329,9 @@ def _review_recovery_batch(
 			candidate_a=left.content, candidate_b=right.content,
 		)
 		if len(prompt) > stage.prompt_limits["reviewer_chars"]:
-			raise RuntimeError("Stage 6 recovery reviewer prompt exceeds its configured limit.")
+			raise daily_blog.replication.ReviewUnavailable(
+				"Stage 6 recovery reviewer prompt exceeds its configured limit."
+			)
 		request = daily_blog.stage6_execution.build_request(
 			context.value.stage6_input, context.run_id, attempt, review_view,
 			stage.reviewer_route, prompt, stage,
@@ -352,70 +354,31 @@ def _review_recovery_batch(
 		)
 		return winner
 
-	repair_results: dict[str, daily_blog.agents.AgentResult] = {}
-	repair_sources: list[str] = []
-
-	def repair(
-		work: daily_blog.replication.ReviewWork, response: str,
-	) -> daily_blog.replication.ReviewWork:
-		"""Bind a recovery repair to the materialized review response it repairs."""
-		review_slot = work.request.request_id
-		repair_view = context.plan.materialize(
-			context.rung, batch_index, generation_ids, bindings, (review_slot,),
-		)
-		attempt = next(
-			item for item in repair_view.attempts
-			if item.work_kind == "review_repair"
-			and item.repair_of_identity == review_slot
-		)
-		prompt = context.templates["repair"].format(
-			response=response[:daily_blog.editorial.MAX_REFEREE_RESPONSE_CHARS],
-		)
-		if len(prompt) > stage.prompt_limits["repair_chars"]:
-			raise RuntimeError("Stage 6 recovery repair prompt exceeds its configured limit.")
-		request = daily_blog.stage6_execution.build_request(
-			context.value.stage6_input, context.run_id, attempt, repair_view,
-			stage.reviewer_route, prompt, stage,
-			context.resolved.contract.prompt_version, repair_response=response,
-			working_directory=context.config.daily_blog_repository,
-		)
-		repaired = daily_blog.replication.ReviewWork(
-			request, work.first_artifact_id, work.second_artifact_id,
-			work.assignment,
-		)
-		return repaired
-
 	def salvage(text: str, work: daily_blog.replication.ReviewWork) -> str | None:
 		"""Map an allowed standalone label to its anonymous recovery artifact."""
 		label = daily_blog.replication.salvage_allowed_identifier(text, ("A", "B"))
 		winner = {"A": work.first_artifact_id, "B": work.second_artifact_id}.get(label)
 		return winner
 
+	review_results: dict[str, daily_blog.agents.AgentResult] = {}
+
 	def observe(
 		request: daily_blog.agents.RouteRequest,
 		result: daily_blog.agents.AgentResult,
 	) -> None:
-		"""Retain response-free route facts for exact recovery ledger closure."""
-		repair_results[request.request_id] = result
-		if request.repair_of:
-			repair_sources.append(request.repair_of)
+		"""Retain reviewer results for the recovery batch observation."""
+		review_results[request.request_id] = result
 
 	review = daily_blog.replication.review(
 		peers, daily_blog.artifacts.CompletePost, stage.reviewer_count,
-		build_work, parse_winner, context.route_runner, context.budget, repair,
-		salvage, context.cache_load, context.cache_accept, observe,
+		build_work, parse_winner, context.route_runner, context.budget, salvage,
+		context.cache_load, context.cache_accept, observe,
 	)
 	results = {
 		item.request.request_id: item.result
 		for item in writing.candidates + editing.candidates
 	}
-	results.update(repair_results)
-	repair_source_set = frozenset(repair_sources)
-	repair_source_ids = tuple(
-		item.semantic_identity
-		for item in context.plan.attempts_for(context.rung, batch_index)
-		if item.work_kind == "review" and item.semantic_identity in repair_source_set
-	)
+	results.update(review_results)
 	# Route observers prove review dispatch; narrow offline seams may return only votes.
 	observed_bindings = bindings if all(
 		item.semantic_identity in results
@@ -423,7 +386,6 @@ def _review_recovery_batch(
 	) else ()
 	view = context.plan.materialize(
 		context.rung, batch_index, generation_ids, observed_bindings,
-		repair_source_ids if observed_bindings else (),
 	)
 	observation = daily_blog.stage6.Stage6BatchObservation(
 		view, tuple(results[item] for item in view.semantic_identities),

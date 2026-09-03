@@ -15,6 +15,8 @@ settings.yaml              local GitHub, model-route, and daily-blog settings
 source_me.sh               Bash Python 3.12 environment setup
 ```
 
+`docs/PUBLICATION_FLOW.md` owns the A1-through-G6 human step and durable-filename map.
+
 ## Daily-blog modules
 
 ```text
@@ -22,10 +24,8 @@ pipeline/daily_blog/
   acquisition_workflow.py           Step-0 inventory, roster, mirror, activity, evidence ownership
   activity.py                       account-wide commit discovery and report-day Git activity
   agents.py                         bounded parallel editorial route execution
-  attempt_ledger.py                 response-free Stage-6 terminal facts and summaries
   artifacts.py                      typed editorial artifact identities
   bounded_artifact_context.py       stage-neutral bounded artifact prompt projections
-  candidates.py                     complete-post eligibility validation
   complete_post_editor_prompts.py   Stage-6 editor prompt rendering
   config.py                         settings and role-route configuration
   daily_outline_workflow.py         Stage-5 ranking, outline, review, and promotion
@@ -68,12 +68,12 @@ pipeline/daily_blog/
   roster_snapshots.py               immutable verified roster storage
   route_cache.py                    route-result cache serialization
   routes.py                         isolated stdin command execution for editorial routes
-  run_contracts.py                  clean-break v13 run record
+  run_contracts.py                  clean-break current run record
   run_state.py                      RunStore persistence and recovery
   schema.py                         evidence, projection, and bounded-context types
   stage6.py                         Stage-6 author/editor path and typed input boundary
   stage6_attempt_plan.py            maximum topology and dependency-closed materialization
-  stage6_attempt_reliability.py     execution observations to canonical ledger facts
+  stage6_attempt_reliability.py     execution observations to editorial reliability facts
   stage6_cache_identity.py          closed digest-only materialized cache witness
   stage6_context.py                 bounded Stage-6 artifact and evidence frames
   stage6_execution.py               shared plan-bound request and candidate-pair mechanics
@@ -126,13 +126,14 @@ out/<owner>/
 |  +- summary.jsonl                       bounded terminal receipts for this date
 |  +- post.md                             trusted selected-post handoff during finalization
 |  +- runs/RUN_ID/
-|  |  +- run_state.json                   authoritative v13 run record and attempt ledger
-|  |  +- events.jsonl                     bounded lifecycle diagnostics
+|  |  +- run_state.json                   authoritative current run record and phase state
+|  |  +- runlog-YYYY-MM-DD.jsonl          bounded lifecycle diagnostics
 |  |  `- stage-owned JSON artifacts       including recovery journals while unresolved
 |  `- publication/                        atomically promoted sealed bundle
 |     +- bundle.json
 |     +- evidence.json
 |     +- repository_roster.json
+|     +- daily_active_roster.json
 |     +- editorial_projection.json
 |     +- publication_surface.json             portable survivor-scoped publication authority
 |     +- post.md
@@ -144,9 +145,9 @@ out/<owner>/
    `- manifest.json
 ```
 
-The current handoff manifest is `vosslab.daily-blog.bundle.v9`. It contains the validated
+The current handoff manifest contains the validated
 Stage-8 selected post and `best_artifact_id`, with evidence, roster, projection, portable
-`publication_surface.json`, selected assets, prompt and activation bindings, source-safety policy
+`daily_active_roster.json` provenance, `publication_surface.json`, selected assets, prompt and activation bindings, source-safety policy
 identity, and integrity digest. The portable surface is the immutable authority for allowed evidence
 IDs, repository coverage, and screenshot evidence/asset/publish-path mappings; the asset directory
 contains exactly its allowed screenshots. Its active
@@ -154,9 +155,9 @@ contains exactly its allowed screenshots. Its active
 `d50166736d79be7f7715cc0f7585fac71dfb2aecc1c631b10e01aeca2fb63c6b`. Candidate and referee
 records remain run-owned editorial history, not publisher inputs. The producer sends a bounded immutable byte transfer to the sibling
 publisher's standard input after its descriptor validation. The publisher records
-`publication-v6` state and the producer keeps an `import-receipt.v2` with the reader-body digest.
-Older bundle directories are not reusable current input; the exact publication-v3 reader exists
-only to recognize historical occupied dates.
+publication state and the producer keeps an import receipt with the reader-body digest.
+Older bundle directories are not reusable current input, and obsolete publication-record shapes have
+no runtime reader.
 
 ## Generated artifacts
 

@@ -523,30 +523,6 @@ class EvidenceAssembler:
 				selected_ids.add(item.evidence_id)
 				selected_repositories.add(item.repository)
 
-		# Projection requires one citable source for every active repository. Reserve
-		# that coverage before routine supporting material can consume the budget.
-		missing_repositories = [
-			repository
-			for repository in required_repositories
-			if repository not in selected_repositories
-		]
-		for index, repository in enumerate(missing_repositories):
-			remaining_slots = len(missing_repositories) - index
-			if remaining_total < remaining_slots:
-				raise RuntimeError(
-					"Evidence budget cannot retain one citable item for every active repository."
-				)
-			coverage_cap = max(1, remaining_total // remaining_slots)
-			candidates = [
-				item
-				for item in ordered
-				if item.repository == repository and item.kind != "dated_changelog"
-			]
-			if not any(select_budgeted(item, coverage_cap) for item in candidates):
-				raise RuntimeError(
-					f"Evidence assembly lacks citable source material for {repository}."
-				)
-
 		for item in ordered:
 			if item.kind != "dated_changelog":
 				select_budgeted(item)

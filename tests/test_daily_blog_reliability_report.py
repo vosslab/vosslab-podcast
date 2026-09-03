@@ -28,7 +28,7 @@ def terminal_summary(
 	"""Build a validated, fixed terminal receipt for reporter behavior tests."""
 	failed = state == "failed"
 	value: dict[str, object] = {
-		"schema_version": daily_blog.observability.TERMINAL_SUMMARY_SCHEMA_VERSION,
+		"schema_version": daily_blog.observability.TERMINAL_SUMMARY_SCHEMA,
 		"terminal_record_sha256": terminal_record_sha256,
 		"report_date": report_date,
 		"run_id": run_id,

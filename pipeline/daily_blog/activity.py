@@ -10,6 +10,7 @@ import zoneinfo
 # local repo modules
 import daily_blog.schema
 import daily_blog.repository_contracts
+import daily_blog.io_utils
 import podlib.github_client
 import podlib.runtime_credentials
 
@@ -183,53 +184,79 @@ def _commit_reference(value: object, owner: str) -> tuple[str, str]:
 
 #============================================
 def _message_preview(value: object) -> str:
-	"""Return one compact escaped commit-message preview for local Markdown."""
+	"""Return one compact single-line commit-message preview."""
 	lines = str(value or "").splitlines()
 	message = " ".join((lines[0] if lines else "").split())
 	if len(message) > COMMIT_MESSAGE_PREVIEW_CHARS:
 		message = message[:COMMIT_MESSAGE_PREVIEW_CHARS - 3].rstrip() + "..."
-	for character in ("\\", "`", "*", "_", "[", "]", "<", ">"):
-		message = message.replace(character, "\\" + character)
 	return message or "(no commit message)"
 
 
 #============================================
-def render_daily_commits(
-	owner: str, report_date: str, commits: list[dict],
-) -> str:
-	"""Render the local Step 0 commit inventory with compact message previews."""
-	rows = []
+def build_daily_active_roster(
+	owner: str, report_date: str, repository_roster_id: str, commits: list[dict],
+) -> dict[str, object]:
+	"""Build the canonical machine-owned active roster for one report day."""
+	datetime.date.fromisoformat(report_date)
+	rows: dict[str, list[dict[str, str]]] = {}
 	for value in commits:
 		repository, sha = _commit_reference(value, owner)
-		timestamp = str(value.get("author_timestamp") or "")
-		author = _message_preview(value.get("author_name"))
-		message = _message_preview(value.get("message"))
-		url = f"https://github.com/{repository}/commit/{sha}"
-		rows.append((repository.casefold(), timestamp, sha, repository, author, message, url))
-	rows.sort()
-	lines = [
-		f"# Daily commits for {report_date}",
-		"",
-		f"GitHub query: `user:{owner} author-date:{report_date}`",
-		"",
-	]
-	if not rows:
-		lines.extend(["No commits were found for this report date.", ""])
-		return "\n".join(lines)
-	lines.extend([
-		f"{len(rows)} commit{'s' if len(rows) != 1 else ''} across "
-		+ f"{len({row[0] for row in rows})} repositor"
-		+ ("ies." if len({row[0] for row in rows}) != 1 else "y."),
-		"",
-	])
-	current = ""
-	for _folded, timestamp, sha, repository, author, message, url in rows:
-		if repository != current:
-			lines.extend([f"## {repository}", ""])
-			current = repository
-		lines.append(f"- [`{sha[:12]}`]({url}) - {timestamp} - {author} - {message}")
-	lines.append("")
-	return "\n".join(lines)
+		rows.setdefault(repository, []).append({
+			"sha": sha,
+			"author_timestamp": str(value.get("author_timestamp") or ""),
+			"author_name": _message_preview(value.get("author_name")),
+			"message": _message_preview(value.get("message")),
+			"url": f"https://github.com/{repository}/commit/{sha}",
+		})
+	repositories = []
+	for repository in sorted(rows, key=str.casefold):
+		commit_rows = sorted(rows[repository], key=lambda item: (item["author_timestamp"], item["sha"]))
+		repositories.append({"repository": repository, "commits": commit_rows})
+	content: dict[str, object] = {
+		"owner": owner,
+		"report_date": report_date,
+		"repository_roster_id": repository_roster_id,
+		"repositories": repositories,
+	}
+	return {**content, "active_roster_id": daily_blog.io_utils.hash_value(content)}
+
+
+#============================================
+def validate_daily_active_roster(value: object) -> dict[str, object]:
+	"""Validate and return one canonical machine-owned daily roster."""
+	if not isinstance(value, dict) or set(value) != {
+		"owner", "report_date", "repository_roster_id", "repositories", "active_roster_id"
+	}:
+		raise RuntimeError("Daily active roster fields are invalid.")
+	if type(value["owner"]) is not str or re.fullmatch(r"[A-Za-z0-9-]+", value["owner"]) is None:
+		raise RuntimeError("Daily active roster owner is invalid.")
+	datetime.date.fromisoformat(str(value["report_date"]))
+	if type(value["repository_roster_id"]) is not str or re.fullmatch(
+		r"[0-9a-f]{64}", value["repository_roster_id"],
+	) is None:
+		raise RuntimeError("Daily active roster source identity is invalid.")
+	if not isinstance(value["repositories"], list):
+		raise RuntimeError("Daily active roster repositories are invalid.")
+	previous = ""
+	for repository_entry in value["repositories"]:
+		if not isinstance(repository_entry, dict) or set(repository_entry) != {"repository", "commits"}:
+			raise RuntimeError("Daily active roster repository entry is invalid.")
+		repository = repository_entry["repository"]
+		if type(repository) is not str or repository.casefold() <= previous or not isinstance(repository_entry["commits"], list):
+			raise RuntimeError("Daily active roster repository order is invalid.")
+		previous = repository.casefold()
+		for commit in repository_entry["commits"]:
+			if not isinstance(commit, dict) or set(commit) != {
+				"sha", "author_timestamp", "author_name", "message", "url"
+			} or re.fullmatch(r"[0-9a-f]{40}", str(commit.get("sha"))) is None:
+				raise RuntimeError("Daily active roster commit entry is invalid.")
+	content = {
+		key: value[key]
+		for key in ("owner", "report_date", "repository_roster_id", "repositories")
+	}
+	if value["active_roster_id"] != daily_blog.io_utils.hash_value(content):
+		raise RuntimeError("Daily active roster identity is invalid.")
+	return dict(value)
 
 
 #============================================
@@ -256,6 +283,8 @@ def locate_activity(
 			shas.append(sha)
 	activities = []
 	for mirror in mirror_entries:
+		if mirror.get("refresh_result") == "failed":
+			continue
 		repository = mirror["repository"]
 		if repository not in by_repository:
 			continue

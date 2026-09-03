@@ -9,6 +9,10 @@ import daily_blog.bounded_artifact_context
 import daily_blog.daily_outline_prompts
 import daily_blog.io_utils
 import daily_blog.projection
+
+
+class DailyOutlineContextCapacityError(RuntimeError):
+	"""Report that optional comparison inputs cannot fit their prompt envelope."""
 import daily_blog.prompt_registry.loader
 import daily_blog.schema
 
@@ -221,7 +225,9 @@ class DailyOutlineComparisonContext:
 
 		minimum = fits(0)
 		if minimum is None:
-			raise RuntimeError("Daily-outline comparison cannot fit every survivor under its prompt limit.")
+			raise DailyOutlineContextCapacityError(
+				"Daily-outline comparison inputs exceed the prompt limit."
+			)
 		# The fitting scale is monotonic, so binary search finds the greatest shared view.
 		low, high, best = 0, _SCALE_DENOMINATOR, minimum
 		while low < high:

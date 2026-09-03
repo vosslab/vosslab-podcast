@@ -218,7 +218,7 @@ def test_observability_rejects_diagnostic_data_outside_its_bounded_contract(
 ) -> None:
 	"""Nested, secret-like, and unclassified diagnostics cannot enter receipts."""
 	summary = {
-		"schema_version": daily_blog.observability.TERMINAL_SUMMARY_SCHEMA_VERSION,
+		"schema_version": daily_blog.observability.TERMINAL_SUMMARY_SCHEMA,
 		"summary_id": daily_blog.io_utils.sha256_text("run-safe:" + "b" * 64), "terminal_record_sha256": "b" * 64,
 		"report_date": REPORT_DATE, "run_id": "run-safe", "created_at": FIXED_TIME,
 		"completed_at": FIXED_TIME, "state": "failed", "outcome": "failed",
@@ -311,7 +311,7 @@ def test_event_sink_rejects_a_symlinked_journal(
 	run_dir.mkdir()
 	outside = tmp_path / "outside.jsonl"
 	outside.write_text("keep\n", encoding="utf-8")
-	os.symlink(outside, run_dir / "events.jsonl")
+	os.symlink(outside, run_dir / f"runlog-{REPORT_DATE}.jsonl")
 	sink = daily_blog.observability.RunEventSink(REPORT_DATE, "run-safe")
 	line = sink.line("daily_publication.run_started", {"state": "running"}, frozenset({"state"}))
 	run_fd = os.open(run_dir, os.O_RDONLY | os.O_DIRECTORY)
@@ -330,7 +330,7 @@ def test_event_sink_rejects_a_newline_free_oversized_existing_record(
 	"""Capacity inspection bounds malformed durable event input before append."""
 	run_dir = tmp_path / "run"
 	run_dir.mkdir()
-	(run_dir / "events.jsonl").write_bytes(
+	(run_dir / f"runlog-{REPORT_DATE}.jsonl").write_bytes(
 		b"x" * (daily_blog.observability.MAX_EVENT_LINE_BYTES + 2),
 	)
 	sink = daily_blog.observability.RunEventSink(REPORT_DATE, "run-safe")

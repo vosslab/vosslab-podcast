@@ -23,7 +23,7 @@ of an eligible artifact or an unsafe deterministic boundary is a typed pipeline 
 | [`pipeline/daily_blog/publication_workflow.py`](../pipeline/daily_blog/publication_workflow.py) | Stages 5-8 | Daily outline, complete post, synthesis, and validation transitions |
 | [`pipeline/daily_blog/stage6.py`](../pipeline/daily_blog/stage6.py), `stage6_primary.py`, [`pipeline/daily_blog/stage6_recovery.py`](../pipeline/daily_blog/stage6_recovery.py), and [`pipeline/daily_blog/stage_recovery_coordinator.py`](../pipeline/daily_blog/stage_recovery_coordinator.py) | Complete-post editorial boundary | Replicated primary work, typed lower-rung recovery, and promotion |
 | `stage6_attempt_plan.py` and `stage6_execution.py` | Stage-6 attempt topology | Finite capacity admission, dependency-closed materialization, and plan-bound requests |
-| `stage6_cache_identity.py`, `attempt_ledger.py`, and `stage6_attempt_reliability.py` | Stage-6 execution evidence | Digest-only cache witnesses, terminal facts, and reconciled summaries |
+| `stage6_cache_identity.py` and `stage6_attempt_reliability.py` | Stage-6 execution evidence | Digest-only cache witnesses and advisory summaries |
 | [`pipeline/daily_blog/publication_finalization.py`](../pipeline/daily_blog/publication_finalization.py) | Finalization coordinator | Selected-post write, sealed bundle, import, and page verification |
 | [`pipeline/daily_blog/run_contracts.py`](../pipeline/daily_blog/run_contracts.py) and [`pipeline/daily_blog/run_state.py`](../pipeline/daily_blog/run_state.py) | Durable run record | Resumable bounded state, events, and terminal summaries |
 | `pipeline/daily_blog/prompt_registry/` | Prompt identity registry | Central immutable declarations and issued resource loads |
@@ -38,20 +38,21 @@ dependencies it needs.
 ## Daily publication flow
 
 ```text
-0. account-wide GitHub commit search and local daily_commits.md inventory
-1. repository discovery and roster snapshot
-2. active-repository mirror refresh and report-day activity
+0. repository discovery and authoritative `repository_roster.json` snapshot
+1. account-wide GitHub commit search and canonical `daily_active_roster.json`
+2. active-repository mirror refresh and exact report-day activity
 3. exact evidence packet
 4. independent repository outlines and stories
 5. independent daily-outline ranking, writing, review, and promotion
-6. independent complete posts, validation, review, repair, and promotion
+6. independent complete posts, validation, optional review, and promotion
 7. optional final synthesis that preserves an incumbent unless it directly improves it
 8. publication validation and selected-post repair when required
 9. selected-post write, bundle creation, importer transaction, and page verification
 ```
 
 Stages 3 through 6 generate multiple independent candidates and promote only eligible whole
-artifacts. Review and bounded repair can improve a candidate but never mechanically assemble prose.
+artifacts. Review can improve selection but never mechanically assemble prose or veto every usable
+candidate.
 Stage 5 gives every retained repository a fair bounded story and outline slice. Each direct outline
 comparison receives its own pair-specific projection, so high-volume evidence cannot crowd a
 survivor out of the model frame. Stage 6 derives one survivor-scoped prompt context from the
@@ -62,9 +63,9 @@ gives editors candidate-local positive repair objectives, and promotes only a re
 complete post. Before dispatch, one immutable maximum attempt plan admits primary work, two recovery
 rungs, as many as three fresh batches, and bounded same-request transport retries. Each batch then
 materializes only generation slots and candidate-dependent reviews whose inputs exist. Reviews bind
-the two ordered candidate hashes they receive; review repair binds the materialized review identity
-and response hash it repairs. Materialization can only select a dependency-closed subsequence of the
-maximum plan and preserves its canonical order.
+the two ordered candidate hashes they receive. Malformed or unavailable reviewer output is recorded
+as degradation; it does not trigger another model call. Materialization can only select a
+dependency-closed subsequence of the maximum plan and preserves its canonical order.
 
 Complete-post admission is a deterministic mechanical boundary, not a house-style grader. It enforces
 typed provenance, evidence and repository authority, output ownership, and approved image paths.
@@ -86,15 +87,14 @@ failure after `post.md` is preserved as incomplete operational work rather than 
 ## Durable state and caching
 
 [`pipeline/daily_blog/run_contracts.py`](../pipeline/daily_blog/run_contracts.py) defines the
-`vosslab.daily-blog.run.v13` record. `RunStore` persists legal phases, bounded redacted events,
-phase identities, editorial summaries, the Stage-6 attempt ledger and its derived summary, and one
+`vosslab.daily-blog.run` record. `RunStore` persists legal phases, bounded redacted events,
+phase identities, editorial summaries, and one
 `best_artifact_id`. The transition log replays
 the incumbent through four exact operations: observation, establishment, editorial replacement,
 and publication repair. Stage 7 can request replacement only from its validated direct result;
 Stage 8 has its separately typed repair operation.
 
-Run v13 is a clean pre-production boundary. A run written under another schema regenerates instead of
-being coerced into current resumable state. Survivor selection owns the projection boundary, so a
+The run record is a clean pre-production boundary with no historical reader. Survivor selection owns the projection boundary, so a
 pre-survivor global `editorial_projection` phase cannot reject a large repository universe before
 Stage 5.
 
@@ -109,17 +109,13 @@ activity, and evidence items. It omits mutable mirror inventory, including mirro
 default revisions, ref fingerprints, refresh timestamps, and refresh outcomes. A selected commit,
 range, or evidence change therefore misses the cache, while an equivalent mirror observation reuses
 the completed editorial result. Stage 6 additionally uses the closed
-`vosslab.daily-blog.route-cache.v2` witness. It binds the planned slot, materialized prompt, actual
-ordered candidate hashes, positive feedback-envelope digest, review-repair provenance, route name,
+`vosslab.daily-blog.route-cache` witness. It binds the planned slot, materialized prompt, actual
+ordered candidate hashes, route name,
 and route execution contract without retaining candidate, response, or prompt bytes.
 
-`pipeline/daily_blog/attempt_ledger.py` owns one response-free terminal fact per materialized Stage-6
-slot. `stage6_attempt_reliability.py` projects route,
-parse, mechanical, publication-policy, review, selection, reuse, and transport observations into
-that ledger. The production workflow accepts only `planned_routes_complete` results, validates the
-observed primary prefix before writes, reconciles any recovery observations, and persists the closed
-ledger before cache effects. An externally supplied incumbent may be observed under the separate
-`external_incumbent_observed` scope, but that scope is not accepted as production route evidence.
+`stage6_attempt_reliability.py` summarizes route and review outcomes for diagnostics. Those summaries
+do not approve a model response and cannot prevent publication of an available mechanically valid
+post.
 
 ## Prompt and evidence trust boundaries
 
@@ -199,10 +195,8 @@ editorial ineligibility before promotion. Its portable `publication_source_safet
 digest travel in the sealed contracts: the executable corpus has 35 cases and SHA-256
 `d50166736d79be7f7715cc0f7585fac71dfb2aecc1c631b10e01aeca2fb63c6b`. The publisher rechecks the
 source independently. Reuse is fail-closed: a bundle made under a different schema or safety
-identity is rebuilt rather than silently upgraded. The exact legacy publication-v3 reader remains
-only for the finite retained 2026-08-26 publication: it supports occupied-date inspection and
-replacement, not a new-import path. Remove that reader when that date is republished with the current
-contract or explicitly migrated.
+identity is rebuilt rather than silently upgraded. Obsolete pre-production publication records have
+no runtime reader.
 
 ## Testing and verification
 

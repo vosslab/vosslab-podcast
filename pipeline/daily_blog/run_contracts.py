@@ -1,4 +1,4 @@
-"""Typed, versioned contracts for durable daily-publication run state."""
+"""Typed contracts for durable daily-publication run state."""
 
 # Standard Library
 import dataclasses
@@ -14,7 +14,7 @@ import daily_blog.publisher_contract
 import daily_blog.recovery
 
 
-RUN_SCHEMA_VERSION = "vosslab.daily-blog.run.v13"
+RUN_SCHEMA = "vosslab.daily-blog.run"
 UTC_TIMESTAMP_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
 
 LEGAL_PHASES = (
@@ -36,7 +36,7 @@ LEGAL_PHASES = (
 PHASE_STATUSES = {"pending", "running", "completed", "failed"}
 RUN_STATES = {"running", "completed", "failed"}
 RUN_OUTCOMES = {"pending", "succeeded", "degraded", "failed"}
-LEGACY_FAILURE_KINDS = frozenset({
+BASE_OPERATIONAL_FAILURE_KINDS = frozenset({
 	"editorial_blocked",
 	"external_resource_error",
 	"invalid_input",
@@ -55,7 +55,7 @@ PUBLISHER_FAILURE_KINDS = (
 		daily_blog.publisher_contract.PUBLISHER_START_FAILURE,
 	})
 )
-OPERATIONAL_FAILURE_KINDS = LEGACY_FAILURE_KINDS | PUBLISHER_FAILURE_KINDS
+OPERATIONAL_FAILURE_KINDS = BASE_OPERATIONAL_FAILURE_KINDS | PUBLISHER_FAILURE_KINDS
 TERMINAL_FAULT_KINDS = frozenset(
 	category.value for category in daily_blog.recovery.TerminalFaultCategory
 )
@@ -64,32 +64,6 @@ PUBLISHABLE_ARTIFACT_ID_RE = re.compile(r"^artifact-[0-9a-f]{24}$")
 RANKING_PROMOTION_ID_RE = re.compile(r"^ranking-promotion-[0-9a-f]{24}$")
 MAX_LOGICAL_PATH_CHARS = 1024
 MAX_EDITORIAL_STEP_CHARS = 256
-
-
-class RunRegenerationRequiredError(RuntimeError):
-	"""Signal that pre-production mutable state must be regenerated, not resumed."""
-
-	def __init__(self, schema_version: str) -> None:
-		super().__init__("Daily-publication run state requires regeneration.")
-		self.schema_version = schema_version
-
-
-#============================================
-def classify_run_schema(value: object) -> str:
-	"""Classify only the outer schema identity before any mutable-state decode.
-
-	ASVS 1.5 and 16.1: old or malformed pre-production state is never coerced
-	into current resumable state.  Sealed bundle bytes are separate immutable
-	artifacts and are intentionally not opened by this classifier.
-	"""
-	if type(value) is not dict:
-		return "invalid"
-	schema_version = value.get("schema_version")
-	if schema_version == RUN_SCHEMA_VERSION:
-		return "current"
-	if type(schema_version) is str:
-		return "regenerate_required"
-	return "invalid"
 
 
 @dataclasses.dataclass(frozen=True)
@@ -338,7 +312,7 @@ class RunRecord:
 	updated_at: str
 	completed_at: str
 	terminal_fault: dict
-	schema_version: str = RUN_SCHEMA_VERSION
+	schema_version: str = RUN_SCHEMA
 
 	#============================================
 	@classmethod
@@ -478,7 +452,7 @@ class RunRecord:
 	#============================================
 	def validate(self) -> None:
 		"""Reject incomplete or internally inconsistent run-state records."""
-		if self.schema_version != RUN_SCHEMA_VERSION:
+		if self.schema_version != RUN_SCHEMA:
 			raise RuntimeError("Unsupported run record schema.")
 		if self.state not in RUN_STATES:
 			raise RuntimeError("Invalid run state.")
@@ -611,10 +585,7 @@ class RunRecord:
 		# ASVS 1.5.2 and 2.2.1: reject type-confused JSON before it becomes run state.
 		if type(value) is not dict:
 			raise RuntimeError("Run record must be an object.")
-		classification = classify_run_schema(value)
-		if classification == "regenerate_required":
-			raise RunRegenerationRequiredError(value["schema_version"])
-		if classification != "current":
+		if value.get("schema_version") != RUN_SCHEMA:
 			raise RuntimeError("Unsupported run record schema.")
 		field_names = {field.name for field in dataclasses.fields(cls)}
 		if set(value) != field_names:

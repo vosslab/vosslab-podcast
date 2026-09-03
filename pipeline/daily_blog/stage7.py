@@ -339,7 +339,7 @@ def _review_facts(value: Stage7Input, maximum: int) -> str:
 	votes = [{"review_id": vote.review_id, "first_artifact_id": aliases.get(vote.first_artifact_id, ""),
 		"second_artifact_id": aliases.get(vote.second_artifact_id, ""), "status": vote.status,
 		"winner_artifact_id": aliases.get(vote.winner_artifact_id, ""), "failure": vote.failure,
-		"repaired": vote.repaired, "resumed": vote.resumed} for vote in value.stage6_result.review.votes]
+		"resumed": vote.resumed} for vote in value.stage6_result.review.votes]
 	reliability = []
 	for item in value.stage6_result.step_reliability:
 		projected = item.to_dict()
@@ -396,7 +396,7 @@ def _request(value: Stage7Input, run_id: str, step: str, role: str, ordinal: str
 	route: daily_blog.editorial_stage_config.RoleRoute, prompt: str, config: daily_blog.final_synthesis_config.FinalSynthesisConfig,
 	working_directory: str, contract_version: str, synthesis_identity: dict[str, object],
 	input_ids: tuple[str, ...] = (), assignment: daily_blog.replication.ReviewAssignment | None = None,
-	repair_of: str = "") -> daily_blog.agents.RouteRequest:
+) -> daily_blog.agents.RouteRequest:
 	"""Bind each independent route/cache identity to exact Stage 6 and V4 facts."""
 	assignment_data = {} if assignment is None else dataclasses.asdict(assignment)
 	logical_input = {"report_date": value.report_date,
@@ -413,7 +413,7 @@ def _request(value: Stage7Input, run_id: str, step: str, role: str, ordinal: str
 		request_id=f"stage7_{step}_{role}_{ordinal}_{cache_input_hash[:12]}", step="stage7_" + step,
 		route=route, prompt=prompt, working_directory=working_directory, role=role,
 		retry_attempts=config.route_retry_attempts, maximum_parallel_calls=config.maximum_parallel_calls,
-		repair_of=repair_of, input_hash=input_hash, contract_version=contract_version,
+		input_hash=input_hash, contract_version=contract_version,
 		cache_input_hash=cache_input_hash,
 	)
 
@@ -470,7 +470,7 @@ def _result(value: Stage7Input, synthesis: daily_blog.replication.ReplicationRes
 	seven_two = daily_blog.replication.StepReliability("7.2", "degraded" if reasons else "succeeded",
 		len(review.votes), sum(vote.status == "succeeded" for vote in review.votes),
 		sum(vote.status == "failed" for vote in review.votes), 0,
-		sum(vote.status == "succeeded" and vote.repaired for vote in review.votes), disagreements, "", tuple(sorted(reasons)))
+		0, disagreements, "", tuple(sorted(reasons)))
 	if isinstance(promotion, daily_blog.artifacts.SelectedPeer):
 		promotion_reasons, best = (), promotion.artifact.artifact_id
 	else:
@@ -518,7 +518,15 @@ def run_stage7(value: Stage7Input, run_id: str, config: daily_blog.config.DailyB
 	alternatives = _alternatives(value)
 	prompt, synthesis_identity = _prompt_data(value, alternatives, templates, identity, limits, prompt_set)
 	if len(prompt) > min(stage.prompt_limits["rendered_prompt_chars"], daily_blog.final_synthesis_prompts.MAX_RENDERED_PROMPT_CHARS):
-		raise RuntimeError("Stage 7 synthesis prompt exceeds its configured limit.")
+		return _result(
+			value,
+			daily_blog.replication.ReplicationResult(daily_blog.artifacts.CompletePost, ()),
+			daily_blog.replication.ReviewResult((), ()),
+			daily_blog.artifacts.PreservedArtifact(
+				value.incumbent, daily_blog.artifacts.CompletePost,
+			),
+			stage.reviewer_count,
+		)
 	route_runner = runner if runner is not None else daily_blog.routes.CommandRouteRunner()
 	requests = tuple(_request(value, run_id, "7_1", "synthesizer", str(index + 1), stage.synthesis_route,
 		prompt, stage, config.daily_blog_repository, resolved.contract.prompt_version, synthesis_identity,
@@ -549,19 +557,12 @@ def run_stage7(value: Stage7Input, run_id: str, config: daily_blog.config.DailyB
 			raise daily_blog.agents.RepairableStructuredOutput(str(error)) from error
 		return {"A": work.first_artifact_id, "B": work.second_artifact_id}.get(verdict["winner"], "")
 
-	def repair(work: daily_blog.replication.ReviewWork, response: str) -> daily_blog.replication.ReviewWork:
-		prompt = templates["repair"].format(response=response[:daily_blog.editorial.MAX_REFEREE_RESPONSE_CHARS])
-		request = _request(value, run_id, "7_2_repair", "reviewer_repair", work.request.request_id,
-			stage.reviewer_route, prompt, stage, config.daily_blog_repository, resolved.contract.prompt_version,
-			synthesis_identity, (daily_blog.io_utils.sha256_text(response),), work.assignment, work.request.cache_input_hash)
-		return daily_blog.replication.ReviewWork(request, work.first_artifact_id, work.second_artifact_id, work.assignment)
-
 	def salvage(text: str, work: daily_blog.replication.ReviewWork) -> str | None:
 		label = daily_blog.replication.salvage_allowed_identifier(text, ("A", "B"))
 		return {"A": work.first_artifact_id, "B": work.second_artifact_id}.get(label)
 
 	review = daily_blog.replication.review(peers, daily_blog.artifacts.CompletePost, stage.reviewer_count,
-		build, parse, route_runner, budget, repair, salvage, cache_load, cache_accept)
+		build, parse, route_runner, budget, salvage, cache_load, cache_accept)
 	promotion = daily_blog.replication.promote(peers, daily_blog.artifacts.CompletePost,
 		lambda item: _eligible(value, item), review.votes, value.incumbent)
 	if not isinstance(promotion, daily_blog.artifacts.SelectedPeer):

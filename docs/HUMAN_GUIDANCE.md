@@ -19,6 +19,9 @@ origin belongs there too. Rules: [REPO_STYLE.md](REPO_STYLE.md).
 - Remove tests that expect stochastic LLM behavior to be deterministic or instruction-perfect.
 - Keep gates only where failure represents a genuine correctness, safety, or artifact-validity boundary.
 - Judge success primarily by whether a valid blog entry is ultimately produced, not whether the LLM took the prescribed path to produce it.
+- Filenames are always deterministic and code-owned; never let an LLM choose or influence a filename.
+- I create repositories often, so neither the complete account roster nor a date's active repository
+  set is fixed. Recompute both for each run and keep them immutable only within that run.
 - This is pre-production: improve foundational schemas, contracts, abstractions, and ownership
   boundaries directly instead of carrying legacy support.
 - Prioritize the long term and adaptability. Keep responsibilities explicit and components replaceable;

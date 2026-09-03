@@ -115,7 +115,7 @@ def _source(tmp_path: pathlib.Path) -> tuple[
 	route = daily_blog.editorial_stage_config.RoleRoute("fixture", ("fixture",))
 	request = daily_blog.agents.RouteRequest("stage6", "stage6", route, "fixture", str(tmp_path),
 		input_hash="a" * 64, contract_version="fixture")
-	result = daily_blog.agents.AgentResult("fixture", alternative.content, True, "", 1, 0, False, False,
+	result = daily_blog.agents.AgentResult("fixture", alternative.content, True, "", 1, 0, False,
 		"fixture", request.request_id, request.identity_sha256, alternative.content_hash)
 	eligible = daily_blog.artifacts.EligibilityResult(True, ())
 	candidate = daily_blog.replication.ReplicatedCandidate(request, result, alternative, eligible)

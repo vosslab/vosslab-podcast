@@ -14,7 +14,7 @@ import daily_blog.stage6_cache_identity
 import daily_blog.stage6_attempt_plan
 
 
-ROUTE_CACHE_SCHEMA_VERSION = daily_blog.stage6_cache_identity.ROUTE_CACHE_SCHEMA_VERSION
+ROUTE_CACHE_SCHEMA = daily_blog.stage6_cache_identity.ROUTE_CACHE_SCHEMA
 
 
 class RouteCacheIntegrityError(daily_blog.agents.EditorialTerminalError):
@@ -26,13 +26,12 @@ def build_stage6_cache_identity(
 	materialization: daily_blog.stage6_attempt_plan.MaterializedStage6AttemptPlan,
 	attempt: daily_blog.stage6_attempt_plan.PlannedStage6Attempt, *, prompt: str,
 	candidate_identities: tuple[str, ...] = (),
-	repair_response: str = "", route_name: str, route_contract_sha256: str,
+	route_name: str, route_contract_sha256: str,
 ) -> daily_blog.stage6_cache_identity.Stage6CacheIdentity:
 	"""Create the typed Stage 6 witness at the semantic route-cache boundary."""
 	try:
 		return daily_blog.stage6_cache_identity.Stage6CacheIdentity(
 			materialization, attempt, prompt=prompt, candidate_identities=candidate_identities,
-			repair_response=repair_response,
 			route_name=route_name, route_contract_sha256=route_contract_sha256,
 		)
 	except daily_blog.stage6_cache_identity.Stage6CacheIdentityError as error:
@@ -57,11 +56,11 @@ class RouteCacheEffect:
 
 
 def _request_identity(request: daily_blog.agents.RouteRequest) -> dict[str, object]:
-	"""Return a v2 digest-only identity for generic or planned editorial work."""
+	"""Return the digest-only identity for generic or planned editorial work."""
 	if request.stage6_cache_identity is not None:
 		return request.stage6_cache_identity.identity_dict()
 	return {
-		"cache_schema_version": ROUTE_CACHE_SCHEMA_VERSION,
+		"cache_schema": ROUTE_CACHE_SCHEMA,
 		"kind": "generic-editorial-request",
 		"step_sha256": daily_blog.io_utils.sha256_text(request.step),
 		"role_sha256": daily_blog.io_utils.sha256_text(request.role),
@@ -105,7 +104,7 @@ class RouteResultCache:
 	def _envelope_value(self, effect: RouteCacheEffect) -> dict[str, object]:
 		identity, identity_hash = self._identity(effect.request)
 		return {
-			"schema_version": ROUTE_CACHE_SCHEMA_VERSION,
+			"schema": ROUTE_CACHE_SCHEMA,
 			"request_identity": identity,
 			"request_identity_sha256": identity_hash,
 			"result": self._stored_result(effect.request, effect.result),
@@ -117,12 +116,12 @@ class RouteResultCache:
 		# ASVS 1.5.2, 2.2.1-2.2.3, 5.3.2: exact JSON structure and every
 		# identity binding are revalidated before the result becomes reusable.
 		if type(value) is not dict or set(value) != {
-			"schema_version", "request_identity", "request_identity_sha256", "result",
+			"schema", "request_identity", "request_identity_sha256", "result",
 		}:
 			raise RouteCacheIntegrityError("Cached route result uses unsupported fields.")
 		identity, identity_hash = self._identity(request)
 		if (
-			value["schema_version"] != ROUTE_CACHE_SCHEMA_VERSION
+			value["schema"] != ROUTE_CACHE_SCHEMA
 			or value["request_identity"] != identity
 			or value["request_identity_sha256"] != identity_hash
 		):
@@ -132,7 +131,6 @@ class RouteResultCache:
 			stored.request_identity_sha256 != identity_hash
 			or stored.role != request.role
 			or stored.route_name != request.route.name
-			or stored.repaired != request.is_repair
 		):
 			raise RouteCacheIntegrityError("Cached route result does not match route request.")
 		return dataclasses.replace(

@@ -7,7 +7,7 @@ import daily_blog.prompt_registry.definitions
 import daily_blog.prompt_registry.loader
 
 
-REPOSITORY_STORY_PROMPT_VERSION = "repository-story-v1"
+REPOSITORY_STORY_PROMPT_CONTRACT = "repository-story"
 MAX_OUTLINE_CONTEXT_CHARS = 30000
 MAX_EVIDENCE_CONTEXT_CHARS = 60000
 MAX_CANDIDATE_STORIES_CHARS = 80000
@@ -30,7 +30,7 @@ def _loaded(value: daily_blog.prompt_registry.loader.LoadedPromptSet | None) -> 
 
 
 def repository_story_prompt_identity(loaded: daily_blog.prompt_registry.loader.LoadedPromptSet | None = None) -> dict[str, object]:
-	"""Return durable Stage 4 prompt provenance in its legacy payload form."""
+	"""Return durable Stage 4 prompt provenance in its registered payload form."""
 	return _loaded(loaded).identity_dict()
 
 
@@ -90,13 +90,6 @@ def render_repository_story_comparison(repo_outline_json: str, evidence_json: st
 		"rubric": _bounded_text(rubric, "rubric", MAX_RUBRIC_CHARS),
 		"rubric_identity": _rubric_identity(rubric_identity),
 	}, MAX_COMPARISON_PROMPT_CHARS)
-
-
-def render_repository_story_verdict_repair(response: str,
-	loaded: daily_blog.prompt_registry.loader.LoadedPromptSet | None = None) -> str:
-	return _render(loaded, daily_blog.prompt_registry.definitions.REPOSITORY_STORY_VERDICT_REPAIR_RESOURCE, {
-		"response": _bounded_text(response, "repair response", MAX_REPAIR_RESPONSE_CHARS),
-	}, MAX_REPAIR_RESPONSE_CHARS + 3000)
 
 
 def parse_repository_story_verdict(response: str,

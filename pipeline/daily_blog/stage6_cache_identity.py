@@ -10,15 +10,14 @@ import daily_blog.io_utils
 import daily_blog.stage6_attempt_plan
 
 
-ROUTE_CACHE_SCHEMA_VERSION = "vosslab.daily-blog.route-cache.v2"
+ROUTE_CACHE_SCHEMA = "vosslab.daily-blog.route-cache"
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 SAFE_ROUTE_NAME_RE = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
 STAGE6_CACHE_IDENTITY_KEYS = (
-	"route_cache_schema_version", "attempt_plan_schema_version", "slot_id", "stage", "rung",
+	"route_cache_schema", "attempt_plan_schema", "slot_id", "stage", "rung",
 	"batch_index", "work_kind", "role", "replica_index", "pair_index", "display_order",
 	"prompt_sha256", "planner_semantic_input_sha256", "actual_candidate_input_sha256",
-	"repair_of_identity", "repair_response_sha256", "route_name",
-	"route_contract_sha256",
+	"route_name", "route_contract_sha256",
 )
 
 
@@ -30,8 +29,8 @@ class Stage6CacheIdentityError(RuntimeError):
 class Stage6CacheIdentity:
 	"""Validated digest-only cache witness for one materialized Stage 6 slot."""
 
-	route_cache_schema_version: str
-	attempt_plan_schema_version: str
+	route_cache_schema: str
+	attempt_plan_schema: str
 	slot_id: str
 	stage: str
 	rung: str
@@ -44,8 +43,6 @@ class Stage6CacheIdentity:
 	planner_semantic_input_sha256: str
 	prompt_sha256: str
 	actual_candidate_input_sha256: str
-	repair_of_identity: str
-	repair_response_sha256: str
 	route_name: str
 	route_contract_sha256: str
 
@@ -53,8 +50,7 @@ class Stage6CacheIdentity:
 	def __init__(
 		self, materialization: object, attempt: object, *, prompt: str,
 		candidate_identities: tuple[str, ...] = (),
-		repair_response: str = "", route_name: str,
-		route_contract_sha256: str,
+		route_name: str, route_contract_sha256: str,
 	) -> None:
 		"""Build one witness from an active materialization and canonical attempt."""
 		limits = daily_blog.stage6_attempt_plan
@@ -73,8 +69,6 @@ class Stage6CacheIdentity:
 			raise Stage6CacheIdentityError("Stage 6 candidate identities require SHA-256 witnesses.")
 		if len(candidate_identities) != len(set(candidate_identities)):
 			raise Stage6CacheIdentityError("Stage 6 candidate identities require unique witnesses.")
-		if type(repair_response) is not str:
-			raise Stage6CacheIdentityError("Stage 6 repair witness must be text.")
 		if type(route_name) is not str or SAFE_ROUTE_NAME_RE.fullmatch(route_name) is None:
 			raise Stage6CacheIdentityError("Stage 6 identity requires a safe route name.")
 		if type(route_contract_sha256) is not str or SHA256_RE.fullmatch(route_contract_sha256) is None:
@@ -87,28 +81,22 @@ class Stage6CacheIdentity:
 			raise Stage6CacheIdentityError("Stage 6 identity requires an exact planned slot.")
 		candidate_digest = self.candidate_input_sha256(candidate_identities)
 		if canonical.role == "writer":
-			if candidate_identities or repair_response:
+			if candidate_identities:
 				raise Stage6CacheIdentityError("Stage 6 writer identity has no materialized witnesses.")
 			candidate_digest = ""
 		elif canonical.role == "editor":
-			if not candidate_identities or repair_response:
+			if not candidate_identities:
 				raise Stage6CacheIdentityError("Stage 6 editor identity requires candidates.")
 		elif canonical.role == "reviewer":
-			if candidate_identities or repair_response:
+			if candidate_identities:
 				raise Stage6CacheIdentityError("Stage 6 review identity derives its displayed candidate pair.")
-			candidate_identities = self._displayed_pair(materialization, canonical)
-			candidate_digest = self.candidate_input_sha256(candidate_identities)
-		elif canonical.role == "reviewer_repair":
-			if candidate_identities or not repair_response:
-				raise Stage6CacheIdentityError("Stage 6 repair identity requires its source response.")
-			self._materialized_review_for_repair(materialization, canonical)
 			candidate_identities = self._displayed_pair(materialization, canonical)
 			candidate_digest = self.candidate_input_sha256(candidate_identities)
 		else:
 			raise Stage6CacheIdentityError("Stage 6 identity role is invalid.")
 		values = {
-			"route_cache_schema_version": ROUTE_CACHE_SCHEMA_VERSION,
-			"attempt_plan_schema_version": limits.STAGE6_ATTEMPT_PLAN_SCHEMA_VERSION,
+			"route_cache_schema": ROUTE_CACHE_SCHEMA,
+			"attempt_plan_schema": limits.STAGE6_ATTEMPT_PLAN_SCHEMA,
 			"slot_id": canonical.semantic_identity, "stage": canonical.stage, "rung": canonical.rung,
 			"batch_index": canonical.batch_index, "work_kind": canonical.work_kind,
 			"role": canonical.role, "replica_index": canonical.replica_index,
@@ -116,8 +104,6 @@ class Stage6CacheIdentity:
 			"prompt_sha256": daily_blog.io_utils.sha256_text(prompt),
 			"planner_semantic_input_sha256": canonical.semantic_input_identity,
 			"actual_candidate_input_sha256": candidate_digest,
-			"repair_of_identity": canonical.repair_of_identity,
-			"repair_response_sha256": daily_blog.io_utils.sha256_text(repair_response) if repair_response else "",
 			"route_name": route_name, "route_contract_sha256": route_contract_sha256,
 		}
 		for name in STAGE6_CACHE_IDENTITY_KEYS:
@@ -146,29 +132,6 @@ class Stage6CacheIdentity:
 
 	#============================================
 	@staticmethod
-	def _materialized_review_for_repair(materialization: object, attempt: object) -> None:
-		"""Confirm a repair is bound to its exact review slot."""
-		limits = daily_blog.stage6_attempt_plan
-		if (
-			type(materialization) is not limits.MaterializedStage6AttemptPlan
-			or type(attempt) is not limits.PlannedStage6Attempt
-		):
-			raise Stage6CacheIdentityError("Stage 6 repair requires exact materialized values.")
-		matches = tuple(item for item in materialization.attempts if (
-			item.work_kind == "review" and item.semantic_identity == attempt.repair_of_identity
-		))
-		if len(matches) != 1:
-			raise Stage6CacheIdentityError("Stage 6 repair requires its materialized review slot.")
-		review = matches[0]
-		if (
-			review.rung != attempt.rung or review.batch_index != attempt.batch_index
-			or review.replica_index != attempt.replica_index or review.pair_index != attempt.pair_index
-			or review.display_order != attempt.display_order
-		):
-			raise Stage6CacheIdentityError("Stage 6 repair retains its materialized review identity.")
-
-	#============================================
-	@staticmethod
 	def candidate_input_sha256(candidate_identities: tuple[str, ...]) -> str:
 		"""Hash exact ordered artifact identities without retaining candidate bytes."""
 		return daily_blog.io_utils.sha256_text(json.dumps(
@@ -184,7 +147,7 @@ class Stage6CacheIdentity:
 #============================================
 def validate_route_request_witness(
 	identity: Stage6CacheIdentity, *, request_id: str, step: str, role: str,
-	route_name: str, prompt: str, route_contract_sha256: str, repair_of: str,
+	route_name: str, prompt: str, route_contract_sha256: str,
 ) -> None:
 	"""Bind a Stage 6 witness to its exact route-request values."""
 	if type(identity) is not Stage6CacheIdentity:
@@ -197,5 +160,3 @@ def validate_route_request_witness(
 		raise Stage6CacheIdentityError("Stage 6 witness requires its materialized prompt.")
 	if identity.route_contract_sha256 != route_contract_sha256:
 		raise Stage6CacheIdentityError("Stage 6 witness requires its route execution contract.")
-	if repair_of != identity.repair_of_identity:
-		raise Stage6CacheIdentityError("Stage 6 witness requires its repair provenance.")

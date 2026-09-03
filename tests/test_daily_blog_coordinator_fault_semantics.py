@@ -33,7 +33,7 @@ def _candidate(ok: bool, root: pathlib.Path) -> daily_blog.replication.Replicate
 	)
 	text = "ineligible" if ok else ""
 	result = daily_blog.agents.AgentResult(
-		"editorial", text, ok, "" if ok else "timeout", 1, 0.0, False, False,
+		"editorial", text, ok, "" if ok else "timeout", 1, 0.0, False,
 		route.name, request.request_id, request.identity_sha256,
 		daily_blog.io_utils.sha256_text(text),
 	)

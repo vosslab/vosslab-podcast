@@ -69,7 +69,7 @@ def _request(name: str = "one", *, prompt: str = "trusted input") -> daily_blog.
 def _result(request: daily_blog.agents.RouteRequest, text: str = "eligible") -> daily_blog.agents.AgentResult:
 	"""Return one fresh matching successful transport result."""
 	return daily_blog.agents.AgentResult(
-		request.role, text, True, "", 1, 0.0, request.is_repair, False,
+		request.role, text, True, "", 1, 0.0, False,
 		request.route.name, request.request_id, request.identity_sha256,
 		daily_blog.io_utils.sha256_text(text),
 	)
@@ -84,7 +84,7 @@ def _cache(tmp_path: pathlib.Path) -> daily_blog.route_cache.RouteResultCache:
 def _stage6_request(
 	materialization: daily_blog.stage6_attempt_plan.MaterializedStage6AttemptPlan,
 	attempt: daily_blog.stage6_attempt_plan.PlannedStage6Attempt, *, candidate_input: str = "candidate",
-	repair_response: str = "", contract_version: str = "contract-v1",
+	contract_version: str = "contract-v1",
 ) -> daily_blog.agents.RouteRequest:
 	"""Materialize one planned Stage 6 request with digest-only cache witnesses."""
 	route = daily_blog.editorial_stage_config.RoleRoute("route_" + attempt.role, ("fixture",))
@@ -93,19 +93,18 @@ def _stage6_request(
 		"contract_version": contract_version,
 	})
 	prompt = "prompt for " + attempt.semantic_identity
-	candidate_identities = () if attempt.role in {"writer", "reviewer", "reviewer_repair"} else (
+	candidate_identities = () if attempt.role in {"writer", "reviewer"} else (
 		daily_blog.io_utils.sha256_text(candidate_input),
 	)
 	identity = daily_blog.route_cache.build_stage6_cache_identity(
 		materialization, attempt, prompt=prompt, candidate_identities=candidate_identities,
-		repair_response=repair_response, route_name=route.name,
+		route_name=route.name,
 		route_contract_sha256=route_contract_sha256,
 	)
 	return daily_blog.agents.RouteRequest(
 		attempt.semantic_identity, attempt.stage, route, prompt, "/disposable/route-work",
 		role=attempt.role, contract_version=contract_version,
 		cache_input_hash=daily_blog.io_utils.sha256_text("logical stage6 input"),
-		repair_of=attempt.repair_of_identity,
 		stage6_cache_identity=identity,
 	)
 
@@ -134,18 +133,17 @@ def _materialized_attempt(
 ]:
 	"""Return one exact materialized Stage 6 slot with its required witnesses."""
 	plan, template = _planned_attempt(role, batch_index=batch_index)
-	if role in {"reviewer", "reviewer_repair"}:
+	if role == "reviewer":
 		first = daily_blog.io_utils.sha256_text("first peer")
 		second = daily_blog.io_utils.sha256_text("second peer")
 		if first > second:
 			first, second = second, first
-		repair_sources = (() if role == "reviewer" else (template.repair_of_identity,))
 		materialization = plan.materialize(
 			"primary", batch_index, (), (
 				daily_blog.stage6_attempt_plan.Stage6CandidatePairBinding(
 					"primary", batch_index, template.pair_index, first, second,
 				),
-			), repair_sources,
+			),
 		)
 	else:
 		materialization = plan.materialize(
@@ -502,18 +500,6 @@ def test_stage6_cache_distinguishes_fresh_batch_slots(tmp_path: pathlib.Path) ->
 	assert cache.load(second_batch) is None
 
 
-def test_stage6_repair_response_changes_the_semantic_cache_key(tmp_path: pathlib.Path) -> None:
-	"""Review repair caches only the materialized response it was asked to improve."""
-	cache = _cache(tmp_path)
-	materialization, attempt = _materialized_attempt("reviewer_repair")
-	first = _stage6_request(materialization, attempt, repair_response="first review response")
-	cache.commit((daily_blog.route_cache.RouteCacheEffect(first, _result(first)),))
-	changed = _stage6_request(materialization, attempt, repair_response="revised review response")
-
-	assert cache.load(changed) is None
-
-
-#============================================
 def test_stage6_route_contract_changes_the_semantic_cache_key(tmp_path: pathlib.Path) -> None:
 	"""Cache reuse requires the same validated route execution contract."""
 	cache = _cache(tmp_path)

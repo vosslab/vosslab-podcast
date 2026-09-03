@@ -103,7 +103,7 @@ def _rogue_effect(value: daily_blog.multi_repository_coordinator.RepositoryJobIn
 		"isolated invalid worker effect", value.working_directory, cache_input_hash=daily_blog.io_utils.sha256_text("rogue"),
 	)
 	result = daily_blog.agents.AgentResult(
-		request.role, "accepted transport text", True, "", 1, 0.0, False, False, request.route.name,
+		request.role, "accepted transport text", True, "", 1, 0.0, False, request.route.name,
 		request.request_id, request.identity_sha256, daily_blog.io_utils.sha256_text("accepted transport text"),
 	)
 	value.cache_accept(request, result)

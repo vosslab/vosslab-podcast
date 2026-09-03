@@ -28,6 +28,7 @@ import daily_blog.daily_outline_workflow
 import daily_blog.prompt_registry.definitions
 import daily_blog.prompt_registry.loader
 import daily_blog.route_cache
+import daily_blog.repository_contracts
 import daily_blog.run_contracts
 
 
@@ -62,12 +63,20 @@ def require_runtime(value: object | None) -> PublicationRuntime:
 
 
 #============================================
-def refresh_mirrors(runtime: PublicationRuntime, config: object, roster: object, refresh: bool) -> list[dict]:
-	"""Use the optional mirror provider or the real manager implementation."""
+def refresh_mirrors(
+	runtime: PublicationRuntime,
+	config: object,
+	roster: daily_blog.repository_contracts.RepositoryRoster,
+	repositories: tuple[str, ...],
+	refresh: bool,
+) -> list[dict]:
+	"""Refresh a selected subset under one authoritative roster identity."""
 	if runtime.mirror_refresh is not None:
-		return runtime.mirror_refresh(config, roster, refresh)
+		entries = runtime.mirror_refresh(config, roster, refresh)
+		selected = set(repositories)
+		return [entry for entry in entries if entry.get("repository") in selected]
 	manager = daily_blog.mirrors.MirrorManager(config.mirror_cache_root, roster)
-	return manager.refresh_all(refresh=refresh)
+	return manager.refresh_selected(repositories, refresh=refresh)
 
 
 #============================================
@@ -249,7 +258,7 @@ def run_typed_stage5(coordinator: object, value: object) -> daily_blog.stage6.St
 		cache_load=cache_effects.load,
 		cache_accept=cache_effects.accept,
 	)
-	coordinator.store.write_artifact("stage5_reliability.json", {
+	coordinator.store.write_artifact("daily_outline_editorial.json", {
 		"schema_version": "vosslab.daily-blog.stage5-reliability.v1",
 		"steps": [item.to_dict() for item in result.reliability],
 	})
@@ -264,7 +273,7 @@ def run_typed_stage5(coordinator: object, value: object) -> daily_blog.stage6.St
 			coordinator.route_cache.commit(cache_effects.drain())
 			raise
 	coordinator.route_cache.commit(cache_effects.drain())
-	coordinator.store.write_artifact("stage5_daily_outline.json", _stage5_artifact_payload(result))
+	coordinator.store.write_artifact("daily_outline.json", _stage5_artifact_payload(result))
 	recovery_sources = daily_blog.stage6.Stage6RecoverySources.from_stage5(value, result)
 	publication_surface = daily_blog.stage6.build_stage6_publication_surface(
 		result.artifact, result.selected_stories,
@@ -349,8 +358,8 @@ def run_typed_stage6(
 		raise RuntimeError("Stage 6 mechanism reliability steps must be unique.")
 	if tuple(summary.step for summary in steps) != ("6.1", "6.2", "6.3", "6.4"):
 		raise RuntimeError("Stage 6 must expose its four mechanism reliability steps.")
-	coordinator.store.write_artifact("stage6_reliability.json", result.reliability.to_dict())
-	coordinator.store.write_artifact("stage6_step_reliability.json", {
+	coordinator.store.write_artifact("complete_post_editorial.json", result.reliability.to_dict())
+	coordinator.store.write_artifact("complete_post_attempts.json", {
 		"schema_version": "vosslab.daily-blog.stage6-step-reliability.v1",
 		"steps": [summary.to_dict() for summary in steps],
 	})
@@ -487,7 +496,7 @@ def run_typed_stage7(
 	)
 	result = _validate_stage7_result(coordinator, value, result)
 	coordinator.route_cache.commit(cache_effects.drain())
-	_write_replay_checked_artifact(coordinator, "stage7_reliability.json", {
+	_write_replay_checked_artifact(coordinator, "final_synthesis_editorial.json", {
 		"schema_version": "vosslab.daily-blog.stage7-reliability.v1",
 		"steps": [item.to_dict() for item in result.step_reliability],
 	})

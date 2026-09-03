@@ -145,20 +145,14 @@ def _coverage_excerpts(
 	queues: dict[int, dict[str, collections.deque]],
 	repositories: list[str],
 ) -> list[daily_blog.schema.EvidenceExcerpt]:
-	"""Reserve one highest-authority exact excerpt for every active repository."""
+	"""Return available high-authority excerpts without requiring full coverage."""
 	coverage = []
 	for repository in repositories:
-		excerpt = None
 		for rank in sorted(queues, reverse=True):
 			queue = queues[rank].get(repository)
 			if queue:
-				excerpt = queue.popleft()
+				coverage.append(queue.popleft())
 				break
-		if excerpt is None:
-			raise RuntimeError(
-				f"Editorial projection lacks citable exact evidence for active repository: {repository}"
-			)
-		coverage.append(excerpt)
 	return coverage
 
 
@@ -192,23 +186,11 @@ def _select_excerpts(
 	cards: list[daily_blog.schema.RepositoryCard],
 	base_context_chars: int,
 ) -> list[daily_blog.schema.EvidenceExcerpt]:
-	"""Reserve active-repository coverage, then fill by authority round robin."""
+	"""Fill the bounded context by evidence authority and repository round robin."""
 	selected = []
 	queues = _ranked_queues(packet, limits["excerpt_chars"])
 	repositories = [card.repository for card in cards]
 	context_chars = base_context_chars
-	for excerpt in _coverage_excerpts(queues, repositories):
-		context_chars, retained = _try_select_excerpt(
-			selected,
-			excerpt,
-			context_chars,
-			limits["context_chars"],
-		)
-		if not retained:
-			raise RuntimeError(
-				"Editorial projection budget cannot retain citable exact evidence for "
-				+ "every active repository."
-			)
 	for item in packet.items:
 		if item.repository not in repositories:
 			repositories.append(item.repository)
@@ -243,17 +225,12 @@ def _select_excerpts_from_items(
 	repositories = [card.repository for card in cards]
 	used_chars = base_context_chars
 	for excerpt in _coverage_excerpts(queues, repositories):
-		used_chars, retained = _try_select_excerpt(
+		used_chars, _retained = _try_select_excerpt(
 			selected,
 			excerpt,
 			used_chars,
 			context_chars,
 		)
-		if not retained:
-			raise RuntimeError(
-				"Bounded evidence context cap cannot retain citable exact evidence for "
-				+ "every survivor repository."
-			)
 	for item in items:
 		if item.repository not in repositories:
 			repositories.append(item.repository)

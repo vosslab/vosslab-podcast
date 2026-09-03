@@ -11,6 +11,7 @@ import pytest
 
 # local repo modules
 import daily_blog.publication_contract
+import daily_blog.activity
 import daily_blog.publication_admission
 import daily_blog.io_utils
 import daily_blog.publisher
@@ -159,7 +160,13 @@ def _publisher_tree(
 	producer_root.mkdir(exist_ok=True)
 	bundle_path, bundle, _transfer_value = daily_blog.publication_contract.BundleWriter(
 		str(producer_root), "vosslab", identity,
-	).write("run-one", surface, assets, roster, selected)
+	).write("run-one", surface, assets, roster, selected, daily_blog.activity.build_daily_active_roster(
+		"vosslab", REPORT_DATE, roster.roster_id, [{
+			"repository": "vosslab/project", "sha": "a" * 40,
+			"author_timestamp": REPORT_DATE + "T12:00:00Z",
+			"author_name": "Fixture", "message": "Fixture work",
+		}],
+	))
 	archive.parent.mkdir(parents=True)
 	shutil.copytree(bundle_path, archive)
 	article_projection = daily_blog.publication_article_projection.source_article_projection(
@@ -220,6 +227,7 @@ def _transfer(root: pathlib.Path) -> daily_blog.publication_contract.SealedBundl
 		"bundle.json": (archive / "bundle.json").read_bytes(),
 		"evidence.json": (archive / "evidence.json").read_bytes(),
 		"repository_roster.json": (archive / "repository_roster.json").read_bytes(),
+		"daily_active_roster.json": (archive / "daily_active_roster.json").read_bytes(),
 		"editorial_projection.json": (archive / "editorial_projection.json").read_bytes(),
 		"publication_surface.json": (archive / "publication_surface.json").read_bytes(),
 		"post.md": (archive / "post.md").read_bytes(),

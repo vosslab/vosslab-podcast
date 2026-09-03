@@ -86,7 +86,7 @@ class EditorialReliabilityConfig:
 		required_calls = (self.candidate_count + full_review_calls) * maximum_attempts
 		if self.max_route_calls < required_calls:
 			raise RuntimeError(
-				"Editorial route budget cannot cover configured retries and review repair."
+				"Editorial route budget cannot cover configured candidates, reviews, and retries."
 			)
 
 

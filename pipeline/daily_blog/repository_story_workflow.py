@@ -145,7 +145,7 @@ def _request(
 	value: RepositoryStoryInput, step: str, role: str, ordinal: str,
 	route: daily_blog.editorial_stage_config.RoleRoute, prompt: str, config: daily_blog.editorial_stage_config.RepositoryStoryConfig,
 	contract_identity: dict[str, object], rubric_identity: str, input_artifact_ids: tuple[str, ...] = (),
-	assignment: daily_blog.replication.ReviewAssignment | None = None, repair_of: str = "",
+	assignment: daily_blog.replication.ReviewAssignment | None = None,
 ) -> daily_blog.agents.RouteRequest:
 	"""Build one cache-safe request attesting to all Stage 4 inputs."""
 	assignment_value: dict[str, int] = {}
@@ -168,8 +168,8 @@ def _request(
 		request_id=f"stage4_{step}_{role}_{ordinal}_{cache_input_hash[:12]}", step=f"repository_story_{step}",
 		route=route, prompt=prompt, working_directory=value.working_directory, role=role,
 		retry_attempts=config.route_retry_attempts, maximum_parallel_calls=config.maximum_parallel_calls,
-		repair_of=repair_of, input_hash=input_hash,
-		contract_version=(daily_blog.repository_story_prompts.REPOSITORY_STORY_PROMPT_VERSION
+		input_hash=input_hash,
+		contract_version=(daily_blog.repository_story_prompts.REPOSITORY_STORY_PROMPT_CONTRACT
 			+ ":" + str(contract_identity["integrity_sha256"])),
 		cache_input_hash=cache_input_hash,
 	)
@@ -255,7 +255,7 @@ def _review_reliability(review: daily_blog.replication.ReviewResult, promotion: 
 	)
 	return daily_blog.replication.StepReliability("4.3", "degraded" if reasons else "succeeded", len(votes),
 		sum(vote.status == "succeeded" for vote in votes), sum(vote.status == "failed" for vote in votes), 0,
-		sum(vote.repaired and vote.status == "succeeded" for vote in votes), disagreements, best, tuple(sorted(reasons)))
+		0, disagreements, best, tuple(sorted(reasons)))
 
 
 #============================================
@@ -336,9 +336,10 @@ def run_repository_story(
 				candidate_json, "editor-" + str(index + 1), loaded_value), config, contract_identity,
 			rubric_identity, tuple(item.content_hash for item in writer_peers)) for index in range(config.editor_count))
 		if any(len(request.prompt) > config.prompt_limits["editor_chars"] for request in editor_requests):
-			raise RuntimeError("Repository-story editor prompt exceeds its configured limit.")
-		editing = daily_blog.replication.replicate(editor_requests, route_runner, budget, daily_blog.artifacts.RepoStory,
-			lambda result: _story(value, result), lambda item: _eligible(value, item), cache_load, cache_accept)
+			editor_requests = ()
+		if editor_requests:
+			editing = daily_blog.replication.replicate(editor_requests, route_runner, budget, daily_blog.artifacts.RepoStory,
+				lambda result: _story(value, result), lambda item: _eligible(value, item), cache_load, cache_accept)
 	editor_peers = _unique(editing.eligible)
 	peers = editor_peers or writer_peers
 	if incumbent is not None:
@@ -356,7 +357,9 @@ def run_repository_story(
 		prompt = daily_blog.repository_story_prompts.render_repository_story_comparison(outline_json, evidence_json,
 			left.content, right.content, rubric_text, rubric_identity, loaded_value)
 		if len(prompt) > config.prompt_limits["reviewer_chars"]:
-			raise RuntimeError("Repository-story comparison prompt exceeds its configured limit.")
+			raise daily_blog.replication.ReviewUnavailable(
+				"Repository-story comparison prompt exceeds its configured limit."
+			)
 		request = _request(value, "4_3", "reviewer",
 			f"{assignment.pair_index}_{assignment.reviewer_index}_{assignment.display_order}",
 			config.reviewer_route, prompt, config, contract_identity, rubric_identity,
@@ -370,21 +373,12 @@ def run_repository_story(
 			raise daily_blog.agents.RepairableStructuredOutput(str(error)) from error
 		return {"A": work.first_artifact_id, "B": work.second_artifact_id}.get(verdict["winner"], "")
 
-	def repair(work: daily_blog.replication.ReviewWork, response: str) -> daily_blog.replication.ReviewWork:
-		prompt = daily_blog.repository_story_prompts.render_repository_story_verdict_repair(response, loaded_value)
-		if len(prompt) > config.prompt_limits["repair_chars"]:
-			raise RuntimeError("Repository-story repair prompt exceeds its configured limit.")
-		request = _request(value, "4_3_repair", "reviewer_repair", work.request.request_id, config.reviewer_route,
-			prompt, config, contract_identity, rubric_identity, (daily_blog.io_utils.sha256_text(response),),
-			work.assignment, work.request.cache_input_hash)
-		return daily_blog.replication.ReviewWork(request, work.first_artifact_id, work.second_artifact_id, work.assignment)
-
 	def salvage(text: str, work: daily_blog.replication.ReviewWork) -> str | None:
 		label = daily_blog.replication.salvage_allowed_identifier(text, ("A", "B"))
 		return {"A": work.first_artifact_id, "B": work.second_artifact_id}.get(label)
 
 	review = daily_blog.replication.review(peers, daily_blog.artifacts.RepoStory, config.reviewer_count, build_work,
-		parse_winner, route_runner, budget, repair, salvage, cache_load, cache_accept)
+		parse_winner, route_runner, budget, salvage, cache_load, cache_accept)
 	promotion = daily_blog.replication.promote(peers, daily_blog.artifacts.RepoStory,
 		lambda item: _eligible(value, item), review.votes, incumbent)
 	if not editor_peers and writer_peers and isinstance(

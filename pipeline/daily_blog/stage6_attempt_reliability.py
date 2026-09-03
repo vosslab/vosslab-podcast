@@ -41,7 +41,7 @@ def review_reliability(
 		"6.3", "degraded" if all_reasons else "succeeded", len(votes),
 		sum(item.status == "succeeded" for item in votes),
 		sum(item.status == "failed" for item in votes), 0,
-		sum(item.repaired and item.status == "succeeded" for item in votes),
+		0,
 		disagreements, best, tuple(sorted(all_reasons)),
 	)
 

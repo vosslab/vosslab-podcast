@@ -46,6 +46,7 @@ class AcquisitionResult:
 	activities: tuple[daily_blog.schema.RepositoryActivity, ...]
 	packet: daily_blog.schema.EvidencePacket
 	assets: dict[str, bytes]
+	active_roster: dict[str, object]
 
 
 class AcquisitionCoordinator:
@@ -61,20 +62,27 @@ class AcquisitionCoordinator:
 	#============================================
 	def acquire(self) -> AcquisitionResult:
 		"""Build and return the immutable acquisition handoff in durable phase order."""
-		commit_references = self._commit_inventory()
 		roster = self._repository_phase()
-		active_repositories = set(daily_blog.activity.commit_repositories(
-			self.dependencies.config.output_owner, commit_references,
-		))
-		active_records = [
-			record for record in roster.repositories
-			if record.repository in active_repositories
-		]
-		if active_records:
-			active_roster = daily_blog.repository_contracts.RepositoryRoster.create(
-				roster.owner, active_records,
+		if self.dependencies.store.progress is not None:
+			self.dependencies.store.progress.note(
+				"A2", f"Searching GitHub commits for {self.dependencies.report_date}...",
 			)
-			mirrors = self._mirror_phase(active_roster)
+		commit_references, active_roster = self._commit_inventory(roster)
+		if self.dependencies.store.progress is not None:
+			repositories = daily_blog.activity.commit_repositories(
+				self.dependencies.config.output_owner, commit_references,
+			)
+			self.dependencies.store.progress.note(
+				"A2",
+				f"Found {len(commit_references)} commits across {len(repositories)} repos",
+				"green",
+			)
+		active_repositories = {
+			item["repository"] for item in active_roster["repositories"]
+		}
+		active_names = tuple(sorted(active_repositories, key=str.casefold))
+		if active_names:
+			mirrors = self._mirror_phase(roster, active_names)
 		else:
 			mirrors = self._empty_mirror_phase(roster)
 		activities = self._activity_phase(mirrors, commit_references)
@@ -85,12 +93,15 @@ class AcquisitionCoordinator:
 			activities=tuple(activities),
 			packet=packet,
 			assets=assets,
+			active_roster=active_roster,
 		)
 		return result
 
 	#============================================
-	def _commit_inventory(self) -> list[dict]:
-		"""Write Step 0's local account/date commit inventory before LLM work."""
+	def _commit_inventory(
+		self, roster: daily_blog.repository_contracts.RepositoryRoster,
+	) -> tuple[list[dict], dict[str, object]]:
+		"""Write Step 0's canonical active-repository roster before LLM work."""
 		config = self.dependencies.config
 		commits = daily_blog.publication_workflow.discover_daily_commits(
 			self.dependencies.runtime, config.output_owner,
@@ -98,11 +109,16 @@ class AcquisitionCoordinator:
 		)
 		if type(commits) is not list:
 			raise RuntimeError("Daily commit discovery must return a list.")
-		document = daily_blog.activity.render_daily_commits(
-			config.output_owner, self.dependencies.report_date, commits,
+		account_repositories = {item.repository.casefold() for item in roster.repositories}
+		commits = [
+			item for item in commits
+			if str(item.get("repository", "")).casefold() in account_repositories
+		]
+		active_roster = daily_blog.activity.build_daily_active_roster(
+			config.output_owner, self.dependencies.report_date, roster.roster_id, commits,
 		)
-		self.dependencies.store.write_document("daily_commits.md", document)
-		return commits
+		self.dependencies.store.write_artifact("daily_active_roster.json", active_roster)
+		return commits, active_roster
 
 	#============================================
 	def _repository_phase(self) -> daily_blog.repository_contracts.RepositoryRoster:
@@ -140,24 +156,26 @@ class AcquisitionCoordinator:
 
 	#============================================
 	def _mirror_phase(
-		self, roster: daily_blog.repository_contracts.RepositoryRoster,
+		self,
+		roster: daily_blog.repository_contracts.RepositoryRoster,
+		repositories: tuple[str, ...],
 	) -> list[dict[str, object]]:
-		"""Refresh mirrors and reject failed refreshes before any downstream reader."""
+		"""Refresh selected roster members without replacing the authoritative roster."""
 		config = self.dependencies.config
 		phase_input = {
 			"cache_root": config.mirror_cache_root,
 			"roster_id": roster.roster_id,
+			"repositories": list(repositories),
 			"refresh": self.dependencies.refresh_mirrors,
 		}
 		self.dependencies.start("mirror_refresh", phase_input)
 		entries = daily_blog.publication_workflow.refresh_mirrors(
-			self.dependencies.runtime, config, roster, self.dependencies.refresh_mirrors,
+			self.dependencies.runtime, config, roster, repositories,
+			self.dependencies.refresh_mirrors,
 		)
+		if any(entry.get("roster_id") != roster.roster_id for entry in entries):
+			raise RuntimeError("Mirror evidence does not retain the authoritative roster identity.")
 		self.dependencies.store.write_artifact("mirror_manifest.json", entries)
-		failed = [entry for entry in entries if entry["refresh_result"] == "failed"]
-		if failed:
-			names = ", ".join(entry["repository"] for entry in failed)
-			raise RuntimeError(f"Mirror refresh failed for: {names}")
 		self.dependencies.complete("mirror_refresh", entries, False)
 		return entries
 

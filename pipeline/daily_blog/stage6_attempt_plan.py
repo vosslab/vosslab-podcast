@@ -1,8 +1,8 @@
 """Pure, bounded Stage 6 complete-post attempt topology.
 
-This module deliberately owns semantic slots only.  Route construction adds
-actual candidate and repair-response hashes later; transport retries are a
-bounded execution cost of the same immutable slot.
+This module deliberately owns semantic slots only. Route construction adds
+actual candidate hashes later; transport retries are a bounded execution cost
+of the same immutable slot.
 """
 
 # Standard Library
@@ -11,11 +11,11 @@ import hashlib
 import json
 import re
 
-STAGE6_ATTEMPT_PLAN_SCHEMA_VERSION = "vosslab.daily-blog.stage6-attempt-plan.v1"
+STAGE6_ATTEMPT_PLAN_SCHEMA = "vosslab.daily-blog.stage6-attempt-plan"
 STAGE6_COMPLETE_POST = "stage6/complete_post"
 RUNG_ORDER = ("primary", "daily_outline_expansion", "repository_story_merge")
-WORK_KINDS = frozenset({"generation", "review", "review_repair"})
-ROLES = frozenset({"writer", "editor", "reviewer", "reviewer_repair"})
+WORK_KINDS = frozenset({"generation", "review"})
+ROLES = frozenset({"writer", "editor", "reviewer"})
 MAX_REPLICAS = 16
 MAX_REVIEWERS = 16
 MAX_TRANSPORT_RETRY_ATTEMPTS = 3
@@ -43,8 +43,8 @@ def _canonical_hash(value: object) -> str:
 
 #============================================
 def _prompt_identity(rung: str, role: str) -> str:
-	"""Return the non-secret version label for one sealed prompt boundary."""
-	return f"stage6/{rung}/{role}/prompt-v1"
+	"""Return the non-secret label for one sealed prompt boundary."""
+	return f"stage6/{rung}/{role}/prompt"
 
 
 #============================================
@@ -131,11 +131,10 @@ class PlannedStage6Attempt:
 	display_order: int
 	prompt_identity: str
 	semantic_input_identity: str
-	repair_of_identity: str = ""
 
 	#============================================
 	def __post_init__(self) -> None:
-		"""Reject malformed coordinates and forged repair linkage."""
+		"""Reject malformed generation or review coordinates."""
 		if self.stage != STAGE6_COMPLETE_POST or self.rung not in RUNG_ORDER:
 			raise RuntimeError("Stage 6 attempt stage or rung is invalid.")
 		if self.work_kind not in WORK_KINDS or self.role not in ROLES:
@@ -145,17 +144,14 @@ class PlannedStage6Attempt:
 			if self.role not in {"writer", "editor"}:
 				raise RuntimeError("Stage 6 generation role is invalid.")
 			_bounded_int(self.replica_index, "replica_index", 1, MAX_REPLICAS)
-			if self.pair_index != 0 or self.display_order != 0 or self.repair_of_identity:
+			if self.pair_index != 0 or self.display_order != 0:
 				raise RuntimeError("Stage 6 generation coordinates are invalid.")
 		else:
-			expected_role = "reviewer" if self.work_kind == "review" else "reviewer_repair"
-			if self.role != expected_role:
+			if self.work_kind != "review" or self.role != "reviewer":
 				raise RuntimeError("Stage 6 review role is invalid.")
 			_bounded_int(self.replica_index, "replica_index", 1, MAX_REVIEWERS)
 			_bounded_int(self.pair_index, "pair_index", 1, MAX_PAIR_INDEX)
 			_bounded_int(self.display_order, "display_order", 1, 2)
-			if self.work_kind == "review" and self.repair_of_identity:
-				raise RuntimeError("Stage 6 review cannot name a repair source.")
 		if type(self.prompt_identity) is not str or self.prompt_identity != _prompt_identity(self.rung, self.role):
 			raise RuntimeError("Stage 6 prompt identity is invalid.")
 		expected_input = _semantic_input_identity(
@@ -168,16 +164,6 @@ class PlannedStage6Attempt:
 		)
 		if type(self.semantic_input_identity) is not str or self.semantic_input_identity != expected_input:
 			raise RuntimeError("Stage 6 semantic input identity is invalid.")
-		if self.work_kind == "review_repair":
-			expected_repair = _review_semantic_identity(
-				self.rung,
-				self.batch_index,
-				self.replica_index,
-				self.pair_index,
-				self.display_order,
-			)
-			if type(self.repair_of_identity) is not str or self.repair_of_identity != expected_repair:
-				raise RuntimeError("Stage 6 repair source semantic identity is invalid.")
 
 	#============================================
 	@property
@@ -209,7 +195,7 @@ class Stage6AttemptPlan:
 	#============================================
 	@property
 	def semantic_identities(self) -> tuple[str, ...]:
-		"""Return the immutable canonical slot order used by AttemptLedger."""
+		"""Return the immutable canonical slot order for execution observations."""
 		return tuple(attempt.semantic_identity for attempt in self.attempts)
 
 	#============================================
@@ -280,13 +266,12 @@ class Stage6AttemptPlan:
 		final_batch_index: int,
 		available_generation_slot_ids: tuple[str, ...],
 		candidate_pair_bindings: tuple["Stage6CandidatePairBinding", ...] = (),
-		repair_source_slot_ids: tuple[str, ...] = (),
 	) -> "MaterializedStage6AttemptPlan":
 		"""Build one ordered dispatch view from actual candidate availability.
 
 		The canonical plan remains the reservation and topology authority.  This
-		method admits generation slots directly, while it derives every review and
-		repair from a typed pair witness for two actual candidate identities.  It
+		method admits generation slots directly, while it derives every review from
+		a typed pair witness for two actual candidate identities. It
 		cannot add work, reorder work, or reach past the named terminal
 		materialization.  A bare review slot is deliberately not an API input.
 		"""
@@ -302,9 +287,7 @@ class Stage6AttemptPlan:
 				final_batch_index,
 				available_generation_slot_ids,
 				candidate_pair_bindings,
-				repair_source_slot_ids,
 			),
-			repair_source_slot_ids,
 		)
 
 	#============================================
@@ -360,8 +343,8 @@ class MaterializedStage6AttemptPlan:
 	"""Immutable ordered execution subset of one canonical maximum plan.
 
 	``attempts`` contains only slots whose concrete candidate or review input is
-	available.  It never represents a skip: promotion skips are terminal ledger
-	facts, and unavailable review pairs simply do not materialize.
+	available. It never represents a skip; unavailable review pairs simply do
+	not materialize.
 	"""
 
 	plan: Stage6AttemptPlan
@@ -370,7 +353,6 @@ class MaterializedStage6AttemptPlan:
 	available_generation_slot_ids: tuple[str, ...]
 	candidate_pair_bindings: tuple[Stage6CandidatePairBinding, ...]
 	attempts: tuple[PlannedStage6Attempt, ...]
-	repair_source_slot_ids: tuple[str, ...] = ()
 
 	#============================================
 	def __post_init__(self) -> None:
@@ -378,7 +360,6 @@ class MaterializedStage6AttemptPlan:
 		if (type(self.plan) is not Stage6AttemptPlan
 			or type(self.available_generation_slot_ids) is not tuple
 			or type(self.candidate_pair_bindings) is not tuple
-			or type(self.repair_source_slot_ids) is not tuple
 			or type(self.attempts) is not tuple):
 			raise RuntimeError("Stage 6 materialization requires exact immutable values.")
 		self.plan._validate_boundary(self.final_rung, self.final_batch_index)
@@ -390,7 +371,6 @@ class MaterializedStage6AttemptPlan:
 			self.final_batch_index,
 			self.available_generation_slot_ids,
 			self.candidate_pair_bindings,
-			self.repair_source_slot_ids,
 		)
 		if self.attempts != expected:
 			raise RuntimeError("Stage 6 materialization must derive its canonical dependency-closed slots.")
@@ -412,10 +392,10 @@ class MaterializedStage6AttemptPlan:
 
 #============================================
 def _rung_attempt_count(policy: Stage6AttemptPolicy, includes_incumbent: bool) -> int:
-	"""Return generation, reviews, and repairs for one bounded rung."""
+	"""Return generation and review slots for one bounded rung."""
 	peers = policy.writer_count + policy.editor_count + int(includes_incumbent)
 	pairs = peers * (peers - 1) // 2
-	return policy.writer_count + policy.editor_count + (pairs * policy.reviewer_count * 4)
+	return policy.writer_count + policy.editor_count + (pairs * policy.reviewer_count * 2)
 
 
 #============================================
@@ -426,33 +406,13 @@ def _rung_batch_order(attempt: PlannedStage6Attempt) -> tuple[int, int]:
 
 #============================================
 def _attempt_order(attempt: PlannedStage6Attempt) -> tuple[int, int, int, int, int, int, int]:
-	"""Return the canonical generation, review, then repair work order."""
-	work_order = {"generation": 0, "review": 1, "review_repair": 2}[attempt.work_kind]
-	role_order = {"writer": 0, "editor": 1, "reviewer": 2, "reviewer_repair": 3}[attempt.role]
+	"""Return the canonical generation then review work order."""
+	work_order = {"generation": 0, "review": 1}[attempt.work_kind]
+	role_order = {"writer": 0, "editor": 1, "reviewer": 2}[attempt.role]
 	return (
 		RUNG_ORDER.index(attempt.rung), attempt.batch_index, work_order,
 		attempt.pair_index, attempt.replica_index, attempt.display_order, role_order,
 	)
-
-
-#============================================
-def _review_semantic_identity(
-	rung: str, batch_index: int, reviewer_index: int, pair_index: int, display_order: int,
-) -> str:
-	"""Return the exact review slot digest required by its repair template."""
-	review = PlannedStage6Attempt(
-		STAGE6_COMPLETE_POST,
-		rung,
-		batch_index,
-		"review",
-		"reviewer",
-		reviewer_index,
-		pair_index,
-		display_order,
-		_prompt_identity(rung, "reviewer"),
-		_semantic_input_identity(rung, batch_index, "reviewer", reviewer_index, pair_index, display_order),
-	)
-	return review.semantic_identity
 
 
 #============================================
@@ -482,15 +442,6 @@ def _canonical_attempts(policy: Stage6AttemptPolicy) -> tuple[PlannedStage6Attem
 							),
 						)
 						attempts.append(review)
-						attempts.append(PlannedStage6Attempt(
-							STAGE6_COMPLETE_POST, rung, batch_index, "review_repair", "reviewer_repair",
-							reviewer_index, pair_index, display_order,
-							_prompt_identity(rung, "reviewer_repair"),
-							_semantic_input_identity(
-								rung, batch_index, "reviewer_repair", reviewer_index, pair_index, display_order,
-							),
-							review.semantic_identity,
-						))
 	return tuple(sorted(attempts, key=_attempt_order))
 
 
@@ -527,7 +478,6 @@ def _materialized_attempts(
 	final_batch_index: int,
 	available_generation_slot_ids: tuple[str, ...],
 	candidate_pair_bindings: tuple[Stage6CandidatePairBinding, ...],
-	repair_source_slot_ids: tuple[str, ...],
 ) -> tuple[PlannedStage6Attempt, ...]:
 	"""Return the canonical, witness-derived subset through one boundary."""
 	plan._validate_boundary(final_rung, final_batch_index)
@@ -540,10 +490,6 @@ def _materialized_attempts(
 		type(item) is not Stage6CandidatePairBinding for item in candidate_pair_bindings
 	):
 		raise RuntimeError("Stage 6 candidate pair bindings must be an exact tuple.")
-	if (type(repair_source_slot_ids) is not tuple
-		or any(type(item) is not str or SHA256_RE.fullmatch(item) is None for item in repair_source_slot_ids)
-		or len(repair_source_slot_ids) != len(set(repair_source_slot_ids))):
-		raise RuntimeError("Stage 6 repair sources must be unique slot digests.")
 	allowed = plan.terminal_prefix(final_rung, final_batch_index)
 	allowed_generation_ids = {
 		attempt.semantic_identity for attempt in allowed if attempt.work_kind == "generation"
@@ -556,29 +502,12 @@ def _materialized_attempts(
 		(binding.rung, binding.batch_index, binding.pair_index)
 		for binding in binding_coordinates
 	}
-	allowed_review_ids = {
-		attempt.semantic_identity for attempt in allowed
-		if attempt.work_kind == "review"
-		and (attempt.rung, attempt.batch_index, attempt.pair_index) in derived_review_coordinates
-	}
-	if not set(repair_source_slot_ids) <= allowed_review_ids:
-		raise RuntimeError("Stage 6 repair source is not a materialized review slot.")
-	canonical_repair_source_slot_ids = tuple(
-		attempt.semantic_identity for attempt in allowed
-		if attempt.work_kind == "review" and attempt.semantic_identity in repair_source_slot_ids
-	)
-	if repair_source_slot_ids != canonical_repair_source_slot_ids:
-		raise RuntimeError("Stage 6 repair sources must preserve canonical planned-review order.")
 	return tuple(
 		attempt for attempt in allowed
 		if (attempt.work_kind == "generation" and attempt.semantic_identity in available)
 		or (
 			attempt.work_kind == "review"
 			and (attempt.rung, attempt.batch_index, attempt.pair_index) in derived_review_coordinates
-		)
-		or (
-			attempt.work_kind == "review_repair"
-			and attempt.repair_of_identity in repair_source_slot_ids
 		)
 	)
 

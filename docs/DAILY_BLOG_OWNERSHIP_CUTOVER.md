@@ -77,10 +77,8 @@ its own check before it stages a site. Cache reuse fails closed across this v9
 policy and survivor-surface boundary while remaining keyed to semantic
 editorial inputs rather than mutable mirror inventory.
 
-New imports use bundle v9 and publication-v6. Historical records remain
-read-only inspection inputs: they can identify an occupied legacy date for
-inspection or replacement, but cannot originate a new import. A confirmed
-same-date replacement creates one current v9/v6 snapshot for that report date.
+New imports use the current bundle and publication record. Obsolete record shapes are not runtime
+inputs. A confirmed same-date replacement creates one current snapshot for that report date.
 
 ## Operational boundary
 

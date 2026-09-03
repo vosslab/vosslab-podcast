@@ -22,13 +22,22 @@ second publication namespace.
 
 ## Evidence and projection
 
-### Step 0 commit inventory
+### Daily active roster
 
-`daily_commits.md` is a run-local operator document, not an interchange schema or bundle member. It
-records the fresh GitHub commit search for `user:<owner> author-date:<report_date>`, groups results by
-owner repository, and links each exact commit SHA. Its commit-message previews contain only the first
-line and are capped at 160 characters. Downstream evidence resolves the same repository/SHA pairs
-against local mirrors; it does not parse this Markdown document.
+`daily_active_roster.json` is the machine-owned Step 0 authority for repositories with commits on the
+report date. It records the owner, report date, ordered active repositories, and each exact commit SHA
+returned by `user:<owner> author-date:<report_date>`. Commit-message previews contain only the first
+line and are capped at 160 characters. Its content-derived `active_roster_id` makes accidental drift
+observable without making imperfect LLM coverage a publication-stopping gate. Downstream evidence
+uses these repository/SHA pairs directly; Markdown and model output never define roster membership.
+
+`mirror_manifest.json` records each active repository's concrete refresh outcome. An individual
+clone or fetch failure is recorded there, where it occurs; recovery state does not become a parallel
+repository roster or redefine the machine-observed report-day membership.
+
+The sealed producer-publisher bundle includes `daily_active_roster.json` and binds its
+`active_roster_id` and content hash in `bundle.json`. This is provenance only: the publisher does not
+require model prose or downstream editorial artifacts to reproduce the active repository set.
 
 ### Repository roster
 
@@ -101,32 +110,22 @@ scale maximizes usable source text while keeping each complete primary and recov
 60,000 characters. Its source identities are validated against the same `PublicationSurface` that
 later governs citations, screenshots, repository coverage, and admission.
 
-### Stage-6 attempt topology and facts
+### Stage-6 attempt topology
 
-`vosslab.daily-blog.stage6-attempt-plan.v1` is the in-memory capacity and ordering contract for
+`vosslab.daily-blog.stage6-attempt-plan` is the in-memory capacity and ordering contract for
 complete-post work. One immutable maximum plan expands the configured writer, editor, reviewer,
 same-request retry, fresh-batch, and recovery-rung policy before route dispatch. The policy accepts
 one through three fresh batches and reserves at most 10,000 semantic attempts and 40,000 physical
 route calls. Transport retries keep the same semantic slot identity.
 
 Candidate-dependent work is admitted through a `MaterializedStage6AttemptPlan`. It retains canonical
-maximum-plan order and includes only generation slots whose inputs exist, review slots bound to an
-ordered pair of distinct candidate SHA-256 witnesses, and review-repair slots bound to the exact
-materialized review they repair. A materialization cannot add or reorder work. Unavailable conditional
-reviews have no invented attempt fact; an early promotion may mark only a materialized terminal suffix
-as `skipped_after_promotion`.
+maximum-plan order and includes only generation slots whose inputs exist and optional review slots
+bound to an ordered pair of distinct candidate SHA-256 witnesses. A materialization cannot add or
+reorder work.
 
-The run record carries the resulting response-free `attempt_ledger` and its derived
-`attempt_summary`. Each fact names a materialized slot and records a closed execution source,
-transport outcome, highest admission gate, terminal disposition, reason code, and optional candidate
-or positive-feedback digest. The summary reconciles planned, fresh, cached, skipped, physical-call,
-transport, parse, mechanical, publication-policy, review, rejection, selection, and exhaustion totals.
-It counts `reviewed` only for completed or rejected review work. Primary exhaustion remains a prefix
-until the final applicable recovery materialization closes or selects the ladder.
-
-Stage-6 route-cache entries use `vosslab.daily-blog.route-cache.v2`. Their identity binds the attempt
-plan version, materialized slot, prompt digest, ordered actual candidate digest, positive repair
-feedback digest, review-repair source and response digests, route name, and route execution contract.
+Stage-6 route-cache entries use `vosslab.daily-blog.route-cache`. Their identity binds the attempt
+plan, materialized slot, prompt digest, ordered actual candidate digest, route name, and route
+execution contract.
 The witness retains hashes rather than prompt, candidate, reviewer-response, or provider text.
 
 ## Run state and observability
@@ -134,17 +133,15 @@ The witness retains hashes rather than prompt, candidate, reviewer-response, or 
 ### Run record
 
 Every attempt owns `run_state.json` under its date-owned run directory. It uses schema
-`vosslab.daily-blog.run.v13` and is the authoritative resumable lifecycle record. It records the run
+`vosslab.daily-blog.run` and is the authoritative resumable lifecycle record. It records the run
 and report identities, ordered phase states, evidence and bundle references, editorial reliability
-summaries, the current `best_artifact_id`, the reconciled Stage-6 attempt ledger and summary, an
-outcome, and a safe failure classification when needed. Current pre-production readers classify any
-other run schema as regeneration-required instead of coercing mutable state into v13.
+summaries, the current `best_artifact_id`, an outcome, and a safe failure classification when needed.
+The pre-production reader accepts only this current shape.
 
-Each editorial summary uses `vosslab.daily-blog.editorial-reliability.v2`. Its `rejection_counts`
+Each editorial summary uses `vosslab.daily-blog.editorial-reliability`. Its `rejection_counts`
 contains at most 64 sorted, unique canonical `{code, count}` entries. Each code is a bounded
 machine-readable category, and each positive count is no greater than the step's attempted count;
-the field carries no candidate or provider prose. The reader upgrades retained v1 summaries to v2 with
-an empty count set so compatible cached work from an earlier attempt remains resumable.
+the field carries no candidate or provider prose.
 
 The record's `editorial_transitions` are replayable typed incumbent operations paired one-for-one with
 editorial summaries:
@@ -156,28 +153,22 @@ editorial summaries:
 
 The validator replays every transition from an empty incumbent and requires the result to equal
 `best_artifact_id`. It rejects missing, duplicated, mismatched, or type-confused transitions. Current
-mutable records contain only the v13 phase set; any earlier run-state schema regenerates under the
-current contract.
+mutable records contain only the current phase set.
 
 ### Event journal and terminal summary
 
-`events.jsonl` is a bounded, append-only, canonical-JSON operational journal. It contains scalar,
+`runlog-YYYY-MM-DD.jsonl` is a bounded, append-only, canonical-JSON operational journal. It contains scalar,
 redacted lifecycle observations tied to one run. It intentionally excludes raw exception text,
 paths, URLs, credentials, prompt text, and provider responses. Capacity produces one explicit
-truncation record instead of an unbounded log. The
-`daily_publication.stage6_attempt_reliability_persisted` event is a bounded scalar projection of the
-closed Stage-6 ledger; it is lifecycle evidence rather than the terminal source of truth.
+truncation record instead of an unbounded log.
 
 The date-level `summary.jsonl` journal contains one bounded terminal-summary receipt for each retained
-terminal run. A receipt uses schema `vosslab.daily-blog.terminal-summary.v2`, binds `summary_id` to the
+terminal run. A receipt uses schema `vosslab.daily-blog.terminal-summary`, binds `summary_id` to the
 terminal run-record digest, distinguishes completed and failed outcomes, reports verified publication
-facts, and carries the authoritative terminal projection of the reconciled Stage-6 attempt summary
-without diagnostic payloads. Detailed run state is retained or expired only through the validated
+facts without diagnostic payloads. Detailed run state is retained or expired only through the validated
 summary and descriptor-owned retention path.
 
-Terminal-summary v2 accepts only the current run phase set. Inspect retired internal summary JSON
-through a disposable diagnostic reader when historical analysis requires it; production readers and
-writers share the current schema.
+The terminal-summary reader accepts only the current shape.
 
 Phase cache data is resumability support, not a durable exchange protocol. The producer revalidates
 cached response bytes and identities before reuse. Model/cache identity retains selected commits,
@@ -374,7 +365,11 @@ same date-owned identity and do not create versions.
 ## Identity relationships
 
 ```text
-repository_roster.json -- roster_id --> evidence.json -- packet_id --> editorial_projection.json
+repository_roster.json -- roster_id --> daily_active_roster.json -- repository/SHA --> evidence.json
+                                      |                                         |
+                                      |                                         packet_id
+                                      v                                         v
+                                bundle.json <-------------------------- editorial_projection.json
                                                          |                     |
                                                          |                     projection_id
                                                          v                     v
@@ -394,14 +389,13 @@ the bundle digest, selected artifact identity, and surface identity in its date-
 binds the reader-visible body digest in its receipt, making provenance and publication integrity
 independently verifiable on both sides of the handoff.
 
-### Compatibility and reuse
+### Current reuse
 
-Bundle-v7 and bundle-v8 are historical evidence only. The active writer and importer create and
-accept v9; the producer refuses to reuse a cached bundle when its schema, source-safety policy
+The active writer and importer use the current bundle; the producer refuses to reuse a cached bundle
+when its schema, source-safety policy
 identity, publication surface, or sealed contents do not match the current run. Publisher
-`publication.v3` and pre-surface `publication.v5` records remain exact read-only historical receipt
-shapes. New imports use `publication.v6` and the v9 surface contract; a date becomes v6 when it is
-republished through the current handoff.
+records likewise accept only the current shape. There is no runtime compatibility reader for
+obsolete pre-production records.
 
 ## Maintenance rules
 
