@@ -364,7 +364,7 @@ class ScreenshotEvidenceProvider:
 				asset_path = "assets/" + asset_name
 				if asset_path in assets:
 					continue
-				publish_path = f"../../assets/publications/{self.report_date}/{asset_name}"
+				publish_path = f"{self.report_date}/{asset_name}"
 				content = (
 					f"Commit-selected image {path} is available to the article at "
 					+ f"{publish_path}."

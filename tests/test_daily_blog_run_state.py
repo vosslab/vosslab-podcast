@@ -284,3 +284,22 @@ def test_run_store_rejects_oversized_authoritative_state_before_parsing(
 	pathlib.Path(store.record_path).write_bytes(b"x" * (store.MAX_RUN_STATE_BYTES + 1))
 	with pytest.raises(RuntimeError):
 		store.finalize_summary()
+
+
+#============================================
+def test_success_cleanup_retains_only_terminal_diagnostics(tmp_path: pathlib.Path) -> None:
+	"""A delivered post leaves its log and summary, not pre-publication working material."""
+	store = daily_blog.run_state.RunStore(
+		str(tmp_path), "vosslab", "2026-08-23", "run-cleanup",
+	)
+	date_dir = pathlib.Path(store.date_dir)
+	(date_dir / "candidate.json").write_text("{}\n", encoding="utf-8")
+	(date_dir / "draft.md").write_text("draft\n", encoding="utf-8")
+	(date_dir / "publication").mkdir()
+	(date_dir / "publication" / "bundle.json").write_text("{}\n", encoding="utf-8")
+	pathlib.Path(store.event_path).write_text("event\n", encoding="utf-8")
+	pathlib.Path(store.summary_path).write_text("summary\n", encoding="utf-8")
+	store.discard_completed_working_artifacts()
+	assert sorted(path.name for path in date_dir.iterdir()) == [
+		"runlog-2026-08-23.jsonl", "summary.jsonl",
+	]

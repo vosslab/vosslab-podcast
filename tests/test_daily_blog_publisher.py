@@ -387,59 +387,6 @@ def test_import_classifies_subprocess_start_failure(
 	assert raised.value.category == "publisher_start_failure"
 
 
-#============================================
-def test_validate_bundle_transfer_binds_the_exact_sealed_identity(
-	tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch,
-) -> None:
-	"""The read-only publisher preflight receives and attests the one transfer snapshot."""
-	root = _publisher_tree(tmp_path)
-	transfer = _transfer(root)
-	report_date, bundle_sha256, best_artifact_id = daily_blog.publisher._transfer_identity(transfer)
-	observed: dict[str, object] = {}
-
-	def fake_run(*arguments: object, **kwargs: object) -> subprocess.CompletedProcess:
-		observed["command"] = arguments[0]
-		observed["input"] = kwargs["input"]
-		receipt = daily_blog.io_utils.stable_json_text({
-			"schema_version": "vosslab.daily-blog.import-validation.v1", "status": "valid",
-			"bundle_sha256": bundle_sha256, "report_date": report_date,
-			"best_artifact_id": best_artifact_id,
-		}).encode("utf-8")
-		return subprocess.CompletedProcess([], 0, receipt, b"")
-
-	monkeypatch.setattr(daily_blog.publisher.subprocess, "run", fake_run)
-	receipt = daily_blog.publisher.validate_bundle_transfer(str(root), transfer)
-
-	assert receipt["bundle_sha256"] == transfer.bundle_sha256
-	assert any("--validate-bundle-stdin" in part for part in observed["command"])
-	assert observed["input"] == transfer.to_bytes()
-
-
-#============================================
-def test_validate_bundle_transfer_rejects_a_mismatched_identity(
-	tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch,
-) -> None:
-	"""The publisher validation receipt cannot attest a different sealed transfer."""
-	root = _publisher_tree(tmp_path)
-	transfer = _transfer(root)
-	_report_date, bundle_sha256, best_artifact_id = daily_blog.publisher._transfer_identity(transfer)
-
-	def fake_run(*_arguments: object, **_kwargs: object) -> subprocess.CompletedProcess:
-		receipt = daily_blog.io_utils.stable_json_text({
-			"schema_version": "vosslab.daily-blog.import-validation.v1", "status": "valid",
-			"bundle_sha256": bundle_sha256, "report_date": "2026-08-27",
-			"best_artifact_id": best_artifact_id,
-		}).encode("utf-8")
-		return subprocess.CompletedProcess([], 0, receipt, b"")
-
-	monkeypatch.setattr(daily_blog.publisher.subprocess, "run", fake_run)
-	with pytest.raises(daily_blog.publisher_contract.PublisherCommandError) as raised:
-		daily_blog.publisher.validate_bundle_transfer(str(root), transfer)
-
-	assert raised.value.category == "publisher_protocol_failure"
-
-
-#============================================
 @pytest.mark.parametrize("field, replacement", [
 	("report_date", "2026-08-27"),
 	("bundle_sha256", "0" * 64),

@@ -28,7 +28,6 @@ LEGAL_PHASES = (
 	"stage7_final_synthesis",
 	"publication_validation",
 	"bundle_creation",
-	"publisher_preflight",
 	"post_write",
 	"site_import",
 	"page_verification",

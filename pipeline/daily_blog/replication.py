@@ -259,6 +259,66 @@ class ReviewResult:
 
 
 @dataclasses.dataclass(frozen=True)
+class CandidateSetReviewAssignment:
+	"""One independent reviewer and its sole candidate ordering."""
+
+	reviewer_index: int
+	candidate_artifact_ids: tuple[str, ...]
+
+	#============================================
+	def __post_init__(self) -> None:
+		"""Require one bounded, unique complete-set ordering."""
+		if (
+			type(self.reviewer_index) is not int or self.reviewer_index < 0
+			or type(self.candidate_artifact_ids) is not tuple
+			or len(self.candidate_artifact_ids) < 2
+			or any(type(value) is not str or not value for value in self.candidate_artifact_ids)
+			or len(set(self.candidate_artifact_ids)) != len(self.candidate_artifact_ids)
+		):
+			raise RuntimeError("Candidate-set review assignment is invalid.")
+
+
+@dataclasses.dataclass(frozen=True)
+class CandidateSetReviewWork:
+	"""One request that presents the complete candidate set exactly once."""
+
+	request: daily_blog.agents.RouteRequest
+	assignment: CandidateSetReviewAssignment
+
+
+@dataclasses.dataclass(frozen=True)
+class CandidateSetReviewVote:
+	"""One independent selection from the complete candidate set."""
+
+	review_id: str
+	candidate_artifact_ids: tuple[str, ...]
+	status: str
+	winner_artifact_id: str
+	failure: str = ""
+	resumed: bool = False
+
+	#============================================
+	def __post_init__(self) -> None:
+		"""Require one winner from the reviewed set or one bounded failure."""
+		CandidateSetReviewAssignment(0, self.candidate_artifact_ids)
+		if self.status not in {"succeeded", "failed"} or type(self.resumed) is not bool:
+			raise RuntimeError("Candidate-set review status is unsupported.")
+		if self.status == "succeeded":
+			if self.winner_artifact_id not in self.candidate_artifact_ids or self.failure:
+				raise RuntimeError("Candidate-set review winner is outside its candidates.")
+		elif self.winner_artifact_id or self.failure not in REVIEW_FAILURES:
+			raise RuntimeError("Failed candidate-set review requires one bounded failure.")
+
+
+@dataclasses.dataclass(frozen=True)
+class CandidateSetReviewResult:
+	"""Bounded complete-set reviewer work and its observations."""
+
+	work: tuple[CandidateSetReviewWork, ...]
+	votes: tuple[CandidateSetReviewVote, ...]
+
+
+@dataclasses.dataclass(frozen=True)
 class _PromotionCandidate:
 	"""One mechanically evaluated artifact considered for promotion."""
 
@@ -424,6 +484,93 @@ def review(
 			cache_accept(item.request, result)
 		votes.append(resolved)
 	return ReviewResult(tuple(work), tuple(sorted(votes, key=lambda item: item.review_id)))
+
+
+#============================================
+def review_candidate_set(
+	candidates: collections.abc.Iterable[daily_blog.artifacts.EditorialArtifact],
+	expected_type: type,
+	reviewer_count: int,
+	build_work: collections.abc.Callable[
+		[tuple[daily_blog.artifacts.EditorialArtifact, ...], CandidateSetReviewAssignment],
+		CandidateSetReviewWork,
+	],
+	parse_winner: collections.abc.Callable[[str, CandidateSetReviewWork], str],
+	runner: object,
+	budget: daily_blog.agents.RouteBudget,
+	cache_load: collections.abc.Callable[
+		[daily_blog.agents.RouteRequest], daily_blog.agents.AgentResult | None,
+	] | None = None,
+	cache_accept: collections.abc.Callable[
+		[daily_blog.agents.RouteRequest, daily_blog.agents.AgentResult], None,
+	] | None = None,
+	observe_result: collections.abc.Callable[
+		[daily_blog.agents.RouteRequest, daily_blog.agents.AgentResult], None,
+	] | None = None,
+) -> CandidateSetReviewResult:
+	"""Evaluate the complete peer set once per independent reviewer."""
+	if type(reviewer_count) is not int or reviewer_count <= 0:
+		raise RuntimeError("Candidate-set review requires a positive reviewer count.")
+	canonical = _canonical_artifacts(candidates, expected_type)
+	if len(canonical) < 2:
+		return CandidateSetReviewResult((), ())
+	work = []
+	canonical_ids = {item.artifact_id for item in canonical}
+	for reviewer_index in range(reviewer_count):
+		offset = reviewer_index % len(canonical)
+		ordered = canonical[offset:] + canonical[:offset]
+		if reviewer_index % 2:
+			ordered = tuple(reversed(ordered))
+		assignment = CandidateSetReviewAssignment(
+			reviewer_index, tuple(item.artifact_id for item in ordered),
+		)
+		try:
+			item = build_work(ordered, assignment)
+		except ReviewUnavailable:
+			return CandidateSetReviewResult((), ())
+		if (
+			type(item) is not CandidateSetReviewWork
+			or item.assignment != assignment
+			or set(item.assignment.candidate_artifact_ids) != canonical_ids
+		):
+			raise RuntimeError("Candidate-set review work conflicts with its assignment.")
+		work.append(item)
+	if len({item.request.request_id for item in work}) != len(work):
+		raise RuntimeError("Candidate-set review requires unique request identities.")
+	if len({item.request.identity_sha256 for item in work}) != len(work):
+		raise RuntimeError("Candidate-set review requires unique work identities.")
+	results = daily_blog.agents.execute_requests(
+		[item.request for item in work], runner, work[0].request.maximum_parallel_calls,
+		budget, cache_load,
+	)
+	votes = []
+	for item, result in zip(work, results):
+		if observe_result is not None:
+			observe_result(item.request, result)
+		if not result.ok:
+			vote = CandidateSetReviewVote(
+				item.request.request_id, item.assignment.candidate_artifact_ids,
+				"failed", "", result.failure, result.resumed,
+			)
+		else:
+			try:
+				winner = parse_winner(result.text, item)
+			except daily_blog.agents.RepairableStructuredOutput:
+				winner = ""
+			if winner in item.assignment.candidate_artifact_ids:
+				vote = CandidateSetReviewVote(
+					item.request.request_id, item.assignment.candidate_artifact_ids,
+					"succeeded", winner, "", result.resumed,
+				)
+				if not result.resumed and cache_accept is not None:
+					cache_accept(item.request, result)
+			else:
+				vote = CandidateSetReviewVote(
+					item.request.request_id, item.assignment.candidate_artifact_ids,
+					"failed", "", "invalid_verdict", result.resumed,
+				)
+		votes.append(vote)
+	return CandidateSetReviewResult(tuple(work), tuple(votes))
 
 
 #============================================

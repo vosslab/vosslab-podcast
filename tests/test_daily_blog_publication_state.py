@@ -401,7 +401,6 @@ def test_finalization_keeps_bundle_logical_while_importer_receives_absolute_path
 		str(tmp_path / "vosslab" / "daily_blog" / packet.report_date / "post.md"),
 	)
 	imported: list[daily_blog.publication_contract.SealedBundleTransfer] = []
-	preflighted: list[daily_blog.publication_contract.SealedBundleTransfer] = []
 	lifecycle: list[str] = []
 
 	def publisher(_root: str, transfer: daily_blog.publication_contract.SealedBundleTransfer, *, replace_existing: bool) -> dict:
@@ -421,19 +420,6 @@ def test_finalization_keeps_bundle_logical_while_importer_receives_absolute_path
 			"rendered_page_path": (
 				f"generated/releases/{packet.report_date}/blog/2026/08/26/published/index.html"
 			),
-			"best_artifact_id": bundle["best_artifact_id"],
-		}
-
-	def publisher_validator(_root: str, transfer: daily_blog.publication_contract.SealedBundleTransfer) -> dict:
-		"""Return the publisher's strict no-write attestation for this fixture."""
-		preflighted.append(transfer)
-		lifecycle.append("publisher_preflight")
-		bundle = json.loads(next(entry.contents for entry in transfer.entries if entry.path == "bundle.json"))
-		return {
-			"schema_version": "vosslab.daily-blog.import-validation.v1",
-			"status": "valid",
-			"bundle_sha256": bundle["bundle_sha256"],
-			"report_date": packet.report_date,
 			"best_artifact_id": bundle["best_artifact_id"],
 		}
 
@@ -466,7 +452,7 @@ def test_finalization_keeps_bundle_logical_while_importer_receives_absolute_path
 	finalizer = daily_blog.publication_finalization.PublicationFinalizationCoordinator(
 		value, coordinator.cache, coordinator.store, coordinator.record,
 		finalizer_start, coordinator._complete, daily_blog.orchestrator.invoke_publisher,
-		coordinator.publisher_function, publisher_validator, page_verifier,
+		coordinator.publisher_function, page_verifier,
 	)
 
 	def write_post() -> None:
@@ -481,194 +467,9 @@ def test_finalization_keeps_bundle_logical_while_importer_receives_absolute_path
 	saved = json.loads(pathlib.Path(coordinator.store.record_path).read_text(encoding="utf-8"))
 
 	assert imported[0].bundle_sha256 == bundle["bundle_sha256"]
-	assert all(item is transfer for item in preflighted + imported)
+	assert imported == [transfer]
 	assert (
-		lifecycle.index("bundle_creation") < lifecycle.index("publisher_preflight")
-		< lifecycle.index("post_write") < lifecycle.index("site_import")
+		lifecycle.index("bundle_creation") < lifecycle.index("post_write") < lifecycle.index("site_import")
 		< lifecycle.index("page_verification")
 	)
 	assert not pathlib.PurePosixPath(saved["publication_bundle"]["path"]).is_absolute()
-
-
-#============================================
-def test_finalization_stops_before_post_write_when_publisher_preflight_rejects(
-	tmp_path: pathlib.Path,
-) -> None:
-	"""A publisher-policy fault cannot materialize a post before its attestation."""
-	config = _path_record_config(tmp_path)
-	roster = _path_record_roster()
-	packet = daily_blog.schema.EvidencePacket.create(
-		"2026-08-26", "America/Chicago", True, {}, [], [], [
-			daily_blog.schema.EvidenceItem.create(
-				"commit_metadata", "vosslab/example", "a" * 40, "", "", "work", "git show",
-			),
-		],
-	)
-	post = daily_blog.artifacts.CompletePost.create(
-		packet.report_date, (packet,), ("vosslab/example",),
-		f"---\ndate: {packet.report_date}\n---\n# Published\n\nGrounded. <!-- evidence: {packet.items[0].evidence_id} -->\n",
-		(packet.items[0].evidence_id,), packet.report_date,
-		str(tmp_path / "vosslab" / "daily_blog" / packet.report_date / "post.md"),
-	)
-	coordinator = daily_blog.orchestrator.DailyPublicationOrchestrator(config, packet.report_date)
-	for phase in daily_blog.run_contracts.LEGAL_PHASES:
-		if phase == "bundle_creation":
-			break
-		coordinator._start(phase, {"fixture": phase})
-		coordinator._complete(phase, {"fixture": phase})
-	value = daily_blog.publication_finalization.SealedPublicationInput(
-		packet.report_date, coordinator.run_id, config.output_root, config.output_owner,
-		config.daily_blog_repository, coordinator.generator_identity,
-		coordinator.force_regeneration, roster, _surface(packet), {}, post, _active_roster(packet, roster),
-	)
-	def reject_preflight(*_args: object) -> dict:
-		"""Model the publisher's safe typed validation rejection."""
-		raise daily_blog.publisher_contract.PublisherCommandError("snapshot_rejected", "validate")
-
-	finalizer = daily_blog.publication_finalization.PublicationFinalizationCoordinator(
-		value, coordinator.cache, coordinator.store, coordinator.record,
-		coordinator._start, coordinator._complete, daily_blog.orchestrator.invoke_publisher,
-		lambda *_args, **_kwargs: {},
-		reject_preflight,
-		lambda *_args: {},
-	)
-	written: list[bool] = []
-
-	with pytest.raises(daily_blog.publisher_contract.PublisherCommandError):
-		finalizer.finalize(lambda: written.append(True))
-
-	assert written == []
-	assert coordinator.record.phases["post_write"].status == "pending"
-
-
-#============================================
-def test_orchestrator_records_publisher_preflight_as_an_operational_fault(
-	tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch,
-) -> None:
-	"""A typed publisher rejection fails the actual run before post materialization."""
-	config = _path_record_config(tmp_path)
-	record = daily_blog.repository_contracts.RepositoryRecord.from_dict({
-		"repository": "vosslab/example", "repository_url": "https://github.com/vosslab/example",
-		"clone_url": "https://github.com/vosslab/example.git", "created_at": "2026-08-23T00:00:00Z",
-		"is_fork": False,
-	})
-	roster = daily_blog.repository_contracts.RepositoryRoster.create("vosslab", [record])
-	item = daily_blog.schema.EvidenceItem.create(
-		"dated_changelog", "vosslab/example", "a" * 40, "docs/CHANGELOG.md", "b" * 40,
-		"Fixture work.", "fixture",
-	)
-	activity = daily_blog.schema.RepositoryActivity(
-		"vosslab/example", "https://github.com/vosslab/example", "/fixture/example",
-		"a" * 40,
-		(daily_blog.schema.CommitActivity(
-			"a" * 40, (), "Fixture", "fixture@example.com",
-			"2026-08-26T12:00:00-05:00", "2026-08-26T12:00:00-05:00", "Fixture work",
-		),),
-		(daily_blog.schema.RevisionRange("", "a" * 40),), ("a" * 40,), False,
-		(daily_blog.repository_contracts.RepositoryLifecycleEvent(
-			"repository_created", "2020-01-01T00:00:00Z", False, "github_owner_roster",
-		),),
-	)
-	packet = daily_blog.schema.EvidencePacket.create(
-		"2026-08-26", "America/Chicago", True, {}, [], [activity], [item],
-	)
-	story = daily_blog.artifacts.RepoStory.create(
-		packet.report_date, (packet,), "vosslab/example",
-		"Grounded story. <!-- evidence: " + item.evidence_id + " -->", (item.evidence_id,),
-	)
-	outline = daily_blog.artifacts.DailyOutline.create(
-		packet.report_date, (packet,), ("vosslab/example",),
-		"Grounded outline. <!-- evidence: " + item.evidence_id + " -->", (item.evidence_id,),
-	)
-	limits = {"context_chars": 8000, "excerpt_chars": 1000, "commit_subject_chars": 120}
-	surface = daily_blog.publication_admission.build_surface(
-		(packet,), ("vosslab/example",), limits, (outline, story),
-	)
-	post = daily_blog.artifacts.CompletePost.create(
-		packet.report_date, (packet,), ("vosslab/example",),
-		f"---\ndate: {packet.report_date}\n---\n# Fixture\n\nGrounded. <!-- evidence: {item.evidence_id} -->\n",
-		(item.evidence_id,), packet.report_date,
-		str(tmp_path / "vosslab" / "daily_blog" / packet.report_date / "post.md"),
-	)
-	publisher_calls: list[str] = []
-
-	def complete(orchestrator: daily_blog.orchestrator.DailyPublicationOrchestrator, phase: str) -> None:
-		"""Advance one mocked upstream boundary through the real run record."""
-		orchestrator._start(phase, {"fixture": phase})
-		orchestrator._complete(phase, {"fixture": phase})
-
-	def reject_preflight(*_args: object) -> dict:
-		"""Return one valid typed publisher operational failure."""
-		raise daily_blog.publisher_contract.PublisherCommandError("snapshot_rejected", "validate")
-
-	runtime = daily_blog.publication_workflow.PublicationRuntime(
-		publisher_function=lambda *_args, **_kwargs: publisher_calls.append("site_import") or {},
-		publisher_validator=reject_preflight,
-	)
-	orchestrator = daily_blog.orchestrator.DailyPublicationOrchestrator(config, packet.report_date, runtime=runtime)
-
-	def acquire() -> object:
-		"""Return a sealed fixture after advancing actual acquisition phases."""
-		for phase in (
-			"repository_discovery", "mirror_refresh", "activity_location", "evidence_assembly",
-		):
-			complete(orchestrator, phase)
-		return types.SimpleNamespace(
-			roster=roster, packet=packet, assets={}, active_roster=_active_roster(packet, roster),
-		)
-
-	def repository_editorial() -> object:
-		"""Return the narrow Stage 5 handoff after the repository editorial phase."""
-		complete(orchestrator, "repository_editorial")
-		return types.SimpleNamespace(stage5_input=object(), route_capacity=object(), route_budget=object())
-
-	def stage5(*_args: object) -> object:
-		complete(orchestrator, "stage5_daily_outline")
-		return types.SimpleNamespace(publication_surface=surface)
-
-	def stage6(*_args: object) -> object:
-		complete(orchestrator, "stage6_complete_post")
-		return types.SimpleNamespace(artifact=post, recovery_generation=None)
-
-	def stage7(*_args: object) -> object:
-		complete(orchestrator, "stage7_final_synthesis")
-		return types.SimpleNamespace(artifact=post)
-
-	def validate(*_args: object, **_kwargs: object) -> object:
-		complete(orchestrator, "publication_validation")
-		return types.SimpleNamespace(source_post=post, post=post)
-
-	monkeypatch.setattr(
-		daily_blog.acquisition_workflow, "AcquisitionCoordinator",
-		lambda _dependencies: types.SimpleNamespace(acquire=acquire),
-	)
-	monkeypatch.setattr(
-		daily_blog.repository_editorial_workflow, "RepositoryEditorialCoordinator",
-		lambda _dependencies: types.SimpleNamespace(run=lambda _packet: repository_editorial()),
-	)
-	monkeypatch.setattr(daily_blog.publication_workflow, "run_typed_stage5", stage5)
-	monkeypatch.setattr(daily_blog.publication_workflow, "run_typed_stage6", stage6)
-	monkeypatch.setattr(daily_blog.publication_workflow, "run_typed_stage7", stage7)
-	monkeypatch.setattr(daily_blog.publication_workflow, "validate_selected_post", validate)
-	with pytest.raises(daily_blog.publisher_contract.PublisherCommandError):
-		orchestrator.run()
-
-	stored = json.loads(pathlib.Path(orchestrator.store.record_path).read_text(encoding="utf-8"))
-	terminal_lines = pathlib.Path(orchestrator.store.summary_path).read_text(encoding="utf-8").splitlines()
-	terminal = next(
-		(
-			daily_blog.observability.parse_terminal_summary_line(line)
-			for line in terminal_lines
-			if line
-		),
-		None,
-	)
-	assert stored["failure"] == {"phase": "publisher_preflight", "kind": "snapshot_rejected"}
-	assert (
-		terminal is not None and not publisher_calls
-		and stored["phases"]["post_write"]["status"] == "pending"
-		and (
-			terminal["failure_phase"], terminal["terminal_fault_category"],
-			terminal["operational_failure_kind"],
-		) == ("publisher_preflight", "", "snapshot_rejected")
-	)

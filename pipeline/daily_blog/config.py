@@ -92,22 +92,14 @@ class EditorialReliabilityConfig:
 
 @dataclasses.dataclass(frozen=True)
 class DailyBlogLoggingConfig:
-	"""Optional bounded-run logging and measured-retention settings.
+	"""Optional bound for the one report-date-owned operational journal."""
 
-	A missing retention value deliberately means no deletion. Operators supply
-	evidence before selecting a default rather than embedding a policy here.
-	"""
-
-	detailed_retention_days: int | None = None
 	max_events_per_run: int | None = None
 
 	#============================================
 	def __post_init__(self) -> None:
 		"""Require explicitly configured limits to be positive exact integers."""
-		for name, value in (
-			("detailed_retention_days", self.detailed_retention_days),
-			("max_events_per_run", self.max_events_per_run),
-		):
+		for name, value in (("max_events_per_run", self.max_events_per_run),):
 			if value is not None and (type(value) is not int or value <= 0):
 				raise RuntimeError(f"daily_blog.logging.{name} must be a positive integer.")
 
@@ -201,15 +193,12 @@ def _load_logging_config(settings: dict) -> DailyBlogLoggingConfig:
 	)
 	if not isinstance(configured, dict):
 		raise RuntimeError("daily_blog.logging must be a mapping.")
-	allowed = {"detailed_retention_days", "max_events_per_run"}
+	allowed = {"max_events_per_run"}
 	unknown = set(configured) - allowed
 	if unknown:
 		names = ", ".join(sorted(unknown))
 		raise RuntimeError(f"Unknown daily_blog.logging keys: {names}")
-	return DailyBlogLoggingConfig(
-		detailed_retention_days=configured.get("detailed_retention_days"),
-		max_events_per_run=configured.get("max_events_per_run"),
-	)
+	return DailyBlogLoggingConfig(max_events_per_run=configured.get("max_events_per_run"))
 
 
 def load_config(settings_path: str = "settings.yaml", output_root: str = "out") -> DailyBlogConfig:

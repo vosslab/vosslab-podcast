@@ -41,9 +41,9 @@ the configured GitHub owner supplies `<user>`. A date has one producer-owned hie
   while the selected complete post is finalized.
 - `out/<user>/daily_blog/YYYY-MM-DD/publication/`: the atomically promoted sealed bundle.
 - `out/<user>/daily_blog/YYYY-MM-DD/summary.jsonl`: one bounded terminal receipt per completed or
-  failed run for the date.
-- `out/<user>/daily_blog/YYYY-MM-DD/runs/RUN_ID/`: one detailed run record and its inspectable
-  artifacts.
+  failed current run for the date.
+- `out/<user>/daily_blog/YYYY-MM-DD/run_state.json`: the canonical current run record.
+- `out/<user>/daily_blog/YYYY-MM-DD/runlog-YYYY-MM-DD.jsonl`: the canonical current event log.
 - `out/<user>/daily_blog_locks/YYYY-MM-DD.lock`: the advisory date lock that covers admission,
   generation, import, and replacement.
 
@@ -66,8 +66,8 @@ producer stages those fixed files under descriptor ownership and atomically name
 `publication`. A confirmed same-date replacement replaces that one directory; it never creates a
 publication version or changes the date identity.
 
-Each `runs/RUN_ID/` directory retains `run_state.json`, `runlog-YYYY-MM-DD.jsonl`, and direct JSON artifacts
-for the run. Current workflow artifacts include the captured roster and prompt contract, mirror and
+The date directory retains `run_state.json`, `runlog-YYYY-MM-DD.jsonl`, and direct JSON artifacts
+for the current run. Current workflow artifacts include the captured roster and prompt contract, mirror and
 activity records, evidence and bounded editorial contexts, editorial reliability summaries, selected-post
 write record, publication validation, bundle, import, page-verification, and typed recovery fault
 when applicable. The pending editorial and terminal-summary JSON journals are transaction-recovery
@@ -82,8 +82,8 @@ The immutable authoritative roster snapshot is shared outside a single run:
 `run_state.json` records the logical path and identity of the roster snapshot and the sealed
 publication path. Its event journal and terminal summary intentionally contain bounded status,
 identity, count, and redacted fault facts rather than route prompts, model output, or provider
-diagnostics. `summary.jsonl` is the date-level receipt journal used by the advisory reliability
-report and retention check; it is not a publication pointer.
+diagnostics. `summary.jsonl` is the date-owned current receipt used by the advisory reliability
+report; it is not a publication pointer.
 
 Phase caches are producer-owned and hash-addressed:
 
@@ -92,21 +92,16 @@ Phase caches are producer-owned and hash-addressed:
 - `out/<user>/daily_blog_cache/.locks/PHASE/INPUT_HASH.lock`
 
 Cache phase names and artifact filenames evolve with the workflow. Every reusable JSON envelope
-binds its input hash and content hash, and a new `RUN_ID` still owns the current execution record.
+binds its input hash and content hash. A new execution identifier is recorded inside the current
+date-owned run state and log; it does not create another durable artifact tree.
 The separately configured mirror cache is operational source storage, not a publication artifact
 under this output contract.
 
-The sibling daily-blog publisher receives the sealed producer bundle from the date-owned
-`publication/` directory. It validates the fixed manifest and declared assets through held
-descriptors before importing one byte snapshot and verifying the rendered page. The sibling site
-output is publisher-owned and is not part of the producer's `out/<user>/` layout.
-
-Detailed-run retention is an explicit configuration policy, not a cleanup default. With
-`detailed_retention_days` unset, run directories remain. With a positive value, the locked command
-can remove only a safely contained run directory that is terminal, has no pending terminal journal,
-and has exactly one matching terminal receipt. Age is calculated from command start. The
-date-level publication and `summary.jsonl` remain; unsafe, incomplete, or unreceipted children are
-skipped and reported rather than removed.
+The sibling daily-blog renderer receives the producer-approved bundle from the date-owned
+`publication/` directory. The producer verifies exact-byte delivery. The renderer confines
+destinations, places Markdown and assets, invokes MkDocs and deployment, and verifies the rendered
+page; it does not independently admit or judge publication content. The sibling site output is
+renderer-owned and is not part of the producer's `out/<user>/` layout.
 
 The active maker activation is a tracked production input whose identity is bound into the bundle.
 It is not an output directory. Retired calibration, experiment, fixture-capture, attestation, and

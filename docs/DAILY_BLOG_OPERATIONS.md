@@ -143,7 +143,7 @@ fail; it is not a publishable fallback. Exhausting the ladder is a pipeline faul
 Each run is stored under:
 
 ```text
-out/<owner>/daily_blog/YYYY-MM-DD/runs/RUN_ID/
+out/<owner>/daily_blog/YYYY-MM-DD/
 ```
 
 The interactive command prints a Rich progress summary instead of streaming machine JSON. Its first
@@ -153,8 +153,8 @@ reused totals. Color is enabled on capable terminals and omitted automatically w
 redirected. The human display is observational and never controls publication. The canonical step
 and filename map lives in the dedicated publication-flow reference.
 
-The date directory also owns `summary.jsonl`, a bounded terminal receipt for each completed or failed
-run. Inspect `summary.jsonl` first for the terminal outcome,
+The date directory also owns `summary.jsonl`, the bounded current terminal receipt. Inspect it first
+for the terminal outcome,
 publication status, terminal run-record digest, and verified-page digest. Then inspect
 `daily_active_roster.json` for Step 0's machine-owned active repository roster, `run_state.json` for phase state,
 selected artifact, and `runlog-YYYY-MM-DD.jsonl` for bounded lifecycle and
@@ -212,17 +212,13 @@ were not cited or otherwise selected by the narrative artifacts are not transfer
 Candidate and referee topology remains producer-side diagnostic state; it is not publisher input.
 
 The producer sends that validated snapshot through one bounded hash-bound standard-input envelope;
-the publisher never reopens a producer bundle path. It first invokes the publisher's no-write
-`--validate-bundle-stdin` endpoint and accepts its identity-bound
-`vosslab.daily-blog.import-validation.v1` receipt only when it matches the exact sealed transfer.
-That preflight validates the same semantic contract but creates no publisher record, archive, post,
-release, or `site` change. The importing endpoint then revalidates and accepts only the bounded,
-manifest-declared snapshot through held descriptors. It rejects symlinks, nonregular or undeclared
-artifacts, missing artifacts, identity mismatch, digest mismatch, and any asset or image reference
-outside `publication_surface.json`. Its per-date `vosslab.daily-blog.publication.v6` record binds
+the renderer never reopens a producer bundle path. The producer validates the artifact before
+export and verifies the import receipt against the exact transfer identity after delivery. The
+renderer confines destination paths, places the supplied bytes, invokes MkDocs and deployment, and
+does not independently admit editorial content. Its per-date `vosslab.daily-blog.publication.v6` record binds
 the bundle, selected artifact, installed post, archive, release, canonical `article_body_sha256`, and
 the surface manifest, hash, and identity to the same report date. The producer returns
-`vosslab.daily-blog.import-receipt.v2` only after shared committed-publication validation confirms
+`vosslab.daily-blog.import-receipt.v2` only after committed-publication verification confirms
 the archive, v6 record, surface, and installed post together. Separate page verification requires the
 complete ordered reader body in the dated article surface and checks that each article image is one
 of the surface's published image paths, while allowing normal site chrome.

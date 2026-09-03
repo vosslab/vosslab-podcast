@@ -84,6 +84,34 @@ def test_replicate_retains_eligible_peer_after_one_generator_failure() -> None:
 
 
 #============================================
+def test_candidate_set_review_scales_with_reviewers_not_candidate_pairs() -> None:
+	"""Five peers and three reviewers create three complete-set calls, never sixty."""
+	source = packet()
+	peers = tuple(outline(source, f"Candidate {index}") for index in range(5))
+	seen_orders = []
+	def build(
+		ordered: tuple[daily_blog.artifacts.EditorialArtifact, ...],
+		assignment: daily_blog.replication.CandidateSetReviewAssignment,
+	) -> daily_blog.replication.CandidateSetReviewWork:
+		seen_orders.append(tuple(item.artifact_id for item in ordered))
+		return daily_blog.replication.CandidateSetReviewWork(
+			request(f"set-review-{assignment.reviewer_index}"), assignment,
+		)
+	def parse(
+		_text: str, work: daily_blog.replication.CandidateSetReviewWork,
+	) -> str:
+		return work.assignment.candidate_artifact_ids[0]
+	result = daily_blog.replication.review_candidate_set(
+		peers, daily_blog.artifacts.RepoOutline, 3, build, parse, Runner(),
+		daily_blog.agents.RouteBudget(3, 3),
+	)
+
+	assert len(result.work) == len(result.votes) == 3
+	assert all(set(order) == {item.artifact_id for item in peers} for order in seen_orders)
+	assert len(set(seen_orders)) == 3
+
+
+#============================================
 def test_review_salvages_an_unambiguous_identity_from_malformed_output() -> None:
 	"""Usable reviewer intent survives a malformed response without another model call."""
 	source = packet()

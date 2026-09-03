@@ -118,31 +118,20 @@ class PublicationSurface:
 		allowed_images = _resolve_artifact_images(packet, outline[0], narrative_stories)
 		if self.stage6_prompt_context.allowed_images != allowed_images:
 			raise RuntimeError("Publication surface prompt image authority disagrees.")
-		artifact_evidence_ids = {
-			evidence_id for artifact in (outline[0],) + narrative_stories
-			for evidence_id in artifact.evidence_ids
-		}
 		allowed_ids = {
 			excerpt.evidence_id for excerpt in self.evidence_context.excerpts
-		} | artifact_evidence_ids | {image.evidence_id for image in allowed_images}
+		} | {image.evidence_id for image in allowed_images}
 		packet_ids = {item.evidence_id for item in packet.items}
 		if not allowed_ids or not allowed_ids.issubset(packet_ids):
 			raise RuntimeError("Publication surface exposes evidence outside its survivor packets.")
-		items_by_id = {item.evidence_id: item for item in packet.items}
-		excerpts = list(self.evidence_context.excerpts)
-		excerpt_ids = {item.evidence_id for item in excerpts}
-		for evidence_id in sorted(artifact_evidence_ids - excerpt_ids):
-			item = items_by_id[evidence_id]
-			end = min(len(item.content), self.evidence_context.projection_limits["excerpt_chars"])
-			excerpts.append(daily_blog.schema.EvidenceExcerpt.create(item, 0, end))
 		projection = daily_blog.schema.EditorialProjection.create(
 			packet.packet_id, self.evidence_context.report_date, self.evidence_context.timezone,
 			dict(self.evidence_context.projection_limits),
-			list(self.evidence_context.repositories), excerpts,
+			list(self.evidence_context.repositories), list(self.evidence_context.excerpts),
 		)
-		# The bounded prompt view can omit a raw slice already represented by a
-		# promoted artifact.  The sealed projection retains one exact packet slice
-		# for every such model-visible ID so downstream admission uses this authority.
+		# The full packet and source-artifact lineage preserve all provenance. The
+		# projection remains the bounded LLM view and never expands to repeat every
+		# raw evidence item referenced by an already-compressed editorial artifact.
 		projection.render_context()
 		if {item.evidence_id for item in projection.excerpts} != allowed_ids:
 			raise RuntimeError("Publication surface projection does not cover its allowed evidence.")
@@ -317,11 +306,22 @@ def _resolve_artifact_images(
 
 
 #============================================
-def survivor_assets(surface: PublicationSurface, assets: dict[str, bytes]) -> dict[str, bytes]:
-	"""Return only survivor screenshot bytes admitted by the sealed surface."""
-	if type(surface) is not PublicationSurface or type(assets) is not dict:
+def survivor_assets(
+	surface: PublicationSurface,
+	assets: dict[str, bytes],
+	post: daily_blog.artifacts.CompletePost | None = None,
+) -> dict[str, bytes]:
+	"""Return only screenshot bytes actually referenced by the final Markdown."""
+	if (
+		type(surface) is not PublicationSurface or type(assets) is not dict
+		or (post is not None and type(post) is not daily_blog.artifacts.CompletePost)
+	):
 		raise RuntimeError("Publication surface assets require exact typed inputs.")
-	required = {image.asset_path for image in surface.allowed_images}
+	by_publish_path = {image.publish_path: image.asset_path for image in surface.allowed_images}
+	selected_paths = surface.allowed_image_paths if post is None else post.image_paths
+	if not set(selected_paths).issubset(by_publish_path):
+		raise RuntimeError("Final post references an image outside its publication surface.")
+	required = {by_publish_path[path] for path in selected_paths}
 	if any(path not in assets or type(assets[path]) is not bytes for path in required):
 		raise RuntimeError("Publication surface is missing a survivor screenshot asset.")
 	return {path: assets[path] for path in sorted(required)}

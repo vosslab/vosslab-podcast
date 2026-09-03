@@ -32,7 +32,7 @@ the named stage's input before deleting or regenerating cached files. See
 Symptom: a date-owned daily publication needs diagnosis or recovery.
 
 Start with `out/<owner>/daily_blog/YYYY-MM-DD/summary.jsonl`, then inspect the
-selected `runs/RUN_ID/run_state.json` and `runs/RUN_ID/runlog-YYYY-MM-DD.jsonl`. The
+date-owned `run_state.json` and `runlog-YYYY-MM-DD.jsonl`. The
 summary is the bounded terminal receipt and authoritative editorial-step
 summary. The run state contains phase state and selected-artifact identity; the
 event journal contains bounded lifecycle facts for that one attempt.

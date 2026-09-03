@@ -48,7 +48,6 @@ class PublicationRuntime:
 	evidence_assembler: collections.abc.Callable | None = None
 	route_runner: object | None = None
 	publisher_function: collections.abc.Callable | None = None
-	publisher_validator: collections.abc.Callable | None = None
 	page_verifier: collections.abc.Callable | None = None
 
 

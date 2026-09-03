@@ -114,12 +114,9 @@ def test_report_discovers_opaque_steps_and_marks_absent_rate_denominators() -> N
 
 
 #============================================
-def test_report_reads_summary_after_its_detailed_run_directory_is_gone(tmp_path: pathlib.Path) -> None:
-	"""Retention of detailed records cannot erase date-level reliability advice."""
+def test_report_reads_the_date_owned_summary_without_a_run_directory(tmp_path: pathlib.Path) -> None:
+	"""The report consumes the canonical date receipt without execution trees."""
 	write_summary(tmp_path, (terminal_summary("run-retained-summary"),))
-	run_dir = tmp_path / "vosslab" / "daily_blog" / "2026-08-29" / "runs" / "run-retained-summary"
-	run_dir.mkdir(parents=True)
-	run_dir.rmdir()
 	report = daily_blog.reliability_report.report_for_date(str(tmp_path), "vosslab", "2026-08-29")
 	assert report["run_totals"]["runs_observed"] == 1
 

@@ -173,15 +173,11 @@ Candidate and referee deliberation remain producer-owned run history and are not
 
 `publication_storage.py` reads and writes bundle artifacts through held no-follow descriptors,
 enforces bounded regular-file envelopes, and atomically promotes one date-local bundle. The producer
-first sends that exact sealed byte snapshot to the sibling's no-write validation endpoint. A valid
-`vosslab.daily-blog.import-validation.v1` receipt binds the report date, bundle digest, and selected
-artifact before the producer invokes the importing standard-input endpoint; neither endpoint can
-reopen a producer path. The sibling validates the portable surface before it admits post evidence or
-images, requires the asset manifest and staged assets to equal that surface's allowed screenshot set,
-and validates the declared archive and date-keyed `publication-v6` record as one committed
-publication. Its `import-receipt.v2` includes the canonical reader-body digest. Finalization then
-verifies the whole ordered body and the article-local image sources against the installed portable
-surface, rather than relying on title/date chrome or aggregate evidence screenshots.
+validates and seals that exact byte snapshot, sends it to the sibling's importing standard-input
+endpoint, and verifies the returned receipt against the report date and bundle digest. The sibling
+confines destinations, places the supplied Markdown and assets, invokes MkDocs and deployment, and
+verifies the rendered page. It does not validate the portable surface or admit post content. Its
+`import-receipt.v2` records the committed rendering result.
 
 The subprocess boundary accepts only bounded canonical JSON results. Publisher failures use the
 text-free `vosslab.daily-blog.import-failure.v1` envelope with one allowlisted category

@@ -118,83 +118,23 @@ def test_terminal_summary_preserves_safe_namespaced_step(
 
 
 #============================================
-def test_retention_removes_only_old_terminal_receipted_run(
-	tmp_path: pathlib.Path,
-	monkeypatch: pytest.MonkeyPatch,
-) -> None:
-	"""Expiry preserves publication and every run lacking a safe terminal receipt."""
-	_fixed_clock(monkeypatch)
-	old_store = _store(tmp_path, "run-old")
-	old = _completed_record("run-old", "2026-08-01T12:00:00Z")
-	old_store.save(old)
-	old_store.finalize_summary(old)
-	running_store = _store(tmp_path, "run-running")
-	running_store.save(daily_blog.run_contracts.RunRecord.create("run-running", REPORT_DATE, FIXED_TIME))
-	without_receipt = _store(tmp_path, "run-unreceipted")
-	without_receipt.save(_failed_record("run-unreceipted", "2026-08-01T12:00:00Z"))
-	pending_store = _store(tmp_path, "run-pending")
-	pending = _failed_record("run-pending", "2026-08-01T12:00:00Z")
-	pending_store.save(pending)
-	pending_store.finalize_summary(pending)
-	pathlib.Path(pending_store.pending_terminal_summary_path).write_text("{}", encoding="utf-8")
-	date_dir = pathlib.Path(old_store.date_dir)
-	(date_dir / "publication").mkdir()
-	(date_dir / "publication" / "published.txt").write_text("keep", encoding="utf-8")
-	(date_dir / "runs" / "run-corrupt").mkdir()
-	(date_dir / "runs" / "run-corrupt" / "run_state.json").write_text("{", encoding="utf-8")
-	link = date_dir / "runs" / "run-link"
-	os.symlink(str(date_dir / "publication"), link)
-	result = daily_blog.run_state.RunStore.prune_expired_runs(
-		str(tmp_path), OWNER, REPORT_DATE, 7, FIXED_TIME,
-	)
-	assert not pathlib.Path(old_store.run_dir).exists() and result.removed == 1
-	assert all((date_dir / item).exists() for item in (
-		"publication", "summary.jsonl", "runs/run-running", "runs/run-unreceipted",
-		"runs/run-pending", "runs/run-corrupt", "runs/run-link",
-	))
+def test_rerun_replaces_the_report_date_owned_artifact_set(tmp_path: pathlib.Path) -> None:
+	"""Execution identities remain records rather than durable directory selectors."""
+	first = _store(tmp_path, "execution-one")
+	first.write_artifact("first_only.json", {"execution": "one"})
+	first.append_event("daily_publication.run_started", {"state": "running"})
+	publication = pathlib.Path(first.date_dir) / "publication"
+	publication.mkdir()
+	(publication / "bundle.json").write_text("{}\n", encoding="utf-8")
 
+	second = _store(tmp_path, "execution-two")
+	second.append_event("daily_publication.run_started", {"state": "running"})
 
-#============================================
-def test_retention_skips_an_oversized_authoritative_record(
-	tmp_path: pathlib.Path,
-	monkeypatch: pytest.MonkeyPatch,
-) -> None:
-	"""Expiry rejects an oversized durable record before it can be parsed or deleted."""
-	_fixed_clock(monkeypatch)
-	store = _store(tmp_path, "run-large-record")
-	record = _completed_record("run-large-record", "2026-08-01T12:00:00Z")
-	store.save(record)
-	store.finalize_summary(record)
-	pathlib.Path(store.record_path).write_bytes(
-		b"x" * (daily_blog.observability.MAX_RUN_STATE_BYTES + 1),
-	)
-
-	result = daily_blog.run_state.RunStore.prune_expired_runs(
-		str(tmp_path), OWNER, REPORT_DATE, 7, FIXED_TIME,
-	)
-
-	assert result.removed == 0
-	assert pathlib.Path(store.run_dir).is_dir()
-
-
-#============================================
-#============================================
-def test_retention_rejects_a_newline_free_oversized_summary_without_reading_it_unboundedly(
-	tmp_path: pathlib.Path,
-	monkeypatch: pytest.MonkeyPatch,
-) -> None:
-	"""An invalid oversized receipt causes a no-delete retention result."""
-	_fixed_clock(monkeypatch)
-	store = _store(tmp_path, "run-old")
-	record = _completed_record("run-old", "2026-08-01T12:00:00Z")
-	store.save(record)
-	store.finalize_summary(record)
-	pathlib.Path(store.summary_path).write_bytes(b"x" * (daily_blog.observability.MAX_SUMMARY_LINE_BYTES + 2))
-	result = daily_blog.run_state.RunStore.prune_expired_runs(
-		str(tmp_path), OWNER, REPORT_DATE, 7, FIXED_TIME,
-	)
-	assert result.removed == 0
-	assert pathlib.Path(store.run_dir).is_dir()
+	assert first.run_dir == second.run_dir == first.date_dir
+	assert not (pathlib.Path(second.run_dir) / "first_only.json").exists()
+	assert (publication / "bundle.json").read_text(encoding="utf-8") == "{}\n"
+	event = json.loads(pathlib.Path(second.event_path).read_text(encoding="utf-8"))
+	assert event["run_id"] == "execution-two"
 
 
 #============================================
@@ -355,21 +295,6 @@ def test_run_store_rejects_path_bearing_public_selectors(
 	"""Public RunStore selectors cannot redirect mutable state outside its root."""
 	with pytest.raises(RuntimeError):
 		daily_blog.run_state.RunStore(str(tmp_path), owner, report_date, run_id)
-
-
-#============================================
-@pytest.mark.parametrize("owner, report_date", (
-	("../outside", REPORT_DATE),
-	(OWNER, "2026-8-29"),
-))
-def test_retention_rejects_path_bearing_public_selectors(
-	tmp_path: pathlib.Path, owner: str, report_date: str,
-) -> None:
-	"""The deletion facade validates its independent public selectors."""
-	with pytest.raises(RuntimeError):
-		daily_blog.run_state.RunStore.prune_expired_runs(
-			str(tmp_path), owner, report_date, 1, FIXED_TIME,
-		)
 
 
 #============================================

@@ -6,9 +6,8 @@ import datetime
 import json
 import os
 import re
-import shutil
 import stat
-from collections.abc import Callable, Iterator
+from collections.abc import Iterator
 
 # PIP3 modules
 import rich.text
@@ -506,7 +505,6 @@ class HumanProgress:
 		"stage7_final_synthesis": "Optionally improving the publishable post",
 		"publication_validation": "Preparing publication metadata",
 		"bundle_creation": "Sealing the publication bundle",
-		"publisher_preflight": "Checking the bundle with the publisher",
 		"post_write": "Writing the selected post", "site_import": "Importing the post",
 		"page_verification": "Verifying the rendered page",
 	}
@@ -516,8 +514,7 @@ class HumanProgress:
 		"repository_editorial": "B", "stage5_daily_outline": "D",
 		"stage6_complete_post": "E", "stage7_final_synthesis": "F",
 		"publication_validation": "G1", "bundle_creation": "G2",
-		"publisher_preflight": "G3", "post_write": "G4", "site_import": "G5",
-		"page_verification": "G6",
+		"post_write": "G3", "site_import": "G4", "page_verification": "G5",
 	}
 
 	def __init__(self, report_date: str, journal_path: str) -> None:
@@ -583,105 +580,3 @@ class HumanProgress:
 			self.note("A4", f"Located {commits} exact commits across {len(output)} repos{suffix}", "green")
 		elif phase == "evidence_assembly" and isinstance(output, dict):
 			self.note("A5", f"Prepared {len(output.get('items', ()))} evidence items{suffix}", "green")
-
-
-class RetentionResult:
-	"""Typed, bounded result of one contained detailed-run expiry pass."""
-
-	def __init__(self, removed: int, skipped: int, warnings: tuple[str, ...]) -> None:
-		self.removed, self.skipped, self.warnings = removed, skipped, warnings
-
-
-class RetentionManager:
-	"""Expire validated terminal children through held date and runs descriptors."""
-
-	def __init__(self, date_fd: int, runs_fd: int, retention_days: int | None, warning: Callable[[str], None] | None = None) -> None:
-		self.date_fd = date_fd
-		self.runs_fd = runs_fd
-		self.retention_days = retention_days
-		self.warning = warning
-
-	def _summary_receipts(self, report_date: str) -> dict[tuple[str, str], int]:
-		"""Read one exact canonical receipt index, rejecting incomplete journals."""
-		receipts: dict[tuple[str, str], int] = {}
-		run_ids: set[str] = set()
-		flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
-		with os.fdopen(os.open("summary.jsonl", flags, dir_fd=self.date_fd), "rb") as handle:
-			if not stat.S_ISREG(os.fstat(handle.fileno()).st_mode):
-				raise RuntimeError("Terminal summary journal is invalid.")
-			while raw_line := handle.readline(MAX_SUMMARY_LINE_BYTES + 2):
-				if (
-					not raw_line.endswith(b"\n")
-					or len(raw_line) > MAX_SUMMARY_LINE_BYTES + 1
-				):
-					raise RuntimeError("Terminal summary journal is invalid.")
-				try:
-					line = raw_line[:-1].decode("ascii")
-				except UnicodeDecodeError as error:
-					raise RuntimeError("Terminal summary journal is invalid.") from error
-				receipt = parse_terminal_summary_line(line)
-				if receipt["report_date"] != report_date:
-					raise RuntimeError("Terminal summary journal is invalid.")
-				if receipt["run_id"] in run_ids:
-					raise RuntimeError("Terminal summary journal is invalid.")
-				run_ids.add(receipt["run_id"])
-				key = (receipt["run_id"], receipt["terminal_record_sha256"])
-				receipts[key] = receipts.get(key, 0) + 1
-		return receipts
-
-	def prune(self, report_date: str, command_started_at: str) -> RetentionResult:
-		_utc_timestamp(command_started_at, "Retention command start")
-		if self.retention_days is None:
-			return RetentionResult(0, 0, ())
-		if type(self.retention_days) is not int or self.retention_days <= 0:
-			raise RuntimeError("Detailed run retention must be a positive day count.")
-		if not shutil.rmtree.avoids_symlink_attacks:
-			raise RuntimeError("Descriptor-safe detailed run removal is unavailable.")
-		started = datetime.datetime.strptime(command_started_at, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=datetime.UTC)
-		warnings: list[str] = []
-		removed = skipped = 0
-		try:
-			receipts = self._summary_receipts(report_date)
-		except (OSError, RuntimeError, TypeError, ValueError):
-			return RetentionResult(0, 0, ("retention_skipped_invalid_summary_journal",))
-		for name in os.listdir(self.runs_fd):
-			try:
-				if not _OPAQUE_ID_RE.fullmatch(name) or os.path.sep in name:
-					raise RuntimeError("unsafe run child")
-				info = os.stat(name, dir_fd=self.runs_fd, follow_symlinks=False)
-				if stat.S_ISLNK(info.st_mode) or not stat.S_ISDIR(info.st_mode):
-					raise RuntimeError("unsafe run child")
-				child_flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
-				with _directory_descriptor(name, child_flags, self.runs_fd) as child_fd:
-					record = daily_blog.run_contracts.RunRecord.from_dict(
-						read_bounded_regular_json_at(child_fd, "run_state.json", MAX_RUN_STATE_BYTES),
-					)
-					try:
-						os.stat("pending_terminal_summary.json", dir_fd=child_fd, follow_symlinks=False)
-					except FileNotFoundError:
-						pass
-					else:
-						raise RuntimeError("terminal summary remains pending")
-				if record.run_id != name or record.report_date != report_date or record.state not in {"completed", "failed"}:
-					raise RuntimeError("nonterminal or mismatched run")
-				record_hash = daily_blog.io_utils.hash_value(record.to_dict())
-				if receipts.get((record.run_id, record_hash), 0) != 1:
-					raise RuntimeError("terminal summary receipt is missing or duplicated")
-				created = datetime.datetime.strptime(record.created_at, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=datetime.UTC)
-				if (started - created).days < self.retention_days:
-					continue
-				# The removal implementation independently opens and verifies this child
-				# relative to the still-held parent descriptor before deleting it.
-				info = os.stat(name, dir_fd=self.runs_fd, follow_symlinks=False)
-				if stat.S_ISLNK(info.st_mode) or not stat.S_ISDIR(info.st_mode):
-					raise RuntimeError("unsafe run child")
-				shutil.rmtree(name, dir_fd=self.runs_fd)
-				removed += 1
-			except (OSError, TypeError, ValueError, RuntimeError):
-				skipped += 1
-				if len(warnings) < 32:
-					warnings.append("retention_skipped_unsafe_or_invalid_run")
-		for item in warnings:
-			if self.warning is not None:
-				self.warning(item)
-		return RetentionResult(removed, skipped, tuple(warnings))

@@ -10,6 +10,7 @@ import re
 import stat
 import contextlib
 import uuid
+import shutil
 
 # local repo modules
 import daily_blog.schema
@@ -79,13 +80,10 @@ class RunStore:
 		max_events_per_run: int | None = None,
 		progress: daily_blog.observability.HumanProgress | None = None,
 	) -> None:
-		"""Create the unique run-state directory."""
+		"""Create the report-date-owned canonical run state."""
 		self._initialize_layout(output_root, owner, report_date, run_id)
-		with self._layout_descriptors(create=True, include_run=False) as (_, runs_fd, _):
-			try:
-				os.mkdir(self.run_id, 0o700, dir_fd=runs_fd)
-			except FileExistsError as error:
-				raise RuntimeError(f"Immutable run-state directory already exists: {self.run_dir}") from error
+		with self._layout_descriptors(create=True) as (date_fd, _, _):
+			self._reset_date_state_at(date_fd)
 		self.record_path = os.path.join(self.run_dir, "run_state.json")
 		self.event_path = os.path.join(self.run_dir, f"runlog-{report_date}.jsonl")
 		self.progress = progress
@@ -180,10 +178,9 @@ class RunStore:
 			output_root, owner, report_date, run_id,
 		)
 		self.date_dir = os.path.join(self.output_root, self.owner, "daily_blog", self.report_date)
-		self.runs_dir = os.path.join(self.date_dir, "runs")
 		self.summary_path = os.path.join(self.date_dir, "summary.jsonl")
-		self.run_dir = os.path.join(self.runs_dir, self.run_id)
-		for path in (self.output_root, self.date_dir, self.runs_dir, self.run_dir):
+		self.run_dir = self.date_dir
+		for path in (self.output_root, self.date_dir, self.run_dir):
 			self._require_contained(self.output_root, path)
 
 	#============================================
@@ -199,12 +196,19 @@ class RunStore:
 			with self._child_directory(root_fd, self.owner, create) as owner_fd:
 				with self._child_directory(owner_fd, "daily_blog", create) as blog_fd:
 					with self._child_directory(blog_fd, self.report_date, create) as date_fd:
-						with self._child_directory(date_fd, "runs", create) as runs_fd:
-							if include_run:
-								with self._child_directory(runs_fd, self.run_id, False) as run_fd:
-									yield date_fd, runs_fd, run_fd
-							else:
-								yield date_fd, runs_fd, None
+						yield date_fd, date_fd, date_fd if include_run else None
+
+	#============================================
+	def _reset_date_state_at(self, date_fd: int) -> None:
+		"""Replace direct working artifacts while preserving promoted publication bytes."""
+		with os.scandir(date_fd) as entries:
+			for entry in entries:
+				metadata = entry.stat(follow_symlinks=False)
+				if stat.S_ISREG(metadata.st_mode) and entry.name.endswith((".json", ".jsonl", ".md")):
+					os.unlink(entry.name, dir_fd=date_fd)
+				elif stat.S_ISLNK(metadata.st_mode):
+					raise RuntimeError("Daily-publication date storage contains an unsafe link.")
+		os.fsync(date_fd)
 
 	#============================================
 	@contextlib.contextmanager
@@ -790,6 +794,28 @@ class RunStore:
 			self._finalize_summary_at(date_fd, run_fd, record)
 
 	#============================================
+	def discard_completed_working_artifacts(self) -> None:
+		"""Keep terminal diagnostics while discarding successful-run working material."""
+		keep = {f"runlog-{self.report_date}.jsonl", "summary.jsonl"}
+		with self._layout_descriptors(create=False) as (date_fd, _, _):
+			with os.scandir(date_fd) as entries:
+				for entry in entries:
+					if entry.name in keep:
+						continue
+					metadata = entry.stat(follow_symlinks=False)
+					if stat.S_ISLNK(metadata.st_mode):
+						raise RuntimeError("Completed run storage contains an unsafe link.")
+					if stat.S_ISDIR(metadata.st_mode):
+						directory_path = os.path.join(self.date_dir, entry.name)
+						self._require_contained(self.output_root, directory_path)
+						shutil.rmtree(directory_path)
+					elif stat.S_ISREG(metadata.st_mode):
+						os.unlink(entry.name, dir_fd=date_fd)
+					else:
+						raise RuntimeError("Completed run storage contains an unsupported entry.")
+			os.fsync(date_fd)
+
+	#============================================
 	def _finalize_summary_at(
 		self,
 		date_fd: int,
@@ -868,8 +894,8 @@ class RunStore:
 
 	#============================================
 	def _append_summary_at(self, date_fd: int, line: str) -> None:
-		"""Append one canonical receipt through the already-selected date descriptor."""
-		flags = os.O_WRONLY | os.O_APPEND | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0)
+		"""Replace the one canonical receipt through the selected date descriptor."""
+		flags = os.O_WRONLY | os.O_TRUNC | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0)
 		with os.fdopen(os.open("summary.jsonl", flags, 0o600, dir_fd=date_fd), "wb") as handle:
 			if not stat.S_ISREG(os.fstat(handle.fileno()).st_mode):
 				raise RuntimeError("Daily-publication summary journal is invalid.")
@@ -877,31 +903,6 @@ class RunStore:
 			handle.flush()
 			os.fsync(handle.fileno())
 		os.fsync(date_fd)
-
-	#============================================
-	@classmethod
-	def prune_expired_runs(
-		cls, output_root: str, owner: str, report_date: str, retention_days: int | None,
-		command_started_at: str,
-	) -> daily_blog.observability.RetentionResult:
-		"""Expire only safely contained terminal run directories for one locked date."""
-		root, owner, report_date, _ = cls._validate_selectors(
-			output_root, owner, report_date, "retention",
-		)
-		try:
-			flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
-			with daily_blog.observability._directory_descriptor(root, flags) as root_fd:
-				with daily_blog.observability._directory_descriptor(owner, flags, root_fd) as owner_fd:
-					with daily_blog.observability._directory_descriptor("daily_blog", flags, owner_fd) as blog_fd:
-						with daily_blog.observability._directory_descriptor(report_date, flags, blog_fd) as date_fd:
-							with daily_blog.observability._directory_descriptor("runs", flags, date_fd) as runs_fd:
-								return daily_blog.observability.RetentionManager(
-									date_fd, runs_fd, retention_days,
-								).prune(report_date, command_started_at)
-		except (FileNotFoundError, NotADirectoryError):
-			return daily_blog.observability.RetentionResult(0, 0, ())
-		except OSError as error:
-			raise RuntimeError("Daily-publication retention layout is invalid.") from error
 
 	#============================================
 	def write_artifact(self, name: str, value: object) -> str:

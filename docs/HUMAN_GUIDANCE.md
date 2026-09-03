@@ -10,6 +10,11 @@ origin belongs there too. Rules: [REPO_STYLE.md](REPO_STYLE.md).
 
 ## System design
 
+- The LLMs control which images go into the blog post (perhaps a separate decorator LLM agent puts them in)
+- the machine uses a deterministic system for copying only the used images to the daily-blog repo and where they are stored along side the blog post
+- LLMs decide which available images are actually used in the post. Deterministic code then copies only those referenced images into the date-owned publication asset directory and rewrites or emits the final Markdown paths accordingly. vosslab-daily-blog receives only the post and the assets actually required by that post.
+- once the final blog post is created, all the previous steps become unneeded; a fresh run would replace them. But before the final blog post is
+  created, the previous steps are needed for tracing issues.
 - Robust means the workflow succeeds despite imperfect, stochastic LLM behavior. It does not mean adding more gates that require the LLM to follow increasingly strict instructions.
 - An LLM stage may be sloppy, incomplete, malformed, or contrary to instructions. The pipeline should salvage whatever is usable, normalize it mechanically where possible, and continue unless the artifact is genuinely unusable for the next stage.
 - LLMs are stochastic, random, and do not always follow the rules

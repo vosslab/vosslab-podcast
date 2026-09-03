@@ -9,12 +9,8 @@ import daily_blog.io_utils
 
 
 IMPORT_FAILURE_SCHEMA_VERSION = "vosslab.daily-blog.import-failure.v1"
-IMPORT_VALIDATION_SCHEMA_VERSION = "vosslab.daily-blog.import-validation.v1"
 MAX_PROTOCOL_BYTES = 1024
 IMPORT_FAILURE_FIELDS = frozenset({"category", "phase", "schema_version"})
-IMPORT_VALIDATION_FIELDS = frozenset({
-	"best_artifact_id", "bundle_sha256", "report_date", "schema_version", "status",
-})
 IMPORT_RESULT_FIELDS = frozenset({"bundle_sha256", "report_date", "status"})
 IMPORT_FAILURE_CATEGORIES = frozenset({
 	"snapshot_rejected", "publication_conflict", "staged_build_failed", "commit_failed",
@@ -29,7 +25,6 @@ PUBLISHER_COMMAND_CATEGORIES = IMPORT_FAILURE_CATEGORIES | frozenset({
 	PUBLISHER_PROTOCOL_FAILURE, PUBLISHER_TIMEOUT, PUBLISHER_START_FAILURE,
 })
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
-ARTIFACT_ID_RE = re.compile(r"^artifact-[0-9a-f]{24}$")
 
 
 #============================================
@@ -89,34 +84,6 @@ def parse_import_failure(contents: object) -> PublisherCommandError:
 		raise protocol_failure()
 	error = PublisherCommandError(value["category"], value["phase"])
 	return error
-
-
-#============================================
-def parse_validation_receipt(
-	contents: object,
-	*,
-	report_date: str,
-	bundle_sha256: str,
-	best_artifact_id: str,
-) -> dict:
-	"""Return a validation receipt only when every identity binds the sealed transfer."""
-	value = _canonical_object(contents)
-	if set(value) != IMPORT_VALIDATION_FIELDS:
-		raise protocol_failure()
-	if any(type(value[key]) is not str for key in IMPORT_VALIDATION_FIELDS):
-		raise protocol_failure()
-	if value["schema_version"] != IMPORT_VALIDATION_SCHEMA_VERSION or value["status"] != "valid":
-		raise protocol_failure()
-	if (
-		value["report_date"] != report_date
-		or value["bundle_sha256"] != bundle_sha256
-		or value["best_artifact_id"] != best_artifact_id
-		or SHA256_RE.fullmatch(bundle_sha256) is None
-		or ARTIFACT_ID_RE.fullmatch(best_artifact_id) is None
-	):
-		raise protocol_failure()
-	receipt = dict(value)
-	return receipt
 
 
 #============================================

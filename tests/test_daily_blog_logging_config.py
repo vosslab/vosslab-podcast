@@ -31,15 +31,14 @@ def write_settings(
 def test_logging_policy_accepts_explicit_positive_limits(tmp_path: Path) -> None:
 	"""Operator-selected bounded observability limits are accepted by the loader."""
 	daily_blog.config.load_config(str(write_settings(tmp_path, {
-		"detailed_retention_days": 14,
 		"max_events_per_run": 200,
 	})))
 
 
 #============================================
 @pytest.mark.parametrize("logging", (
-	{"detailed_retention_days": True},
 	{"max_events_per_run": 0},
+	{"detailed_retention_days": 14},
 	{"unknown": 1},
 ))
 def test_logging_policy_fails_closed_for_invalid_settings(

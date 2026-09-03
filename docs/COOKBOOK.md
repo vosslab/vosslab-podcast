@@ -54,15 +54,15 @@ post. It is optional corroboration of the controlled no-egress path, not a compl
 
 ## Inspect run evidence
 
-Replace `OWNER`, `YYYY-MM-DD`, and `RUN_ID` with values from the completed run. Read the bounded
+Replace `OWNER` and `YYYY-MM-DD` with values from the completed run. Read the bounded
 run record and event log before opening larger artifacts.
 
 ```bash
 source source_me.sh && python3 -m json.tool \
-  out/OWNER/daily_blog/YYYY-MM-DD/runs/RUN_ID/run_state.json
-sed -n '1,160p' out/OWNER/daily_blog/YYYY-MM-DD/runs/RUN_ID/runlog-YYYY-MM-DD.jsonl
+  out/OWNER/daily_blog/YYYY-MM-DD/run_state.json
+sed -n '1,160p' out/OWNER/daily_blog/YYYY-MM-DD/runlog-YYYY-MM-DD.jsonl
 source source_me.sh && python3 -m json.tool \
-  out/OWNER/daily_blog/YYYY-MM-DD/runs/RUN_ID/publication_bundle.json
+  out/OWNER/daily_blog/YYYY-MM-DD/publication_bundle.json
 ```
 
 Completed runs distinguish editorial degradation, typed pipeline faults, and incomplete operational

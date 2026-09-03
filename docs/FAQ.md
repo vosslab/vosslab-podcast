@@ -84,8 +84,8 @@ See [CODE_ARCHITECTURE.md](CODE_ARCHITECTURE.md).
 ## Where do generated outputs live?
 
 Generated artifacts are owner-scoped below `out/<owner>/`. Each daily publication lives at
-`out/<owner>/daily_blog/<report_date>/`. Its `runs/<run_id>/` directory holds bounded run state and
-events, while `summary.jsonl` records terminal outcomes and `publication/` holds the sealed
+`out/<owner>/daily_blog/<report_date>/`. That date directory holds the one canonical run state and
+event log, while `summary.jsonl` records the current terminal outcome and `publication/` holds the sealed
 `bundle.json`, `evidence.json`, `editorial_projection.json`, `repository_roster.json`, selected
 `daily_active_roster.json`, `publication_surface.json`, `post.md`, and declared assets. The date is the publication identity;
 `bundle_sha256` verifies the manifest. See

@@ -227,7 +227,7 @@ def test_run_store_persists_safe_structured_phase_event(
 		{"phase": "mirror_refresh", "failure_kind": "runtime_error"},
 	)
 
-	event_path = tmp_path / "vosslab" / "daily_blog" / "2026-08-23" / "runs" / "run-log" / "runlog-2026-08-23.jsonl"
+	event_path = tmp_path / "vosslab" / "daily_blog" / "2026-08-23" / "runlog-2026-08-23.jsonl"
 	with open(event_path, "r", encoding="utf-8") as handle:
 		event = json.loads(handle.read())
 	stdout_event = json.loads(capsys.readouterr().out)

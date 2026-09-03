@@ -36,6 +36,7 @@ _CORE_TRANSFER_PATHS = frozenset({
 	"editorial_projection.json",
 	"publication_surface.json", "post.md",
 })
+_RENDER_TRANSFER_PATHS = frozenset({"bundle.json", "post.md"})
 
 
 @dataclasses.dataclass(frozen=True)
@@ -79,7 +80,7 @@ class SealedBundleTransfer:
 		if any(type(entry) is not SealedBundleTransferEntry for entry in self.entries):
 			raise RuntimeError("Sealed bundle transfer entries are invalid.")
 		paths = tuple(entry.path for entry in self.entries)
-		if paths != tuple(sorted(paths)) or len(set(paths)) != len(paths) or not _CORE_TRANSFER_PATHS <= set(paths):
+		if paths != tuple(sorted(paths)) or len(set(paths)) != len(paths) or not _RENDER_TRANSFER_PATHS <= set(paths):
 			raise RuntimeError("Sealed bundle transfer entries are incomplete or unordered.")
 		if self._encoded_size() > MAX_TRANSFER_BYTES:
 			raise RuntimeError("Sealed bundle transfer exceeds its aggregate schema envelope.")
@@ -544,16 +545,17 @@ def sealed_bundle_transfer(bundle: object, artifacts: object) -> SealedBundleTra
 		):
 			raise RuntimeError("Sealed bundle transfer asset manifest is invalid.")
 		manifest_assets[path] = item["sha256"]
-	if set(manifest_assets) != set(surface_assets):
-		raise RuntimeError("Sealed bundle transfer assets do not match the publication surface.")
+	if not set(manifest_assets).issubset(surface_assets):
+		raise RuntimeError("Sealed bundle transfer assets exceed the publication surface.")
 	if set(artifacts) != _CORE_TRANSFER_PATHS | set(manifest_assets):
 		raise RuntimeError("Sealed bundle transfer artifacts do not match their manifest.")
 	for path, sha256 in manifest_assets.items():
 		if sha256 != daily_blog.io_utils.sha256_bytes(artifacts[path]):
 			raise RuntimeError("Sealed bundle transfer asset checksum is invalid.")
+	transfer_paths = {"bundle.json", "post.md"} | set(manifest_assets)
 	entries = tuple(
 		SealedBundleTransferEntry(path, artifacts[path], daily_blog.io_utils.sha256_bytes(artifacts[path]))
-		for path in sorted(artifacts)
+		for path in sorted(transfer_paths)
 	)
 	return SealedBundleTransfer(packet.report_date, bundle["bundle_sha256"], entries)
 
@@ -725,8 +727,8 @@ class BundleWriter:
 		"""Build asset hash and provenance entries from selected screenshot evidence."""
 		items_by_evidence_id = {item.evidence_id: item for item in packet.items}
 		surface_assets = _surface_assets(surface_value)
-		if set(surface_assets) != set(assets):
-			raise RuntimeError("Bundle assets must exactly match publication surface authority.")
+		if not set(assets).issubset(surface_assets):
+			raise RuntimeError("Bundle assets must remain within publication surface authority.")
 		manifest = []
 		for path in sorted(assets):
 			daily_blog.schema.validate_bundle_asset_path(path)

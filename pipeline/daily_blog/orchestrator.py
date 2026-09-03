@@ -19,6 +19,7 @@ import daily_blog.prompt_registry.definitions
 import daily_blog.prompt_registry.editorial_contracts
 import daily_blog.publication_contract
 import daily_blog.publication_finalization
+import daily_blog.publication_images
 import daily_blog.publication_workflow
 import daily_blog.publisher
 import daily_blog.repositories
@@ -194,9 +195,6 @@ class DailyPublicationOrchestrator:
 		self.publisher_function = (
 			self.runtime.publisher_function or publisher_function or daily_blog.publisher.import_bundle
 		)
-		self.publisher_validator = (
-			self.runtime.publisher_validator or daily_blog.publisher.validate_bundle_transfer
-		)
 		self.page_verifier = (
 			self.runtime.page_verifier or page_verifier or daily_blog.publisher.verify_published_page
 		)
@@ -218,7 +216,7 @@ class DailyPublicationOrchestrator:
 		self.generator_revision = self.generator_identity.revision
 		self.run_id = new_run_id()
 		run_dir = os.path.join(
-			config.output_root, config.output_owner, "daily_blog", report_date, "runs", self.run_id,
+			config.output_root, config.output_owner, "daily_blog", report_date,
 		)
 		progress = daily_blog.observability.HumanProgress(
 			report_date, os.path.join(run_dir, f"runlog-{report_date}.jsonl"),
@@ -312,8 +310,14 @@ class DailyPublicationOrchestrator:
 			)
 			if validated.source_post is not stage7_result.artifact:
 				raise RuntimeError("Publication validation must retain the exact Stage 7 selected source post.")
+			image_selection = daily_blog.publication_images.resolve_final_post_images(
+				surface, validated.post, acquisition.assets,
+			)
+			self.store.write_artifact(
+				"publication_image_selection.json", image_selection.to_dict(),
+			)
 			def write_post() -> None:
-				"""Materialize the admitted post only after publisher preflight."""
+				"""Materialize the producer-approved post before transport."""
 				daily_blog.publication_workflow.write_selected_post(self, validated.post)
 
 			finalized = daily_blog.publication_finalization.PublicationFinalizationCoordinator(
@@ -321,13 +325,10 @@ class DailyPublicationOrchestrator:
 					self.report_date, self.run_id, self.config.output_root, self.config.output_owner,
 					self.config.daily_blog_repository, self.generator_identity,
 					self.force_regeneration, acquisition.roster, surface,
-					daily_blog.publication_admission.survivor_assets(
-						surface, acquisition.assets,
-					), validated.post, acquisition.active_roster,
+					image_selection.assets, validated.post, acquisition.active_roster,
 				),
 				self.cache, self.store, self.record, self._start, self._complete,
-				invoke_publisher, self.publisher_function, self.publisher_validator,
-				self.page_verifier,
+				invoke_publisher, self.publisher_function, self.page_verifier,
 			).finalize(write_post)
 			self.record.complete()
 			self.store.save(self.record)
@@ -351,7 +352,12 @@ class DailyPublicationOrchestrator:
 					pass
 			raise
 		self.store.finalize_summary(self.record)
-		return finalized.bundle_path, finalized.bundle
+		published_post = os.path.join(
+			self.config.daily_blog_repository,
+			"docs", "blog", "posts", f"{self.report_date}.md",
+		)
+		self.store.discard_completed_working_artifacts()
+		return published_post, finalized.bundle
 
 
 #============================================
@@ -387,10 +393,6 @@ def run_daily_publication_locked(
 ) -> tuple[str, dict]:
 	"""Execute one complete run while holding the matching per-date lock."""
 	prompt_snapshot = _resolve_active_publication_snapshot(contract, snapshot)
-	daily_blog.run_state.RunStore.prune_expired_runs(
-		config.output_root, config.output_owner, report_date,
-		config.logging.detailed_retention_days, command_started_at,
-	)
 	orchestrator = DailyPublicationOrchestrator(
 		config, report_date, route_runner=route_runner, publisher_function=publisher_function,
 		repository_loader=repository_loader, refresh_mirrors=refresh_mirrors,

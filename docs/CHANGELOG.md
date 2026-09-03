@@ -2,6 +2,32 @@
 
 ### Behavior or Interface Changes
 
+- Defined `vosslab-podcast` as the owner of publication correctness, bundle meaning, validation,
+  export, and delivery verification. Defined `vosslab-daily-blog` as a mechanical receiver,
+  MkDocs renderer, deployer, and rendered-page verifier with no editorial admission authority.
+- Made MkDocs the authority on Markdown renderability. The display repository does not pre-judge
+  readability, structure, evidence grounding, citations, roster coverage, or whether supplied prose
+  makes sense.
+- Replaced the timestamped canonical run tree in the publication flow with one report-date-owned
+  run log and artifact set.
+- Removed the separate publisher-preflight phase and its validation-receipt protocol. The producer
+  now verifies the renderer's import receipt against the sealed report date and bundle digest after
+  delivery.
+- Prevented publication-surface construction from re-expanding every evidence ID carried by an
+  already-compressed editorial artifact into raw prompt excerpts. Complete evidence and artifact
+  lineage remain durable while the LLM projection stays bounded.
+- Changed image publication from screenshot discovery to final-post selection. The producer now
+  transports only images referenced by the selected Markdown, using date-relative paths for assets
+  stored beside the post; unreferenced screenshot evidence never reaches the display repository.
+- Added a typed publication-image resolution layer that records stable evidence IDs, producer asset
+  paths, final Markdown paths, and display destinations before bundle creation. This keeps editorial
+  choice, deterministic routing, byte resolution, and transport filtering as separate responsibilities.
+- Made publication bundles, candidates, reviews, projections, and other stage outputs working
+  artifacts. They remain available to diagnose an incomplete run, then are discarded after verified
+  delivery while the canonical run log and terminal summary remain.
+- Reduced the renderer handoff to a transient routing manifest, final Markdown, and referenced image
+  bytes. Evidence, rosters, projections, and publication-surface JSON remain producer-side.
+
 - Classified every `PUBLICATION_FLOW.md` artifact as machine-owned, LLM-derived and machine-wrapped,
   or the LLM-authored publication. Renamed editorial observation files away from `reliability`:
   `daily_outline_editorial.json`, `complete_post_attempts.json`,

@@ -817,46 +817,6 @@ def _publisher_stdout(
 
 
 #============================================
-def _transfer_identity(transfer: daily_blog.publication_contract.SealedBundleTransfer) -> tuple[str, str, str]:
-	"""Read identity fields from the same immutable byte snapshot sent to the publisher."""
-	bundle_entries = [entry for entry in transfer.entries if entry.path == "bundle.json"]
-	if len(bundle_entries) != 1:
-		raise RuntimeError("Sealed bundle transfer has no unique bundle manifest.")
-	try:
-		bundle = json.loads(bundle_entries[0].contents.decode("utf-8"))
-	except (UnicodeDecodeError, json.JSONDecodeError) as error:
-		raise RuntimeError("Sealed bundle transfer bundle manifest is invalid.") from error
-	if type(bundle) is not dict or bundle.get("bundle_sha256") != transfer.bundle_sha256:
-		raise RuntimeError("Sealed bundle transfer bundle identity is inconsistent.")
-	best_artifact_id = bundle.get("best_artifact_id")
-	if not isinstance(best_artifact_id, str):
-		raise RuntimeError("Sealed bundle transfer selected artifact is invalid.")
-	identity = (transfer.report_date, transfer.bundle_sha256, best_artifact_id)
-	return identity
-
-
-#============================================
-def validate_bundle_transfer(
-	daily_blog_repository: str,
-	transfer: daily_blog.publication_contract.SealedBundleTransfer,
-) -> dict:
-	"""Ask the publisher to validate one sealed transfer without writing repository state."""
-	repository = _trusted_root(daily_blog_repository)
-	if not os.path.isfile(os.path.join(repository, "scripts", "import_publication_bundle.py")):
-		raise RuntimeError("Daily-blog bundle importer is unavailable.")
-	if type(transfer) is not daily_blog.publication_contract.SealedBundleTransfer:
-		raise RuntimeError("Daily-blog bundle validation requires one sealed bundle transfer.")
-	report_date, bundle_sha256, best_artifact_id = _transfer_identity(transfer)
-	stdout = _publisher_stdout(
-		repository, "source source_me.sh && python3 scripts/import_publication_bundle.py --validate-bundle-stdin", transfer,
-	)
-	receipt = daily_blog.publisher_contract.parse_validation_receipt(
-		stdout, report_date=report_date, bundle_sha256=bundle_sha256, best_artifact_id=best_artifact_id,
-	)
-	return receipt
-
-
-#============================================
 def import_bundle(
 	daily_blog_repository: str,
 	transfer: daily_blog.publication_contract.SealedBundleTransfer,

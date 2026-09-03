@@ -134,7 +134,6 @@ class PublicationFinalizationCoordinator:
 		complete_phase: collections.abc.Callable[[str, object, bool], str],
 		publish: collections.abc.Callable,
 		publisher_function: collections.abc.Callable,
-		publisher_validator: collections.abc.Callable,
 		page_verifier: collections.abc.Callable,
 	) -> None:
 		"""Bind narrow lifecycle dependencies without importing orchestration.
@@ -151,8 +150,7 @@ class PublicationFinalizationCoordinator:
 			or record.run_id != value.run_id
 			or record.report_date != value.report_date
 			or not all(callable(item) for item in (
-				start_phase, complete_phase, publish, publisher_function, publisher_validator,
-				page_verifier,
+				start_phase, complete_phase, publish, publisher_function, page_verifier,
 			))
 		):
 			raise RuntimeError("Publication finalization dependencies are invalid.")
@@ -164,7 +162,6 @@ class PublicationFinalizationCoordinator:
 		self.complete_phase = complete_phase
 		self.publish = publish
 		self.publisher_function = publisher_function
-		self.publisher_validator = publisher_validator
 		self.page_verifier = page_verifier
 
 	#============================================
@@ -227,41 +224,6 @@ class PublicationFinalizationCoordinator:
 		return bundle_path, bundle, transfer, reused
 
 	#============================================
-	def preflight_bundle(
-		self, transfer: daily_blog.publication_contract.SealedBundleTransfer, bundle: dict,
-	) -> dict:
-		"""Require the publisher to attest the exact sealed bytes before post I/O.
-
-		ASVS 2.2.1 and 15.3.5: this live, no-write check binds every later
-		publication action to one immutable transfer.  It is intentionally not
-		cached because foreign repository state can change between resumptions.
-		"""
-		if type(transfer) is not daily_blog.publication_contract.SealedBundleTransfer or type(bundle) is not dict:
-			raise RuntimeError("Publisher preflight requires one sealed bundle transfer.")
-		if transfer.report_date != self.value.report_date or transfer.bundle_sha256 != bundle.get("bundle_sha256"):
-			raise RuntimeError("Publisher preflight transfer does not bind the sealed bundle.")
-		phase_input = {
-			"bundle_sha256": bundle["bundle_sha256"],
-			"best_artifact_id": bundle["best_artifact_id"],
-			"publisher_repository": self.value.publisher_repository,
-		}
-		self.start_phase("publisher_preflight", phase_input)
-		receipt_value = self.publisher_validator(self.value.publisher_repository, transfer)
-		if not isinstance(receipt_value, collections.abc.Mapping):
-			raise RuntimeError("Publisher preflight must return a mapping receipt.")
-		# Reparse canonical JSON so injected controlled runtimes meet the same
-		# strict, bounded receipt contract as the subprocess implementation.
-		receipt = daily_blog.publisher_contract.parse_validation_receipt(
-			daily_blog.io_utils.stable_json_text(dict(receipt_value)).encode("utf-8"),
-			report_date=self.value.report_date,
-			bundle_sha256=bundle["bundle_sha256"],
-			best_artifact_id=bundle["best_artifact_id"],
-		)
-		self.store.write_artifact("publisher_preflight.json", receipt)
-		self.complete_phase("publisher_preflight", receipt)
-		return receipt
-
-	#============================================
 	def import_bundle(
 		self, transfer: daily_blog.publication_contract.SealedBundleTransfer, bundle: dict,
 	) -> dict:
@@ -317,11 +279,10 @@ class PublicationFinalizationCoordinator:
 
 	#============================================
 	def finalize(self, post_writer: collections.abc.Callable[[], None]) -> PublicationFinalizationResult:
-		"""Preflight, materialize, import, and independently verify one selected post."""
+		"""Materialize, deliver, render, and verify one producer-approved post."""
 		if not callable(post_writer):
 			raise RuntimeError("Publication finalization requires one post writer.")
 		bundle_path, bundle, transfer, reused = self.create_or_reuse_bundle()
-		self.preflight_bundle(transfer, bundle)
 		post_writer()
 		site_import = self.import_bundle(transfer, bundle)
 		page_verification = self.verify_page(site_import, bundle)

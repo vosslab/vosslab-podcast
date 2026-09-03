@@ -6,11 +6,17 @@ step identifiers so presentation remains separate from workflow authority.
 
 ## Run directory
 
-Every run writes beneath one date-and-run-owned directory:
+Every run writes beneath one report-date-owned directory:
 
 ```text
-out/<owner>/daily_blog/YYYY-MM-DD/runs/RUN_ID/
+out/<owner>/daily_blog/YYYY-MM-DD/
 ```
+
+The `report_date` is the sole durable publication identity. A rerun for the same date updates or
+replaces that date's canonical run state and artifacts; it does not create a timestamp- or
+execution-ID-owned sibling tree. An execution identifier may appear inside logs and diagnostic
+records, but never owns the canonical artifact path. Historical attempt artifacts, if retained for
+diagnosis, live outside the canonical publication structure.
 
 The console names the absolute machine log first:
 
@@ -19,8 +25,26 @@ runlog-YYYY-MM-DD.jsonl
 ```
 
 Every name in this flow is deterministic and code-owned. Names derive only from validated
-`report_date`, `run_id`, fixed artifact names, and manifest-confined asset paths. Model responses,
+`report_date`, fixed artifact names, and manifest-confined asset paths. Model responses,
 titles, headings, summaries, rankings, and selected prose never choose or influence filenames.
+
+## Producer and renderer boundary
+
+`vosslab-podcast` owns publication correctness. It defines the publication artifact, decides which
+Markdown and assets are authoritative, mechanically validates and seals them, exports their exact
+bytes, and verifies delivery of those bytes.
+
+`vosslab-daily-blog` owns rendering and deployment mechanics only. It places the producer-supplied
+Markdown and assets at confined destination paths, invokes MkDocs, deploys the built site, and
+verifies the rendered page. It does not interpret or reject the publication for prose quality,
+meaning, readability, Markdown structure, editorial completeness, evidence grounding, citations,
+repository coverage, roster equality, or producer workflow decisions. MkDocs is the authority on
+whether the supplied Markdown can be rendered. If MkDocs can render producer-supplied nonsense,
+`vosslab-daily-blog` publishes that nonsense.
+
+The renderer may fail only for its own mechanical responsibilities: unsafe destination paths, file
+placement failure, MkDocs build failure, deployment failure, or rendered-page verification failure.
+It does not run an independent publication-admission or Markdown-readability preflight.
 
 Artifact ownership has three abbreviated labels in this document:
 
@@ -57,7 +81,7 @@ A  Acquire deterministic evidence
 
 ## A: Evidence acquisition
 
-| Step | Work | Ownership | Durable output |
+| Step | Work | Ownership | Working output |
 | --- | --- | --- | --- |
 | A1 | Capture a fresh authoritative account-roster snapshot | MOA | `repository_roster.json` |
 | A2 | Search GitHub and establish report-day activity within that universe | MOA | `daily_active_roster.json` |
@@ -67,7 +91,7 @@ A  Acquire deterministic evidence
 
 ## B: Repository outlines
 
-| Step | Work | Ownership | Durable output |
+| Step | Work | Ownership | Working output |
 | --- | --- | --- | --- |
 | B1 | Generate repository outline candidates | LDMW | `repository_editorial.json` |
 | B2 | Optionally improve or review usable outlines | LDMW | `repository_editorial.json` |
@@ -75,7 +99,7 @@ A  Acquire deterministic evidence
 
 ## C: Repository summaries
 
-| Step | Work | Ownership | Durable output |
+| Step | Work | Ownership | Working output |
 | --- | --- | --- | --- |
 | C1 | Generate repository summary candidates | LDMW | `repository_editorial.json` |
 | C2 | Optionally improve or review usable summaries | LDMW | `repository_editorial.json` |
@@ -83,7 +107,7 @@ A  Acquire deterministic evidence
 
 ## D: Daily outline
 
-| Step | Work | Ownership | Durable output |
+| Step | Work | Ownership | Working output |
 | --- | --- | --- | --- |
 | D1 | Receive story rankings when available | LDMW | `daily_outline_editorial.json` |
 | D2 | Review rankings when review is available | LDMW | `daily_outline_editorial.json` |
@@ -93,7 +117,7 @@ A  Acquire deterministic evidence
 
 ## E: Complete post
 
-| Step | Work | Ownership | Durable output |
+| Step | Work | Ownership | Working output |
 | --- | --- | --- | --- |
 | E1 | Receive complete-post candidates | LDMW | `complete_post_attempts.json` |
 | E2 | Receive edited complete-post candidates | LDMW | `complete_post_attempts.json` |
@@ -109,7 +133,7 @@ pipeline owns a publishable incumbent. Later editorial work cannot take that ava
 
 ## F: Optional synthesis
 
-| Step | Work | Ownership | Durable output |
+| Step | Work | Ownership | Working output |
 | --- | --- | --- | --- |
 | F1 | Attempt optional final syntheses | LDMW | `final_synthesis_editorial.json` |
 | F2 | Compare usable syntheses with the incumbent when available | LDMW | `final_synthesis_editorial.json` |
@@ -117,18 +141,31 @@ pipeline owns a publishable incumbent. Later editorial work cannot take that ava
 
 ## G: Publication
 
-| Step | Work | Ownership | Durable output |
+| Step | Work | Ownership | Working output |
 | --- | --- | --- | --- |
 | G1 | Normalize machine metadata for the selected post | MOA | `publication_validation.json` |
-| G2 | Seal the post, evidence, rosters, surface, and assets | MOA | `publication_bundle.json`, `publication/` |
-| G3 | Mechanically validate the exact sealed bytes with the publisher | MOA | `publisher_preflight.json` |
-| G4 | Write the selected producer handoff | LAP | date-owned `post.md` |
-| G5 | Import or replace the date-owned reader publication | MOA | publisher receipt in `run_state.json` |
-| G6 | Verify the rendered reader page | MOA | terminal receipt in `summary.jsonl` |
+| G2 | Resolve final Markdown image references through stable evidence identities and seal only those selected asset bytes | MOA | `publication_image_selection.json`, transient `publication_bundle.json`, `publication/` |
+| G3 | Export the exact sealed bytes and verify their delivery | MOA | producer transport receipt in `run_state.json` |
+| G4 | Place the authoritative Markdown and assets, then invoke MkDocs and deployment | MOA | renderer receipt in `run_state.json` |
+| G5 | Verify the rendered reader page | MOA | terminal receipt in `summary.jsonl` |
 
 `publication_validation.json` records only mechanical metadata normalization and trust-boundary,
 provenance, source, and artifact-integrity checks. Editorial quality and reviewer approval are outside
 G1 validation.
+
+All listed JSON, candidate, review, projection, and bundle artifacts are date-owned working material.
+They remain available while a run is incomplete so failures can be traced. After the final Markdown
+and selected assets have been delivered and the reader page has been verified, the producer retains
+only the canonical run log and terminal summary for diagnostics and discards the working artifacts.
+A fresh run for the same `report_date` replaces that date's working state.
+
+G3 is producer-owned transport verification, not a request for the display repository to admit or
+approve the publication. G4 treats the received publication bytes as authoritative input. A failure
+to understand, score, or approve their content is not a G4 failure category.
+
+The transport contains only its transient routing manifest, final `post.md`, and assets referenced by
+that final Markdown. Repository image discovery remains producer-side working evidence and is never a
+bulk-copy instruction for the display repository.
 
 ## Availability rule
 

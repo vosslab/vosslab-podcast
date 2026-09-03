@@ -110,10 +110,10 @@ deploy/
 configured timezone and automatically replaces an existing result for that date in unattended use.
 An interactive request retains its explicit overwrite confirmation behavior.
 
-The producer calls the sibling's `--validate-bundle-stdin` endpoint with its sealed transfer before
-the importing `--bundle-stdin` endpoint. `publication_admission.py` owns the one survivor-scoped
+The producer validates and seals the publication, sends it to the sibling's `--bundle-stdin`
+rendering endpoint, and verifies the returned delivery receipt. `publication_admission.py` owns the one survivor-scoped
 surface shared by Stage 6, Stage 7, Stage 8, and bundle finalization; `publisher_contract.py` owns the
-bounded success and text-free failure protocol at that cross-repository boundary.
+bounded delivery-result and text-free failure protocol at that cross-repository boundary.
 
 ## Generated daily-blog data
 
@@ -125,10 +125,9 @@ out/<owner>/
 +- daily_blog/YYYY-MM-DD/
 |  +- summary.jsonl                       bounded terminal receipts for this date
 |  +- post.md                             trusted selected-post handoff during finalization
-|  +- runs/RUN_ID/
-|  |  +- run_state.json                   authoritative current run record and phase state
-|  |  +- runlog-YYYY-MM-DD.jsonl          bounded lifecycle diagnostics
-|  |  `- stage-owned JSON artifacts       including recovery journals while unresolved
+|  +- run_state.json                      authoritative current run record and phase state
+|  +- runlog-YYYY-MM-DD.jsonl             bounded lifecycle diagnostics
+|  +- stage-owned JSON artifacts          including recovery journals while unresolved
 |  `- publication/                        atomically promoted sealed bundle
 |     +- bundle.json
 |     +- evidence.json

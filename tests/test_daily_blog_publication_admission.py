@@ -1,7 +1,6 @@
 """Permanent offline coverage for survivor-scoped publication admission."""
 
 # Standard Library
-import json
 from pathlib import Path
 
 # PIP3 modules
@@ -16,6 +15,7 @@ import daily_blog.editorial
 import daily_blog.io_utils
 import daily_blog.publication_contract
 import daily_blog.publication_finalization
+import daily_blog.publication_images
 import daily_blog.publication_admission
 import daily_blog.projection
 import daily_blog.prompt_registry.editorial_contracts
@@ -206,7 +206,6 @@ def test_surface_uses_exact_survivors_and_only_their_bundle_asset_paths(tmp_path
 		}],
 	))
 	transfer_entries = {item.path: item.contents for item in transfer.entries}
-	portable_surface = json.loads(transfer_entries["publication_surface.json"])
 
 	assert (
 		selected_screenshot.evidence_id in rendered_context and selected_path in rendered_context
@@ -219,8 +218,7 @@ def test_surface_uses_exact_survivors_and_only_their_bundle_asset_paths(tmp_path
 	assert (
 		{path for path in transfer_entries if path.startswith("assets/")}
 		== {"assets/selected.png"}
-		and portable_surface["allowed_evidence_ids"] == list(surface.allowed_evidence_ids)
-		and portable_surface["allowed_images"][0]["publish_path"] == selected_path
+		and set(transfer_entries) == {"assets/selected.png", "bundle.json", "post.md"}
 	)
 
 
@@ -271,6 +269,42 @@ def test_surface_rejects_a_claimed_scope_missing_its_survivor_packet() -> None:
 			dict(surface.evidence_context.projection_limits),
 			surface.source_artifacts,
 		)
+
+
+#============================================
+def test_surface_does_not_reinflate_bounded_context_from_artifact_provenance() -> None:
+	"""Complete machine provenance does not become an all-evidence LLM prompt gate."""
+	base = _packet("vosslab/first", "first.png")
+	extra = [
+		daily_blog.schema.EvidenceItem.create(
+			"dated_changelog", "vosslab/first", "a" * 40, f"docs/{index}.md",
+			f"{index:040x}", ("Grounded detail. " * 80) + str(index), "fixture",
+		)
+		for index in range(30)
+	]
+	packet = daily_blog.schema.EvidencePacket.create(
+		base.report_date, base.timezone, True, {}, [], list(base.activity), list(base.items) + extra,
+	)
+	all_ids = tuple(sorted(item.evidence_id for item in packet.items))
+	compressed = "Compressed editorial artifact. " + " ".join(
+		f"<!-- evidence: {evidence_id} -->" for evidence_id in all_ids
+	)
+	story = daily_blog.artifacts.RepoStory.create(
+		packet.report_date, (packet,), "vosslab/first", compressed, all_ids,
+	)
+	outline = daily_blog.artifacts.DailyOutline.create(
+		packet.report_date, (packet,), ("vosslab/first",), compressed, all_ids,
+	)
+	limits = {**_LIMITS, "context_chars": 4000, "excerpt_chars": 500}
+
+	surface = daily_blog.publication_admission.build_surface(
+		(packet,), ("vosslab/first",), limits, (outline, story),
+	)
+
+	assert len(surface.projection.render_context()) <= limits["context_chars"]
+	assert set(all_ids).issubset({
+		evidence_id for artifact in surface.source_artifacts for evidence_id in artifact.evidence_ids
+	})
 
 
 #============================================
@@ -337,6 +371,55 @@ def test_survivor_assets_rejects_a_missing_required_screenshot_byte() -> None:
 		daily_blog.publication_admission.survivor_assets(surface, {})
 	with pytest.raises(RuntimeError, match="missing a survivor screenshot"):
 		daily_blog.publication_admission.survivor_assets(surface, {"assets/first.png": "not-bytes"})
+
+
+#============================================
+def test_final_post_omits_discovered_but_unused_image_bytes(tmp_path: Path) -> None:
+	"""Publication transport grows with referenced images, not discovered screenshots."""
+	packet = _packet("vosslab/first", "first.png")
+	surface = _surface((packet,))
+	post = daily_blog.artifacts.CompletePost.create(
+		packet.report_date, (surface.packet,), ("vosslab/first",),
+		"# Work log\n\nNo image was selected for this post. <!-- evidence: "
+		+ packet.items[0].evidence_id + " -->\n",
+		(packet.items[0].evidence_id,), packet.report_date, str(tmp_path / "post.md"), (),
+	)
+	selection = daily_blog.publication_images.resolve_final_post_images(
+		surface, post, {"assets/first.png": b"first"},
+	)
+	assert selection.assets == {}
+	assert selection.to_dict() == {"report_date": packet.report_date, "images": []}
+
+
+#============================================
+def test_final_post_resolves_selected_image_to_sibling_date_directory(tmp_path: Path) -> None:
+	"""Stable evidence identity resolves one Markdown route to one installed destination."""
+	base = _packet("vosslab/first", "first.png")
+	change = next(item for item in base.items if item.kind == "dated_changelog")
+	image = daily_blog.schema.EvidenceItem.create(
+		"screenshot", "vosslab/first", "a" * 40, "image.png", "c" * 40,
+		"Screenshot.", "fixture", asset_path="assets/first.png",
+		publish_path="2026-08-29/first.png",
+	)
+	packet = daily_blog.schema.EvidencePacket.create(
+		base.report_date, base.timezone, True, {}, [], list(base.activity), [change, image],
+	)
+	surface = _surface((packet,))
+	post = daily_blog.artifacts.CompletePost.create(
+		packet.report_date, (surface.packet,), ("vosslab/first",),
+		"# Work log\n\n![Selected](2026-08-29/first.png) <!-- evidence: "
+		+ image.evidence_id + " -->\n",
+		(image.evidence_id,), packet.report_date, str(tmp_path / "post.md"),
+		("2026-08-29/first.png",),
+	)
+	selection = daily_blog.publication_images.resolve_final_post_images(
+		surface, post, {"assets/first.png": b"image"},
+	)
+	assert selection.assets == {"assets/first.png": b"image"}
+	assert selection.images[0].evidence_id == image.evidence_id
+	assert selection.images[0].destination_path == (
+		"docs/blog/posts/2026-08-29/first.png"
+	)
 
 
 #============================================

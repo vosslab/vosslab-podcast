@@ -44,6 +44,18 @@ The final artifact is one cohesive daily blog post.
 
 Repository-level stories are intermediate artifacts used to construct the complete article. They are not required to remain separate sections in the final post.
 
+All pre-publication evidence projections, candidates, reviews, summaries, and bundle files are working
+artifacts. They remain inspectable until publication succeeds, then are discarded after verified
+delivery. The final Markdown, its selected assets, the canonical run log, and terminal summary are the
+only retained results. A fresh run for the same report date replaces its working state.
+
+Discovered screenshots remain producer-side evidence; discovery does not publish or transport them.
+Editorial generation may select images only through machine-provided image identities and paths.
+After the final post is selected, deterministic code resolves its Markdown image references against
+that catalog and exports only the referenced bytes. Each selected image is stored beside its date-owned
+post under `docs/blog/posts/YYYY-MM-DD/`, and the Markdown uses `YYYY-MM-DD/<asset>` links. The display
+repository must grow with images actually published, never with images merely discovered.
+
 Repository stories may be combined, reorganized, shortened, referenced briefly, or omitted when constructing the daily article.
 
 Repository boundaries do not dictate final article structure.
@@ -74,7 +86,18 @@ Reviewers compare candidates rather than merely approving the output of the prec
 
 Review should itself be replicated where practical.
 
-Candidate ordering should be reversed or randomized between reviewers when practical to reduce ordering bias.
+Replication must remain bounded as the candidate set grows. Replication provides independent alternatives and
+independent editorial judgments. It must not create pairwise, permutation, Cartesian-product, or tournament growth
+in model calls.
+
+A reviewer should normally receive the complete small candidate set in one call and rank or select among those
+candidates. Multiple reviewers may independently review that same candidate set. Give each reviewer one independently
+chosen candidate ordering when useful for reducing ordering bias. Each reviewer evaluates the candidate set once.
+
+For N candidates and R reviewers, normal review work should scale approximately as R, not N squared times R.
+Candidate generation may scale linearly with the configured replication count. A referee is an exceptional additional
+judgment for meaningful disagreement, not another exhaustive comparison layer. When independent reviewers materially
+disagree about the winner, use one bounded tie-breaking judgment or a deterministic promotion rule.
 
 Meaningful reviewer disagreement should be resolved by an additional referee or another explicit promotion mechanism.
 
@@ -95,6 +118,25 @@ All factual content originates from repository evidence.
 Agents may summarize, reorganize, explain, and make editorial judgments about supported material.
 
 Agents may not invent technical facts, motivations, results, reactions, lessons, or future plans unsupported by the available evidence.
+
+Evidence grounding does not require citations in the published article. Citation presence, placement, format, and
+density are not quality goals or publication requirements. Preserve complete evidence and provenance in machine-owned
+artifacts so the factual basis remains auditable without making the reader-facing maker story resemble an academic
+paper.
+
+## 6.1 Progressive reduction
+
+As work moves from repository evidence toward the complete daily article, each editorial stage should reduce the amount
+of material required by the next stage. When the next stage would require an excessively large context, introduce
+another bounded LLM summarization layer rather than carrying the full upstream corpus forward, increasing the context
+limit, or merely truncating enough material to fit.
+
+Repository evidence should be reduced into repository-level editorial artifacts. Those artifacts should be reduced into
+a bounded daily-story representation. Complete-post writers should primarily consume that reduced representation while
+retaining selective access to underlying evidence for factual grounding.
+
+Progressive reduction must remain linear and bounded. Summarization controls what an LLM sees in one call; it must not
+erase machine-owned evidence, alter the active roster, or become a publication gate.
 
 Later agents may consult underlying repository evidence rather than being restricted to summaries produced by earlier stages.
 

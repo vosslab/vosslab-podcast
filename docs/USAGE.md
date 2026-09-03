@@ -80,26 +80,25 @@ corroboration, not a test prerequisite or a claim about synthetic prose quality.
 - Live input comes from the configured repository roster, exact Git activity, and bounded
   source projections. The model sees the deterministic evidence packet through an isolated route.
 - The producer writes date-owned artifacts below
-  `out/<owner>/daily_blog/<report_date>/`, including `runs/<run_id>/run_state.json`,
-  `summary.jsonl`, `post.md`, and `publication/bundle.json`.
+	`out/<owner>/daily_blog/<report_date>/`, including `run_state.json`,
+	`runlog-<report_date>.jsonl`, `summary.jsonl`, `post.md`, and `publication/bundle.json`.
 - The sealed bundle contains the validated selected post, its artifact identity, evidence,
   repository roster, editorial projection, prompt-contract binding, activation receipt, and source-
   safety policy identity. Its `publication_surface.json` is the survivor-scoped authority for the
   accepted evidence IDs, repository coverage, and image paths. Candidate and referee deliberation
   remains producer-owned run history.
-- After descriptor validation, the producer sends the immutable bundle snapshot to the sibling
-  importer on standard input; the importer does not consume a producer filesystem path.
+- After producer validation, the producer sends the immutable bundle snapshot to the sibling
+  renderer on standard input and verifies delivery; the renderer does not consume a producer
+  filesystem path or independently admit editorial content.
 - The local publisher records the imported date in
   `data/publications/<report_date>.json` as `vosslab.daily-blog.publication.v6`, retains its sealed
   bundle archive and publication surface, and records the canonical reader-body digest. The
   producer's `import-receipt.v2` binds that record, installed post, survivor-surface identity, and
   verified dated page.
 
-The current handoff is `vosslab.daily-blog.bundle.v9`. Unsafe reader-visible Markdown is ineligible
-before publication, and the publisher repeats the sealed `publication_source_safety.v1` check. It
-also admits post images, archived assets, and rendered article images only when they are declared by
-the sealed publication surface. A cached bundle from a prior schema or policy is rebuilt rather than
-upgraded in place. See
+The current handoff is `vosslab.daily-blog.bundle.v9`. Publication admission and source policy are
+producer responsibilities. The sibling repository places the supplied Markdown and assets at
+confined destinations and lets MkDocs determine renderability. See
 [`DAILY_BLOG_OPERATIONS.md`](DAILY_BLOG_OPERATIONS.md) for the complete producer-to-publisher
 contract.
 

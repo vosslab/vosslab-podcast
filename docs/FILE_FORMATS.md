@@ -198,21 +198,13 @@ post.md
 assets/...
 ```
 
-All declared files are sealed before handoff. The importer reads the manifest and declared children
-through held no-follow descriptors, applies size limits, rejects missing, extra, symbolic, or
-non-regular files, and validates content hashes before staging an import.
+All declared files are sealed and validated by the producer before handoff. The renderer consumes
+the exact transfer, confines destination paths, places its Markdown and assets, and invokes MkDocs.
 
 Sealed JSON artifacts use a 128-KiB envelope except `evidence.json`, whose complete immutable packet
-uses a 128-MiB envelope. Producer storage, publisher transfer validation, and archived-publication
-inspection apply that same evidence-specific limit, so a valid bundle remains readable at every
-boundary.
-
-Before import, the producer sends the same exact sealed transfer to the sibling's no-write validation
-operation. A successful `vosslab.daily-blog.import-validation.v1` receipt contains exactly
-`schema_version`, `status: valid`, `report_date`, `bundle_sha256`, and `best_artifact_id`; each value
-must bind the transfer. Validation checks the complete bundle admission contract but creates no archive,
-post, release, record, or `site` mutation. The importing operation revalidates those same bytes before
-staging, so preflight is an integration check rather than a publication shortcut.
+uses a 128-MiB envelope. Producer storage applies that evidence-specific limit before export. The
+producer verifies the renderer's import receipt against the exact transfer after delivery; there is
+no display-repository publication-admission preflight.
 
 ### Bundle v9 manifest and publication surface v1
 

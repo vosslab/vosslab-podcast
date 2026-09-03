@@ -3711,3 +3711,83 @@ Tests
 Next actions
 1. Redesign the remaining Stage-6 all-survivor prompt-capacity boundary deliberately; do not hide it
    with broad exception recovery or arbitrary repository truncation.
+
+---
+Session Update: 2026-09-03 (producer-renderer boundary clarification)
+
+Change
+- Updated `docs/PUBLICATION_FLOW.md` so `vosslab-podcast` owns publication correctness, validation,
+  exact-byte export, and delivery verification, while `vosslab-daily-blog` owns only confined file
+  placement, MkDocs rendering, deployment, and rendered-page verification.
+- Explicitly made MkDocs the authority on Markdown renderability. The display repository does not
+  reject content for readability, meaning, structure, editorial quality, evidence grounding,
+  citations, repository coverage, or roster equality; renderable nonsense is published.
+- Documented one canonical date-owned artifact tree with execution IDs confined to diagnostic
+  records rather than durable path ownership.
+
+Tests
+- Documentation-only update; no runtime tests were required.
+
+Next actions
+1. Align the producer export and display-repository receiver code with this documented boundary.
+
+---
+Session Update: 2026-09-03 (date ownership and publication gate removal)
+
+Change
+- Made the report-date directory the canonical owner of `run_state.json`,
+  `runlog-YYYY-MM-DD.jsonl`, the current terminal summary, and stage artifacts. Removed detailed-run
+  retention machinery and timestamp-owned canonical paths.
+- Removed the separate display-repository bundle preflight and its producer-side validation receipt.
+  Import receipt validation now provides producer-owned delivery verification.
+- Reproduced the August 17 rejection: the producer supplied `daily_active_roster` in the sealed
+  bundle, while the display repository's allowlist rejected that field; after recognizing it, the
+  next rejection was the editorial rule `post contains too many uncited narrative prose blocks`.
+  The display repository now performs no content-admission pass and writes `post.md` bytes without
+  interpreting Markdown before invoking MkDocs.
+- Traced the August 27 66,277-character failure to publication-surface construction re-expanding
+  every evidence ID from compressed artifacts into raw excerpts. Kept full evidence and artifact
+  lineage durable while retaining only the already-bounded evidence projection for LLM context.
+
+Tests
+- Producer lifecycle, publisher protocol, date-owned observability, and bounded-context focused
+  suites passed 91 tests; the focused publication-admission regression suite passed 11 tests.
+- Display-repository import, transport, and bundle-snapshot focused suites passed 44 tests.
+- The preserved August 17 bundle now passes the display receiver's read-only routing check with its
+  original report date and bundle digest.
+
+Next actions
+1. Replace pairwise review calls with one complete candidate-set call per reviewer after approval of
+   the exact human-owned reviewer prompt text.
+
+---
+Session Update: 2026-09-03 (publication-owned images and transient working state)
+
+Change
+- Made final Markdown image references the authority for publication assets. Deterministic producer
+  code resolves those references against machine-known screenshot evidence and transports only the
+  selected bytes; discovered but unused screenshots remain producer-side.
+- Split that boundary into an explicit typed resolver. It records the selected evidence identity,
+  producer asset path, Markdown path, and date-owned display destination without duplicating bytes in
+  diagnostics.
+- Changed new image links to `YYYY-MM-DD/<asset>` and the renderer destination to
+  `docs/blog/posts/YYYY-MM-DD/<asset>`, beside `docs/blog/posts/YYYY-MM-DD.md`.
+- Reduced the renderer transfer to transient `bundle.json`, final `post.md`, and referenced assets.
+  The display repository no longer receives or persists evidence, roster, projection, surface,
+  publication-record, or archive JSON.
+- Added successful-run cleanup: pre-publication working artifacts remain inspectable until delivery
+  and rendered-page verification succeed, then only the canonical run log and terminal summary stay
+  in the producer's date-owned output directory.
+
+Tests
+- Focused producer publication, bundle, state, run-state, and publisher coverage passed 103 tests.
+- The full producer suite passed 3,942 tests in 30.81 seconds.
+- The display repository's remaining vendored suite reached 855 passes; five link failures remain
+  because a concurrent historical-asset deletion removed images still referenced by the August 11,
+  12, 13, 22, and 23 posts.
+- Its strict MkDocs build reaches rendering and aborts on the same six missing historical image links.
+
+Next actions
+1. Regenerate affected historical report dates, or restore only the exact image files referenced by
+   those posts; do not restore the bulk screenshot corpus.
+2. Replace pairwise review calls after the human-owned reviewer prompt text is approved.

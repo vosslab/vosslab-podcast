@@ -349,30 +349,33 @@ def _runtime(
 		route_runner=runner,
 	publisher_function=lambda repository, transfer, **kwargs: daily_blog.publisher.import_bundle(
 		repository, transfer, replace_existing=kwargs["replace_existing"]),
-		publisher_validator=daily_blog.publisher.validate_bundle_transfer,
 		page_verifier=page_verifier,
 	), runner
 
 
 #============================================
 def _run_record(root: pathlib.Path, run_id: str) -> dict:
-	"""Read one immutable record from the controlled run directory."""
-	path = root / "out" / "vosslab" / "daily_blog" / REPORT_DATE / "runs" / run_id / "run_state.json"
-	return json.loads(path.read_text(encoding="utf-8"))
+	"""Read the report-date-owned record and verify its execution identity."""
+	path = root / "out" / "vosslab" / "daily_blog" / REPORT_DATE / "run_state.json"
+	record = json.loads(path.read_text(encoding="utf-8"))
+	if record["run_id"] != run_id:
+		raise RuntimeError("Canonical run state does not match the expected execution.")
+	return record
 
 
 #============================================
 def _assert_date_summary_retains_run(root: pathlib.Path, run_id: str) -> dict:
-	"""Return this run's parser-validated bounded terminal summary."""
+	"""Return the current date-owned parser-validated terminal summary."""
 	path = root / "out" / "vosslab" / "daily_blog" / REPORT_DATE / "summary.jsonl"
 	if not path.is_file():
 		raise RuntimeError("Terminal run did not produce a date summary.")
-	for line in path.read_text(encoding="utf-8").splitlines():
-		# The public parser enforces the terminal-summary byte envelope.
-		summary = daily_blog.observability.parse_terminal_summary_line(line)
-		if summary["run_id"] == run_id:
-			return summary
-	raise RuntimeError("Date summary does not retain the terminal run.")
+	lines = path.read_text(encoding="utf-8").splitlines()
+	if len(lines) != 1:
+		raise RuntimeError("Date summary must contain exactly one canonical receipt.")
+	summary = daily_blog.observability.parse_terminal_summary_line(lines[0])
+	if summary["run_id"] != run_id:
+		raise RuntimeError("Date summary does not match the current execution.")
+	return summary
 
 
 #============================================
