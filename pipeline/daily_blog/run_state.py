@@ -14,7 +14,6 @@ import uuid
 # local repo modules
 import daily_blog.schema
 import daily_blog.io_utils
-import daily_blog.attempt_ledger
 import daily_blog.run_contracts
 import daily_blog.replication
 import daily_blog.observability
@@ -53,18 +52,6 @@ class RunStore:
 			"transition_artifact_id",
 			"transition_kind",
 			"transition_prior_artifact_id",
-		}),
-		"daily_publication.stage6_attempt_reliability_persisted": frozenset({
-			"schema_version", "planned", "fresh", "cache", "skipped",
-			"current_physical_calls", "transport_success", "transport_failure",
-			"parsed", "mechanical", "policy", "selected", "exhausted",
-			"dispatched", "reviewed", "rejected",
-			"reason_route_start_failure", "reason_route_timeout",
-			"reason_route_process_failure", "reason_route_empty_response",
-			"reason_response_parse_failure", "reason_mechanical_ineligible",
-			"reason_citation_density_mismatch", "reason_presentation_policy_mismatch",
-			"reason_evidence_grounding_mismatch", "reason_image_authority_mismatch",
-			"reason_review_rejected",
 		}),
 		"daily_publication.phase_completed": frozenset({"phase", "reused"}),
 		"daily_publication.phase_failed": frozenset({"failure_kind", "phase"}),
@@ -377,8 +364,6 @@ class RunStore:
 			daily_blog.run_contracts.validate_incumbent_transition(
 				summary, transition, prior_artifact_id,
 			)
-		if event == "daily_publication.stage6_attempt_reliability_persisted":
-			self._validate_stage6_attempt_reliability_event(details)
 		if "failure_kind" in details:
 			failure_kind = details["failure_kind"]
 			if failure_kind not in daily_blog.run_contracts.FAILURE_KINDS:
@@ -422,27 +407,6 @@ class RunStore:
 			if details["outcome"] not in {"succeeded", "degraded"}:
 				raise RuntimeError("Daily-publication run outcome is unsupported.")
 
-	#============================================
-	def _validate_stage6_attempt_reliability_event(self, details: dict[str, object]) -> None:
-		"""Reconcile one scalar Stage 6 summary event through its canonical contract."""
-		if details["schema_version"] != "vosslab.daily-blog.stage6-attempt-summary-event.v1":
-			raise RuntimeError("Stage 6 attempt summary event schema is invalid.")
-		reasons = tuple(
-			(code, details["reason_" + code])
-			for code in sorted(daily_blog.attempt_ledger.ATTEMPT_REASON_CODES - {""})
-			if details["reason_" + code]
-		)
-		value = {
-			name: details[name]
-			for name in (
-				"planned", "fresh", "cache", "skipped", "current_physical_calls",
-				"transport_success", "transport_failure", "parsed", "mechanical",
-				"policy", "selected", "exhausted", "dispatched", "reviewed", "rejected",
-			)
-		} | {"reason_counts": [{"code": code, "count": count} for code, count in reasons]}
-		daily_blog.attempt_ledger.AttemptReliabilitySummary.from_dict(value)
-
-	#============================================
 	def _event_line(self, event: str, details: dict[str, object]) -> str:
 		"""Validate and serialize one lifecycle-safe publication event."""
 		self._validate_event_details(event, details)
@@ -792,7 +756,6 @@ class RunStore:
 			"operational_failure_kind": operational_kind,
 			"terminal_fault_subtype": fault_subtype,
 			"terminal_fault_owner": fault_owner,
-			"attempt_summary": value["attempt_summary"],
 			"publication_completed": bool(page_sha),
 			"verified_page_sha256": page_sha,
 			"incumbent_replacement_count": sum(

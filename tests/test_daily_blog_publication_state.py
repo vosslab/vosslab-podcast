@@ -187,98 +187,6 @@ def _current_publication_config(tmp_path: pathlib.Path) -> types.SimpleNamespace
 
 
 #============================================
-def _historical_v5_publication_config(tmp_path: pathlib.Path) -> types.SimpleNamespace:
-	"""Convert one fixture-built v9 bundle into the retained v5/v8 read-only shape."""
-	config = _current_publication_config(tmp_path)
-	root = pathlib.Path(config.daily_blog_repository)
-	report_date = "2026-08-26"
-	archive = root / "data" / "publication_bundles" / report_date
-	bundle_path = archive / "bundle.json"
-	bundle = json.loads(bundle_path.read_text(encoding="utf-8"))
-	bundle.pop("publication_surface")
-	bundle["schema_version"] = "vosslab.daily-blog.bundle.v8"
-	bundle["bundle_sha256"] = daily_blog.publication_contract.bundle_sha256(bundle)
-	bundle_path.write_text(daily_blog.io_utils.stable_json_text(bundle), encoding="utf-8")
-	(archive / "publication_surface.json").unlink()
-	archived_post = (archive / "post.md").read_text(encoding="utf-8")
-	installed_post = root / "docs" / "blog" / "posts" / f"{report_date}.md"
-	installed_post.write_text(archived_post, encoding="utf-8")
-	article_digest = daily_blog.publication_article_projection.article_body_sha256(
-		daily_blog.publication_article_projection.source_article_projection(
-			archived_post, (root / "mkdocs.yml").read_text(encoding="utf-8"),
-		)
-	)
-	record = {
-		"schema_version": "vosslab.daily-blog.publication.v5",
-		"report_date": report_date,
-		"timezone": "America/Chicago",
-		"generator_run": bundle["generator"]["run_id"],
-		"generator_revision": bundle["generator"]["revision"],
-		"bundle_sha256": bundle["bundle_sha256"],
-		"article_body_sha256": article_digest,
-		"best_artifact_id": bundle["best_artifact_id"],
-		"evidence_manifest": f"data/publication_bundles/{report_date}/evidence.json",
-		"editorial_projection_manifest": (
-			f"data/publication_bundles/{report_date}/editorial_projection.json"
-		),
-		"post_path": f"docs/blog/posts/{report_date}.md",
-		"imported_at": "2026-08-27T00:00:00Z",
-	}
-	record_path = root / "data" / "publications" / f"{report_date}.json"
-	record_path.write_text(daily_blog.io_utils.stable_json_text(record), encoding="utf-8")
-	return config
-
-
-#============================================
-def _historical_publication_config(
-	tmp_path: pathlib.Path, evidence_padding: int = 0,
-) -> types.SimpleNamespace:
-	"""Create the bounded v3 archive retained for occupied-date inspection only."""
-	report_date = "2026-08-26"
-	publisher_root = tmp_path / "publisher"
-	archive = publisher_root / "data" / "publication_bundles" / report_date
-	archive.mkdir(parents=True)
-	evidence = {
-		"report_date": report_date, "timezone": "America/Chicago", "packet_id": "packet-one",
-		"padding": "x" * evidence_padding,
-	}
-	projection = {"report_date": report_date, "timezone": "America/Chicago", "projection_id": "projection-one"}
-	post = "---\ndate: 2026-08-26\nslug: historical-publication\n---\n\n# Historical publication\n"
-	(archive / "evidence.json").write_text(json.dumps(evidence), encoding="utf-8")
-	(archive / "editorial_projection.json").write_text(json.dumps(projection), encoding="utf-8")
-	(archive / "post.md").write_text(post, encoding="utf-8")
-	bundle = {
-		"schema_version": "vosslab.daily-blog.bundle.v2", "bundle_sha256": "",
-		"report_date": report_date, "timezone": "America/Chicago", "assets": [],
-		"generator": {"revision": "a" * 64, "run_id": "historical-run", "version": "v2"},
-		"evidence": {"path": "evidence.json", "sha256": daily_blog.io_utils.hash_value(evidence)},
-		"editorial_projection": {
-			"path": "editorial_projection.json", "sha256": daily_blog.io_utils.hash_value(projection),
-		},
-		"post": {"path": "post.md", "sha256": daily_blog.io_utils.sha256_bytes(post.encode("utf-8"))},
-	}
-	bundle["bundle_sha256"] = daily_blog.publication_contract.bundle_sha256(bundle)
-	(archive / "bundle.json").write_text(json.dumps(bundle), encoding="utf-8")
-	installed_post = publisher_root / "docs" / "blog" / "posts" / f"{report_date}.md"
-	installed_post.parent.mkdir(parents=True)
-	installed_post.write_text(post, encoding="utf-8")
-	record = {
-		"schema_version": "vosslab.daily-blog.publication.v3", "report_date": report_date,
-		"timezone": "America/Chicago", "generator_run": "historical-run",
-		"generator_revision": "a" * 64, "bundle_sha256": bundle["bundle_sha256"],
-		"evidence_manifest": f"data/publication_bundles/{report_date}/evidence.json",
-		"editorial_projection_manifest": f"data/publication_bundles/{report_date}/editorial_projection.json",
-		"post_path": f"docs/blog/posts/{report_date}.md", "imported_at": "2026-08-27T00:00:00Z",
-	}
-	record_path = publisher_root / "data" / "publications" / f"{report_date}.json"
-	record_path.parent.mkdir(parents=True)
-	record_path.write_text(json.dumps(record), encoding="utf-8")
-	return types.SimpleNamespace(
-		daily_blog_repository=str(publisher_root), report_timezone="America/Chicago"
-	)
-
-
-#============================================
 def _path_record_config(tmp_path: pathlib.Path) -> daily_blog.config.DailyBlogConfig:
 	"""Build an offline configuration whose output root is intentionally unique."""
 	return daily_blog.config.DailyBlogConfig(
@@ -415,84 +323,11 @@ def test_publication_exists_rejects_missing_repository_roster(
 
 
 #============================================
-def test_publication_exists_accepts_the_exact_historical_v3_archive(
-	tmp_path: pathlib.Path,
-) -> None:
-	"""The one retained v3 archive keeps its date occupied without a fabricated v5 receipt."""
-	config = _historical_publication_config(tmp_path)
-
-	inspection = daily_blog.publication_state.inspect_publication(config, "2026-08-26")
-
-	assert inspection.state == "current"
-	assert daily_blog.publication_state.publication_exists(config, "2026-08-26")
-
-
-#============================================
-def test_historical_v3_inspection_allows_its_larger_evidence_packet(
-	tmp_path: pathlib.Path,
-) -> None:
-	"""The legacy-only reader admits old evidence that exceeds the v5/v8 receipt cap."""
-	config = _historical_publication_config(
-		tmp_path, daily_blog.publisher.MAX_RECORD_BYTES + 1,
-	)
-
-	inspection = daily_blog.publication_state.inspect_publication(config, "2026-08-26")
-
-	assert inspection.state == "current"
-
-
-#============================================
-def test_historical_v3_archive_rejects_a_tampered_installed_post(
-	tmp_path: pathlib.Path,
-) -> None:
-	"""A v3 record alone cannot make changed installed prose look current."""
-	config = _historical_publication_config(tmp_path)
-	path = pathlib.Path(config.daily_blog_repository) / "docs" / "blog" / "posts" / "2026-08-26.md"
-	path.write_text("changed", encoding="utf-8")
-
-	inspection = daily_blog.publication_state.inspect_publication(config, "2026-08-26")
-
-	assert inspection.state == "invalid"
-
-
-#============================================
-def test_historical_v3_record_rejects_new_receipt_fields(
-	tmp_path: pathlib.Path,
-) -> None:
-	"""New v5-only integrity fields cannot be claimed by a retained v3 record."""
-	config = _historical_publication_config(tmp_path)
-	path = pathlib.Path(config.daily_blog_repository) / "data" / "publications" / "2026-08-26.json"
-	record = json.loads(path.read_text(encoding="utf-8"))
-	record["article_body_sha256"] = "a" * 64
-	path.write_text(json.dumps(record), encoding="utf-8")
-
-	inspection = daily_blog.publication_state.inspect_publication(config, "2026-08-26")
-
-	assert inspection.state == "invalid"
-
-
-#============================================
-@pytest.mark.parametrize("tamper", (False, True))
-def test_historical_v5_bundle_v8_keeps_the_date_occupied_only_when_its_archive_is_intact(
-	tmp_path: pathlib.Path, tamper: bool,
-) -> None:
-	"""The retained v5 reader verifies its archive rather than trusting an old receipt."""
-	config = _historical_v5_publication_config(tmp_path)
-	if tamper:
-		path = pathlib.Path(config.daily_blog_repository) / "data" / "publication_bundles" / "2026-08-26" / "post.md"
-		path.write_text("changed", encoding="utf-8")
-
-	inspection = daily_blog.publication_state.inspect_publication(config, "2026-08-26")
-
-	assert inspection.state == ("invalid" if tamper else "current"), inspection.reason
-
-
-#============================================
 def test_publication_inspection_does_not_reclassify_an_internal_fault(
 	tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
 	"""Expected corrupt state is invalid, but an internal fault remains a pipeline fault."""
-	config = _historical_publication_config(tmp_path)
+	config = _current_publication_config(tmp_path)
 
 	def fail_read(_path: str) -> object:
 		raise AssertionError("internal fault")

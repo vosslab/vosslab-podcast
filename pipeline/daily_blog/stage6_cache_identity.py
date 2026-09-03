@@ -17,7 +17,7 @@ STAGE6_CACHE_IDENTITY_KEYS = (
 	"route_cache_schema_version", "attempt_plan_schema_version", "slot_id", "stage", "rung",
 	"batch_index", "work_kind", "role", "replica_index", "pair_index", "display_order",
 	"prompt_sha256", "planner_semantic_input_sha256", "actual_candidate_input_sha256",
-	"feedback_envelope_sha256", "repair_of_identity", "repair_response_sha256", "route_name",
+	"repair_of_identity", "repair_response_sha256", "route_name",
 	"route_contract_sha256",
 )
 
@@ -44,7 +44,6 @@ class Stage6CacheIdentity:
 	planner_semantic_input_sha256: str
 	prompt_sha256: str
 	actual_candidate_input_sha256: str
-	feedback_envelope_sha256: str
 	repair_of_identity: str
 	repair_response_sha256: str
 	route_name: str
@@ -54,7 +53,7 @@ class Stage6CacheIdentity:
 	def __init__(
 		self, materialization: object, attempt: object, *, prompt: str,
 		candidate_identities: tuple[str, ...] = (),
-		feedback_envelope_sha256: str = "", repair_response: str = "", route_name: str,
+		repair_response: str = "", route_name: str,
 		route_contract_sha256: str,
 	) -> None:
 		"""Build one witness from an active materialization and canonical attempt."""
@@ -74,10 +73,8 @@ class Stage6CacheIdentity:
 			raise Stage6CacheIdentityError("Stage 6 candidate identities require SHA-256 witnesses.")
 		if len(candidate_identities) != len(set(candidate_identities)):
 			raise Stage6CacheIdentityError("Stage 6 candidate identities require unique witnesses.")
-		if type(feedback_envelope_sha256) is not str or type(repair_response) is not str:
-			raise Stage6CacheIdentityError("Stage 6 identity witnesses require text values.")
-		if feedback_envelope_sha256 and SHA256_RE.fullmatch(feedback_envelope_sha256) is None:
-			raise Stage6CacheIdentityError("Stage 6 feedback witness requires a SHA-256 digest.")
+		if type(repair_response) is not str:
+			raise Stage6CacheIdentityError("Stage 6 repair witness must be text.")
 		if type(route_name) is not str or SAFE_ROUTE_NAME_RE.fullmatch(route_name) is None:
 			raise Stage6CacheIdentityError("Stage 6 identity requires a safe route name.")
 		if type(route_contract_sha256) is not str or SHA256_RE.fullmatch(route_contract_sha256) is None:
@@ -90,19 +87,19 @@ class Stage6CacheIdentity:
 			raise Stage6CacheIdentityError("Stage 6 identity requires an exact planned slot.")
 		candidate_digest = self.candidate_input_sha256(candidate_identities)
 		if canonical.role == "writer":
-			if candidate_identities or feedback_envelope_sha256 or repair_response:
+			if candidate_identities or repair_response:
 				raise Stage6CacheIdentityError("Stage 6 writer identity has no materialized witnesses.")
 			candidate_digest = ""
 		elif canonical.role == "editor":
 			if not candidate_identities or repair_response:
 				raise Stage6CacheIdentityError("Stage 6 editor identity requires candidates.")
 		elif canonical.role == "reviewer":
-			if candidate_identities or feedback_envelope_sha256 or repair_response:
+			if candidate_identities or repair_response:
 				raise Stage6CacheIdentityError("Stage 6 review identity derives its displayed candidate pair.")
 			candidate_identities = self._displayed_pair(materialization, canonical)
 			candidate_digest = self.candidate_input_sha256(candidate_identities)
 		elif canonical.role == "reviewer_repair":
-			if candidate_identities or feedback_envelope_sha256 or not repair_response:
+			if candidate_identities or not repair_response:
 				raise Stage6CacheIdentityError("Stage 6 repair identity requires its source response.")
 			self._materialized_review_for_repair(materialization, canonical)
 			candidate_identities = self._displayed_pair(materialization, canonical)
@@ -119,7 +116,6 @@ class Stage6CacheIdentity:
 			"prompt_sha256": daily_blog.io_utils.sha256_text(prompt),
 			"planner_semantic_input_sha256": canonical.semantic_input_identity,
 			"actual_candidate_input_sha256": candidate_digest,
-			"feedback_envelope_sha256": feedback_envelope_sha256,
 			"repair_of_identity": canonical.repair_of_identity,
 			"repair_response_sha256": daily_blog.io_utils.sha256_text(repair_response) if repair_response else "",
 			"route_name": route_name, "route_contract_sha256": route_contract_sha256,

@@ -678,19 +678,6 @@ def test_no_artifact_kind_cannot_be_spoofed() -> None:
 
 
 #============================================
-def test_daily_outline_ranking_review_loss_has_a_typed_outcome() -> None:
-	"""Stage 5 total ranking-review loss remains a machine-readable outcome."""
-	outcome = daily_blog.artifacts.NoArtifact(
-		daily_blog.artifacts.DailyOutline, "no_eligible_ranking_review",
-	)
-	assert outcome.reason == "no_eligible_ranking_review"
-	with pytest.raises(RuntimeError):
-		daily_blog.artifacts.NoArtifact(
-			daily_blog.artifacts.DailyOutline, "unknown_reason",
-		)
-
-
-#============================================
 def test_wrong_rung_outcome_is_rejected() -> None:
 	"""Same-rung outcomes reject an artifact from a different editorial stage."""
 	source = packet()

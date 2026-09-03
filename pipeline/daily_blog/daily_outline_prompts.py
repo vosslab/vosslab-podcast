@@ -64,8 +64,8 @@ def _loaded_prompts(
 def daily_outline_prompt_identity(
 	prompts: daily_blog.prompt_registry.loader.LoadedPromptSet | None = None,
 ) -> dict[str, object]:
-	"""Return the legacy Stage 5 cache identity from the central registry."""
-	return _loaded_prompts(prompts).legacy_identity_dict()
+	"""Return the current Stage 5 cache identity from the central registry."""
+	return _loaded_prompts(prompts).identity_dict()
 
 
 #============================================

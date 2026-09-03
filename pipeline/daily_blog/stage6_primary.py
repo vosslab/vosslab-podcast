@@ -107,7 +107,6 @@ def run_primary_batches(
 	editor_parts: list[daily_blog.replication.ReplicationResult] = []
 	reviews: list[daily_blog.replication.ReviewResult] = []
 	observations: list[daily_blog.stage6.Stage6BatchObservation] = []
-	feedback_candidates: tuple[daily_blog.artifacts.CompletePost, ...] = ()
 	last_promotion: PrimaryPromotion | None = None
 	for batch_index in range(plan.policy.fresh_batch_count):
 		writer_slots, writing, writer_material = _run_primary_writers(
@@ -115,16 +114,10 @@ def run_primary_batches(
 		)
 		writer_parts.append(writing)
 		editor_source = daily_blog.stage6._unique(
-			writer_material + feedback_candidates + (() if incumbent is None else (incumbent,))
+			writer_material + (() if incumbent is None else (incumbent,))
 		)
 		editing = _run_primary_editors(context, batch_index, writer_slots, editor_source)
 		editor_parts.append(editing)
-		feedback_candidates = daily_blog.stage6._unique(feedback_candidates + tuple(
-			item.artifact for item in writing.candidates + editing.candidates
-			if item.artifact is not None and daily_blog.publication_admission.complete_post_repair_feedback(
-				item.artifact, value.publication_surface, value.output_root,
-			) is not None
-		))
 		writer_peers = daily_blog.stage6._unique(writing.eligible)
 		editor_peers = daily_blog.stage6._unique(editing.eligible)
 		peers = daily_blog.stage6._unique(
@@ -212,9 +205,6 @@ def _run_primary_editors(
 	)
 	editor_view = context.plan.materialize("primary", batch_index, generation_ids)
 	candidate_json = daily_blog.stage6._anonymous_posts(context.value, editor_source)
-	feedback_digest = daily_blog.stage6._repair_feedback_digest(
-		context.value, editor_source,
-	)
 	editor_requests = tuple(daily_blog.stage6_execution.build_request(
 		context.value, context.run_id, item, editor_view, stage.editor_route,
 		daily_blog.complete_post_editor_prompts.render_complete_post_editor_prompt(
@@ -222,7 +212,7 @@ def _run_primary_editors(
 			"editor-" + str(item.replica_index), context.editor_prompt_set,
 		), stage, context.resolved.contract.prompt_version,
 		tuple(_candidate_identity(candidate) for candidate in editor_source),
-		feedback_digest, working_directory=context.config.daily_blog_repository,
+		working_directory=context.config.daily_blog_repository,
 	) for item in editor_slots)
 	if any(len(item.prompt) > stage.prompt_limits["editor_chars"] for item in editor_requests):
 		return editing
@@ -428,15 +418,6 @@ def _finish_primary(
 			last_promotion, all_review.votes,
 		),
 	)
-	if context.incumbent is None:
-		ledger = daily_blog.stage6_attempt_reliability.stage6_attempt_ledger(
-			context.plan, tuple(observations), all_writing, all_editing, all_review,
-			"" if isinstance(last_promotion, daily_blog.artifacts.NoArtifact) else last_promotion.artifact.artifact_id,
-		)
-		facts = {item.slot_id: item for item in ledger.facts}
-		observations = [dataclasses.replace(item, closed_facts=tuple(
-			facts[slot] for slot in item.materialization.semantic_identities
-		)) for item in observations]
 	result = daily_blog.stage6.Stage6Result(
 		promotion=last_promotion, generation=all_writing, review=all_review,
 		reliability=daily_blog.stage6._aggregate(steps), editing=all_editing,

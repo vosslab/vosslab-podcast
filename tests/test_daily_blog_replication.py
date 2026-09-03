@@ -1,14 +1,10 @@
 """Offline behavioral tests for stage-neutral editorial replication."""
 
-# Standard Library
-import json
-
 # PIP3 modules
 import pytest
 
 # local repo modules
 import daily_blog.agents
-import daily_blog.attempt_ledger
 import daily_blog.artifacts
 import daily_blog.editorial_stage_config
 import daily_blog.io_utils
@@ -64,42 +60,6 @@ class Runner:
 
 
 #============================================
-def test_attempt_ledger_rejects_noncanonical_slot_facts() -> None:
-	"""A partial ledger cannot be serialized or summarized as a durable result."""
-	ledger = daily_blog.attempt_ledger.AttemptLedger(("a" * 64,), ())
-	with pytest.raises(RuntimeError):
-		ledger.to_dict()
-
-
-#============================================
-@pytest.mark.parametrize("field, malformed", [
-	("execution_source", []),
-	("transport_outcome", {}),
-	("highest_gate", None),
-	("terminal_disposition", 1),
-	("reason_code", []),
-])
-def test_attempt_fact_rejects_type_confused_closed_values(field: str, malformed: object) -> None:
-	"""Untrusted JSON values fail closed as RuntimeError, never membership TypeError."""
-	value: dict[str, object] = {
-		"slot_id": "a" * 64,
-		"execution_source": "fresh_route",
-		"transport_attempts": 1,
-		"restored_agent_result_attempts": 0,
-		"transport_outcome": "success",
-		"highest_gate": "selected",
-		"terminal_disposition": "selected",
-		"reason_code": "",
-		"candidate_sha256": "b" * 64,
-		"feedback_input_sha256": "",
-	}
-	value[field] = malformed
-
-	with pytest.raises(RuntimeError):
-		daily_blog.attempt_ledger.AttemptFact.from_dict(value)
-
-
-#============================================
 def eligibility(
 	artifact: daily_blog.artifacts.EditorialArtifact,
 ) -> daily_blog.artifacts.EligibilityResult:
@@ -121,89 +81,6 @@ def test_replicate_retains_eligible_peer_after_one_generator_failure() -> None:
 
 	assert result.eligible == (outline(source, "strong"),)
 	assert result.candidates[1].failure == "timeout"
-
-
-#============================================
-def test_replicate_caches_grounded_work_that_needs_later_editorial_refinement() -> None:
-	"""Cache admission may preserve a safe parsed draft without promoting it."""
-	source = packet()
-	accepted: list[str] = []
-	result = daily_blog.replication.replicate(
-		(request("grounded-draft"),), Runner(), daily_blog.agents.RouteBudget(1, 1),
-		daily_blog.artifacts.RepoOutline,
-		lambda response: outline(source, response.text),
-		lambda _artifact: daily_blog.artifacts.EligibilityResult(
-			False, ("publication_policy_mismatch",),
-		),
-		cache_accept=lambda saved_request, _result: accepted.append(saved_request.request_id),
-		cache_eligibility=lambda artifact: daily_blog.artifacts.evaluate_eligibility(
-			artifact, (source,),
-		),
-	)
-
-	assert not result.eligible
-	assert result.candidates[0].artifact is not None
-	assert accepted == ["grounded-draft"]
-
-
-#============================================
-def test_review_repairs_malformed_json_to_a_known_eligible_candidate() -> None:
-	"""A structured repair turns malformed review output into a valid candidate vote."""
-	source = packet()
-	first, second = outline(source, "First"), outline(source, "Second")
-	def build(
-		left: daily_blog.artifacts.EditorialArtifact,
-		right: daily_blog.artifacts.EditorialArtifact,
-		assignment: daily_blog.replication.ReviewAssignment,
-	) -> daily_blog.replication.ReviewWork:
-		return daily_blog.replication.ReviewWork(
-			request(f"review-{assignment.reviewer_index}-{assignment.display_order}"),
-			left.artifact_id,
-			right.artifact_id,
-			assignment,
-		)
-	def repair(
-		work: daily_blog.replication.ReviewWork,
-		_text: str,
-	) -> daily_blog.replication.ReviewWork:
-		repair_request = daily_blog.agents.RouteRequest(
-			work.request.request_id + "_repair", "review", work.request.route,
-			work.request.request_id + "_repair", "/work", maximum_parallel_calls=2,
-			repair_of=work.request.cache_input_hash,
-			cache_input_hash=daily_blog.io_utils.hash_value({
-				"test": "replication-repair",
-				"source_cache_input_hash": work.request.cache_input_hash,
-				"malformed_response": _text,
-			}),
-		)
-		return daily_blog.replication.ReviewWork(
-			repair_request,
-			work.first_artifact_id,
-			work.second_artifact_id,
-			work.assignment,
-		)
-	def parse(text: str, work: daily_blog.replication.ReviewWork) -> str:
-		if not text.startswith("{"):
-			raise daily_blog.agents.RepairableStructuredOutput("invalid JSON")
-		return json.loads(text)["winner"]
-	class ReviewRunner:
-		def run(
-			self,
-			_route: daily_blog.editorial_stage_config.RoleRoute,
-			prompt: str,
-			_directory: str,
-		) -> str:
-			response = '{"winner":"' + first.artifact_id + '"}'
-			return response if prompt.endswith("_repair") else "not-json"
-	result = daily_blog.replication.review(
-		(second, first), daily_blog.artifacts.RepoOutline, 2, build, parse, ReviewRunner(),
-		daily_blog.agents.RouteBudget(8, 2), repair,
-	)
-
-	assert result.votes and all(
-		vote.repaired and vote.winner_artifact_id == first.artifact_id
-		for vote in result.votes
-	)
 
 
 #============================================

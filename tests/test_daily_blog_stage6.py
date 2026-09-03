@@ -1,7 +1,6 @@
 """Permanent offline tests for the typed Stage 6 complete-post boundary."""
 
 # Standard Library
-import json
 from pathlib import Path
 import types
 
@@ -71,14 +70,7 @@ def recovery_sources(
 		"Outline <!-- evidence: " + evidence_id + " -->", (evidence_id,),
 	)
 	ranking_hash = "a" * 64
-	payload = {
-		"candidate_id": "ranking-1", "accepted_review_ids": ["review-1"],
-		"ranking_content_sha256": ranking_hash,
-	}
 	promoted = daily_blog.daily_outline_workflow.PromotedRanking(
-		"ranking-promotion-" + daily_blog.io_utils.sha256_text(
-			json.dumps(payload, sort_keys=True, separators=(",", ":")),
-		)[:24],
 		"ranking-1", ranking_hash, (story.content_hash,), ((story.content_hash, 100),),
 		"Grounded ranking rationale.", ("review-1",),
 	)
@@ -154,14 +146,8 @@ def two_repository_input(tmp_path: Path) -> tuple[daily_blog.stage6.Stage6Input,
 	), key=lambda item: item.artifact_id))
 	story_ids = tuple(sorted(item.content_hash for item in stories))
 	ranking_hash = "a" * 64
-	payload = {
-		"candidate_id": "ranking-2", "accepted_review_ids": ["review-2"],
-		"ranking_content_sha256": ranking_hash,
-	}
 	ranking = daily_blog.daily_outline_workflow.PromotedRanking(
-		"ranking-promotion-" + daily_blog.io_utils.sha256_text(
-			json.dumps(payload, sort_keys=True, separators=(",", ":")),
-		)[:24], "ranking-2", ranking_hash, story_ids,
+		"ranking-2", ranking_hash, story_ids,
 		tuple((item, 100) for item in story_ids), "Grounded ranking rationale.", ("review-2",),
 	)
 	recovery = daily_blog.stage6.Stage6RecoverySources(
@@ -328,20 +314,6 @@ def test_stage6_editor_can_improve_an_incumbent_after_total_writer_loss(tmp_path
 	assert result.artifact in {
 		incumbent, complete_post(value, "editor-improvement"),
 	}
-
-
-#============================================
-def test_stage6_no_eligible_writer_response_is_a_typed_no_artifact(tmp_path: Path) -> None:
-	"""Ineligible route responses are a diagnosed editorial failure, never assembled prose."""
-	value = input_value(tmp_path)
-	class Runner:
-		def run(self, _route: daily_blog.editorial_stage_config.RoleRoute, _prompt: str, _directory: str) -> str:
-			return "# ungrounded\n"
-	result = daily_blog.stage6.run_stage6(
-		value, "none", config(tmp_path), daily_blog.agents.RouteBudget(50, 2), Runner(),
-	)
-	assert isinstance(result.promotion, daily_blog.artifacts.NoArtifact)
-	assert result.promotion.reason == "no_eligible_generation"
 
 
 #============================================

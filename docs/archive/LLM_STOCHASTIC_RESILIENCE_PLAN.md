@@ -111,6 +111,7 @@ acceptance requirements.
 - Complete-post admission and validation: keep style findings off the success path.
 - Daily-blog tests: remove strict-compliance and synthetic implementation-detail tests.
 - Daily-blog design and operating documentation.
+- `docs/LLM_GATE_STYLE.md`: repeatable classification and removal checklist for bad LLM gates.
 
 ## Verification
 
@@ -147,6 +148,7 @@ threshold, or a new permanent fixture.
 
 - Keep this plan consistent with the shipped control flow.
 - Record the robustness definition in `docs/DESIGN_DECISIONS.md`.
+- Keep the LLM-gate audit checklist complementary to the permanent-test checklist.
 - Update `docs/CHANGELOG.md` with Step 0, gate removal, and test deletion.
 - Append a dated change, test, and next-actions entry to `CODEX_CHAT_TRANSCRIPT.txt`.
 - Record live and disposable checks as one-time evidence, never as pytest requirements.

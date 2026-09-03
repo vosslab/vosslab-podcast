@@ -46,8 +46,8 @@ def _synthesis_resource(
 def final_synthesis_prompt_identity(
 	prompt_set: daily_blog.prompt_registry.loader.LoadedPromptSet | None = None,
 ) -> dict[str, object]:
-	"""Return the legacy cache identity issued by the central registry."""
-	return _loaded_prompt_set(prompt_set).legacy_identity_dict()
+	"""Return the current cache identity issued by the central registry."""
+	return _loaded_prompt_set(prompt_set).identity_dict()
 
 
 #============================================

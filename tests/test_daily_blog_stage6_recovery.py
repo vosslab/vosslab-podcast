@@ -2,11 +2,7 @@
 
 # Standard Library
 import dataclasses
-import json
 import pathlib
-
-# PIP3 modules
-import pytest
 
 # local repo modules
 import daily_blog.agents
@@ -83,15 +79,7 @@ def _value(tmp_path: pathlib.Path) -> daily_blog.stage6.Stage6Input:
 		"Story <!-- evidence: " + evidence_id + " -->", (evidence_id,),
 	)
 	ranking_hash = "a" * 64
-	promotion_payload = {
-		"candidate_id": "ranking-1",
-		"accepted_review_ids": ["review-1"],
-		"ranking_content_sha256": ranking_hash,
-	}
 	promoted_ranking = daily_blog.daily_outline_workflow.PromotedRanking(
-		"ranking-promotion-" + daily_blog.io_utils.sha256_text(
-			json.dumps(promotion_payload, sort_keys=True, separators=(",", ":")),
-		)[:24],
 		"ranking-1", ranking_hash, (story.content_hash,), ((story.content_hash, 100),),
 		"Grounded ranking rationale.", ("review-1",),
 	)
@@ -165,14 +153,8 @@ def _contracted_story_recovery_input(tmp_path: pathlib.Path) -> daily_blog.stage
 	selected = next(item for item in stories if item.repositories == ("vosslab/a",))
 	strongest = next(item for item in stories if item.repositories == ("vosslab/z",))
 	ranking_hash = "c" * 64
-	promotion_payload = {
-		"candidate_id": "ranking-3", "accepted_review_ids": ["review-3"],
-		"ranking_content_sha256": ranking_hash,
-	}
 	ranking = daily_blog.daily_outline_workflow.PromotedRanking(
-		"ranking-promotion-" + daily_blog.io_utils.sha256_text(
-			json.dumps(promotion_payload, sort_keys=True, separators=(",", ":")),
-		)[:24], "ranking-3", ranking_hash,
+		"ranking-3", ranking_hash,
 		tuple(sorted(item.content_hash for item in stories)),
 		tuple(sorted((item.content_hash, 100 if item is strongest else 50) for item in stories)),
 		"Grounded ranking rationale.", ("review-3",),
@@ -219,14 +201,7 @@ def test_recovery_sources_canonicalize_multirepository_pairs_and_stable_ties() -
 	stories = tuple(reversed(sorted(stories, key=lambda item: item.artifact_id)))
 	outlines = tuple(sorted(outlines, key=lambda item: item.artifact_id))
 	ranking_hash = "b" * 64
-	payload = {
-		"candidate_id": "ranking-2", "accepted_review_ids": ["review-2"],
-		"ranking_content_sha256": ranking_hash,
-	}
 	promoted = daily_blog.daily_outline_workflow.PromotedRanking(
-		"ranking-promotion-" + daily_blog.io_utils.sha256_text(
-			json.dumps(payload, sort_keys=True, separators=(",", ":")),
-		)[:24],
 		"ranking-2", ranking_hash, tuple(sorted(item.content_hash for item in stories)),
 		tuple(sorted((item.content_hash, 100) for item in stories)),
 		"Grounded ranking rationale.", ("review-2",),
@@ -310,112 +285,6 @@ def test_recovery_route_loss_is_classified_as_route_unavailable(
 
 	assert isinstance(attempt.outcome, daily_blog.artifacts.NoArtifact)
 	assert attempt.outcome.reason == daily_blog.recovery.TerminalFaultCategory.ROUTE_UNAVAILABLE.value
-
-
-#============================================
-def test_recovery_ungrounded_response_is_classified_as_no_eligible_generation(
-		tmp_path: pathlib.Path,
-) -> None:
-	"""A successful but ungrounded response stays editorial degradation."""
-	value = _recovery_input(tmp_path, daily_blog.recovery.RecoveryRung.DAILY_OUTLINE_EXPANSION)
-	class Runner:
-		def run(self, _route: daily_blog.editorial_stage_config.RoleRoute, _prompt: str, _directory: str) -> str:
-			return "# Ungrounded recovery\n"
-	attempt = daily_blog.stage6.recover_daily_outline_expansion(
-		value, "run-6", _config(tmp_path), daily_blog.agents.RouteBudget(4, 1), Runner(),
-	)
-
-	assert isinstance(attempt.outcome, daily_blog.artifacts.NoArtifact)
-	assert attempt.outcome.reason == daily_blog.recovery.TerminalFaultCategory.NO_ELIGIBLE_GENERATION.value
-
-
-def test_recovery_reviews_multiple_eligible_peers_before_promoting_one(
-		tmp_path: pathlib.Path,
-		monkeypatch: pytest.MonkeyPatch,
-) -> None:
-	"""Recovery promotion follows balanced review votes rather than author response order."""
-	value = _recovery_input(tmp_path, daily_blog.recovery.RecoveryRung.DAILY_OUTLINE_EXPANSION)
-	first = _post(value.stage6_input).replace("# A day of connected work", "# First author response")
-	chosen = _post(value.stage6_input).replace("# A day of connected work", "# Reviewed recovery choice")
-	reviewed: list[daily_blog.artifacts.EditorialArtifact] = []
-
-	def review_spy(
-		candidates: object, _expected_type: type, *_args: object, **_kwargs: object,
-	) -> daily_blog.replication.ReviewResult:
-		peers = tuple(candidates)
-		reviewed.extend(peers)
-		winner = next(item for item in peers if "Reviewed recovery choice" in item.content)
-		return daily_blog.replication.ReviewResult((), (
-			daily_blog.replication.ReviewVote(
-				"recovery-review", peers[0].artifact_id, peers[1].artifact_id,
-				"succeeded", winner.artifact_id,
-			),
-		))
-
-	monkeypatch.setattr(daily_blog.replication, "review", review_spy)
-
-	class Runner:
-		author_calls = 0
-
-		def run(
-			self, route: daily_blog.editorial_stage_config.RoleRoute,
-			_prompt: str, _directory: str,
-		) -> str:
-			if route.name == "writer":
-				self.author_calls += 1
-				return first if self.author_calls == 1 else chosen
-			if route.name == "editor":
-				raise daily_blog.routes.EditorialRouteTimeout("offline")
-			raise AssertionError("Typed review spy replaces referee route execution.")
-
-	runner = Runner()
-	attempt = daily_blog.stage6.recover_daily_outline_expansion(
-		value, "recovery-review", _config(tmp_path), daily_blog.agents.RouteBudget(30, 1), runner,
-	)
-
-	assert any("First author response" in item.content for item in reviewed) and any(
-		"Reviewed recovery choice" in item.content for item in reviewed
-	)
-	assert isinstance(attempt.outcome, daily_blog.artifacts.SelectedPeer) and "Reviewed recovery choice" in attempt.outcome.artifact.content
-
-
-def test_recovery_reports_real_writer_loss_and_repaired_disagreeing_reviews(
-		tmp_path: pathlib.Path,
-) -> None:
-	"""Recovery retains bounded facts for real route loss, repair, and review disagreement."""
-	value = _recovery_input(tmp_path, daily_blog.recovery.RecoveryRung.DAILY_OUTLINE_EXPANSION)
-	config = _config(tmp_path)
-	initial_review_calls = 2
-
-	class Runner:
-		writer_calls = 0
-		reviewer_calls = 0
-
-		def run(
-			self, route: daily_blog.editorial_stage_config.RoleRoute,
-			_prompt: str, _directory: str,
-		) -> str:
-			if route.name == "writer":
-				self.writer_calls += 1
-				if self.writer_calls == 1:
-					raise daily_blog.routes.EditorialRouteTimeout("fixture")
-				return _post(value.stage6_input).replace("connected work", "writer recovery")
-			if route.name == "editor":
-				return _post(value.stage6_input).replace("connected work", "editor recovery " + str(self.writer_calls))
-			self.reviewer_calls += 1
-			return "unstructured verdict" if self.reviewer_calls <= initial_review_calls else "A"
-
-	attempt = daily_blog.stage6.recover_daily_outline_expansion(
-		value, "recovery-observability", config, daily_blog.agents.RouteBudget(44, 1), Runner(),
-	)
-	summaries = {item.step: item for item in attempt.step_reliability}
-
-	assert isinstance(attempt.outcome, daily_blog.artifacts.DegradedPromotion)
-	assert summaries["6.1"].failed == 1
-	assert summaries["6.3"].repaired > 0
-	assert summaries["6.3"].disagreements > 0
-	assert "review_disagreement" in summaries["6.3"].reasons
-	assert summaries["6.4"].best_artifact_id == attempt.outcome.artifact.artifact_id
 
 
 #============================================

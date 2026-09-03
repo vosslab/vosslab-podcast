@@ -28,8 +28,8 @@ def _loaded_prompt_set(
 def complete_post_editor_prompt_identity(
 	prompt_set: daily_blog.prompt_registry.loader.LoadedPromptSet,
 ) -> dict[str, object]:
-	"""Return the legacy Stage 6 cache identity from the registry-owned asset."""
-	return _loaded_prompt_set(prompt_set).legacy_identity_dict()
+	"""Return the current Stage 6 cache identity from the registry-owned asset."""
+	return _loaded_prompt_set(prompt_set).identity_dict()
 
 
 #============================================

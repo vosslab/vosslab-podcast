@@ -21,7 +21,6 @@ import daily_blog.routes
 import daily_blog.schema
 
 
-_SCOPE = re.compile(r"^<!-- daily-outline-scope: (\[[^\r\n]*\]) -->$")
 _SHA256 = re.compile(r"[0-9a-f]{64}\Z")
 STORY_RANKING_ALIAS_MAP_VERSION = "story-ranking-alias-map.v1"
 
@@ -344,19 +343,18 @@ class RankingReviewObservation:
 
 @dataclasses.dataclass(frozen=True)
 class PromotedRanking:
-	promotion_id: str
 	candidate_id: str
 	ranking_content_sha256: str
 	artifact_ids: tuple[str, ...]
 	scores: tuple[tuple[str, int], ...]
 	rationale: str
 	review_ids: tuple[str, ...]
-	method: str = "reviewed_ranking_promotion_v1"
+	method: str = "available_ranking"
+	promotion_id: str = dataclasses.field(init=False)
 
 	def __post_init__(self) -> None:
 		if (
-			type(self.promotion_id) is not str or not self.promotion_id
-			or type(self.candidate_id) is not str or not self.candidate_id
+			type(self.candidate_id) is not str or not self.candidate_id
 			or type(self.ranking_content_sha256) is not str
 			or re.fullmatch(r"[0-9a-f]{64}", self.ranking_content_sha256) is None
 			or type(self.artifact_ids) is not tuple or not self.artifact_ids
@@ -365,18 +363,28 @@ class PromotedRanking:
 			or any(type(pair) is not tuple or len(pair) != 2 for pair in self.scores)
 			or type(self.rationale) is not str or not self.rationale
 			or len(self.rationale) > daily_blog.daily_outline_prompts.MAX_RATIONALE_CHARS
-			or type(self.review_ids) is not tuple or not self.review_ids
+			or type(self.review_ids) is not tuple
 			or tuple(sorted(set(self.review_ids))) != self.review_ids
 			or any(type(item) is not str or not item for item in self.review_ids)
 			or tuple(key for key, _value in self.scores) != tuple(sorted(self.artifact_ids))
 			or any(type(key) is not str or type(score) is not int or isinstance(score, bool) or not 0 <= score <= 100 for key, score in self.scores)
 			or len(set(self.artifact_ids)) != len(self.artifact_ids)
-			or type(self.method) is not str or self.method != "reviewed_ranking_promotion_v1"
+			or self.method not in {
+				"review_preferred_ranking", "available_ranking",
+				"deterministic_story_order",
+			}
 		):
 			raise RuntimeError("Promoted ranking fields are invalid.")
-		canonical = json.dumps({"candidate_id": self.candidate_id, "accepted_review_ids": list(self.review_ids), "ranking_content_sha256": self.ranking_content_sha256}, sort_keys=True, separators=(",", ":"))
-		if self.promotion_id != "ranking-promotion-" + daily_blog.io_utils.sha256_text(canonical)[:24]:
-			raise RuntimeError("Promoted ranking identity conflicts with reviewed content.")
+		canonical = json.dumps({
+			"candidate_id": self.candidate_id,
+			"method": self.method,
+			"ranking_content_sha256": self.ranking_content_sha256,
+			"review_ids": list(self.review_ids),
+		}, sort_keys=True, separators=(",", ":"))
+		object.__setattr__(
+			self, "promotion_id",
+			"ranking-promotion-" + daily_blog.io_utils.sha256_text(canonical)[:24],
+		)
 
 	def to_dict(self) -> dict[str, object]:
 		return {"promotion_id": self.promotion_id, "candidate_id": self.candidate_id, "artifact_ids": list(self.artifact_ids), "scores": dict(self.scores), "rationale": self.rationale, "method": self.method}
@@ -521,19 +529,14 @@ def _candidate(request: daily_blog.agents.RouteRequest, result: daily_blog.agent
 
 
 def _outline(value: DailyOutlineInput, result: daily_blog.agents.AgentResult) -> daily_blog.artifacts.DailyOutline:
+	"""Derive outline scope from trusted evidence instead of model packaging syntax."""
 	content = result.text.rstrip() + "\n"
-	match = _SCOPE.fullmatch(content.splitlines()[0] if content.splitlines() else "")
-	if match is None:
-		raise daily_blog.agents.RepairableStructuredOutput("Daily outline lacks its exact scope marker.")
-	try:
-		declared_repositories = json.loads(match.group(1))
-	except json.JSONDecodeError as error:
-		raise daily_blog.agents.RepairableStructuredOutput("Daily outline scope is not JSON.") from error
-	if type(declared_repositories) is not list or not declared_repositories or any(type(item) is not str or not item for item in declared_repositories) or tuple(declared_repositories) != tuple(sorted(set(declared_repositories))) or not set(declared_repositories).issubset(value.repositories):
-		raise daily_blog.agents.RepairableStructuredOutput("Daily outline scope is invalid.")
-	evidence_ids = daily_blog.artifacts.evidence_references(content)
-	if not evidence_ids:
-		raise daily_blog.agents.RepairableStructuredOutput("Daily outline has no evidence reference.")
+	content, evidence_ids = daily_blog.artifacts.ensure_evidence_references(
+		content,
+		tuple(sorted({
+			evidence_id for story in value.repo_stories for evidence_id in story.evidence_ids
+		})),
+	)
 	try:
 		repositories = daily_blog.artifacts.resolve_evidence_scope(
 			evidence_ids, value.packets, value.repositories,
@@ -542,10 +545,6 @@ def _outline(value: DailyOutlineInput, result: daily_blog.agents.AgentResult) ->
 		raise daily_blog.agents.RepairableStructuredOutput(
 			"Daily outline evidence scope is invalid."
 		) from error
-	if tuple(declared_repositories) != repositories:
-		raise daily_blog.agents.RepairableStructuredOutput(
-			"Daily outline scope marker conflicts with cited evidence."
-		)
 	selected_packets = tuple(
 		packet for packet in value.packets
 		if {item.repository for item in packet.items}.issubset(repositories)
@@ -580,8 +579,7 @@ def _promotion_reliability(promotion: object) -> daily_blog.replication.StepReli
 def _ranking_promotion_reliability(reviews: tuple[RankingReviewObservation, ...], promoted: PromotedRanking | None, had_candidates: bool) -> daily_blog.replication.StepReliability:
 	reasons = {item.failure for item in reviews if item.failure}
 	if reviews and not any(item.verdict is not None for item in reviews): reasons.add("review_unavailable")
-	if had_candidates and promoted is None: reasons.add("no_eligible_ranking_review")
-	if not had_candidates: reasons.add("ineligible_generation")
+	if not had_candidates: reasons.add("ranking_fallback_used")
 	succeeded = sum(item.verdict is not None for item in reviews)
 	return daily_blog.replication.StepReliability("5.2", "degraded" if reasons else "succeeded", len(reviews), succeeded, len(reviews) - succeeded, sum(item.result.ok and item.result.resumed for item in reviews), sum(item.repaired and item.verdict is not None for item in reviews), 0, "" if promoted is None else promoted.promotion_id, tuple(sorted(reasons)))
 
@@ -596,20 +594,48 @@ def _review_reliability(review: daily_blog.replication.ReviewResult) -> daily_bl
 
 
 def _promote_ranking(candidates: tuple[RankingCandidate, ...], reviews: tuple[RankingReviewObservation, ...]) -> PromotedRanking | None:
-	eligible = []
+	"""Prefer useful review signals without letting a reviewer veto available work."""
+	available = []
 	for candidate in candidates:
 		observations = tuple(item for item in reviews if item.candidate_id == candidate.candidate_id and item.verdict is not None)
 		verdicts = tuple(dict(item.verdict) for item in observations)
-		if any(item["decision"] == "REJECT" for item in verdicts) or not any(item["decision"] == "ACCEPT" for item in verdicts): continue
-		eligible.append((candidate, verdicts, tuple(sorted(item.request.repair_of or item.request.request_id for item in observations if dict(item.verdict)["decision"] == "ACCEPT"))))
-	if not eligible: return None
-	best = eligible[0]
-	for contender in eligible[1:]:
-		left_total, right_total = sum(int(item["score"]) for item in contender[1]), sum(int(item["score"]) for item in best[1])
-		if left_total * len(best[1]) > right_total * len(contender[1]) or (left_total * len(best[1]) == right_total * len(contender[1]) and (contender[0].content_sha256, contender[0].candidate_id) < (best[0].content_sha256, best[0].candidate_id)): best = contender
-	candidate, _verdicts, review_ids = best
-	canonical = json.dumps({"candidate_id": candidate.candidate_id, "accepted_review_ids": list(review_ids), "ranking_content_sha256": candidate.content_sha256}, sort_keys=True, separators=(",", ":"))
-	return PromotedRanking("ranking-promotion-" + daily_blog.io_utils.sha256_text(canonical)[:24], candidate.candidate_id, candidate.content_sha256, candidate.artifact_ids, candidate.scores, candidate.rationale, review_ids)
+		review_ids = tuple(sorted(
+			item.request.repair_of or item.request.request_id for item in observations
+		))
+		accepted = any(item["decision"] == "ACCEPT" for item in verdicts)
+		score = sum(int(item["score"]) for item in verdicts) / len(verdicts) if verdicts else -1
+		available.append((candidate, verdicts, review_ids, accepted, score))
+	if not available:
+		return None
+	best = sorted(
+		available,
+		key=lambda item: (
+			not item[3], -item[4], item[0].content_sha256, item[0].candidate_id,
+		),
+	)[0]
+	candidate, verdicts, review_ids, _accepted, _score = best
+	method = "review_preferred_ranking" if verdicts else "available_ranking"
+	return PromotedRanking(
+		candidate.candidate_id, candidate.content_sha256, candidate.artifact_ids,
+		candidate.scores, candidate.rationale, review_ids, method,
+	)
+
+
+def _deterministic_ranking(value: DailyOutlineInput) -> PromotedRanking:
+	"""Use every available story when no ranker returns a parseable preference."""
+	artifact_ids = value.story_ranking_aliases.content_hashes
+	scores = tuple(sorted((artifact_id, 50) for artifact_id in artifact_ids))
+	rationale = "Use every repository story in stable repository order."
+	ranking_content = json.dumps({
+		"artifact_ids": list(artifact_ids), "rationale": rationale,
+		"scores": dict(scores),
+	}, sort_keys=True, separators=(",", ":"))
+	ranking_hash = daily_blog.io_utils.sha256_text(ranking_content)
+	candidate_id = "ranking-fallback-" + ranking_hash[:24]
+	method = "deterministic_story_order"
+	return PromotedRanking(
+		candidate_id, ranking_hash, artifact_ids, scores, rationale, (), method,
+	)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -665,7 +691,7 @@ def _observe_rankings(
 	cache_load: collections.abc.Callable[[daily_blog.agents.RouteRequest], daily_blog.agents.AgentResult | None] | None,
 	cache_accept: collections.abc.Callable[[daily_blog.agents.RouteRequest, daily_blog.agents.AgentResult], None] | None,
 ) -> tuple[tuple[RankingObservation, ...], tuple[RankingCandidate, ...], bool]:
-	"""Run primary rankers, then one independent wave when none parse."""
+	"""Observe one ranker wave; callers own the deterministic no-ranking fallback."""
 	def observe_wave(step: str, role: str, replica_prefix: str) -> tuple[RankingObservation, ...]:
 		requests = tuple(
 			_request(
@@ -698,11 +724,8 @@ def _observe_rankings(
 		return tuple(observations)
 
 	primary = observe_wave("5_1", "ranker", "ranker-")
-	if any(item.candidate is not None for item in primary):
-		return primary, tuple(item.candidate for item in primary if item.candidate is not None), False
-	fallback = observe_wave("5_1_fallback", "ranker_fallback", "ranker-fallback-")
-	rankings = primary + fallback
-	return rankings, tuple(item.candidate for item in rankings if item.candidate is not None), True
+	candidates = tuple(item.candidate for item in primary if item.candidate is not None)
+	return primary, candidates, not candidates
 
 
 def _observe_ranking_reviews(
@@ -952,17 +975,7 @@ def run_daily_outline(value: DailyOutlineInput, config: daily_blog.editorial_sta
 	)
 	promoted = _promote_ranking(candidates, ranking_reviews)
 	if promoted is None:
-		promotion = daily_blog.artifacts.NoArtifact(
-			daily_blog.artifacts.DailyOutline,
-			"no_eligible_ranking_review" if candidates else "no_eligible_generation",
-		)
-		empty_generation = daily_blog.replication.ReplicationResult(
-			daily_blog.artifacts.DailyOutline, (),
-		)
-		return _daily_outline_result(
-			promotion, rankings, ranking_reviews, None, empty_generation,
-			daily_blog.replication.ReviewResult((), ()), bool(candidates), ranking_fallback_used, value,
-		)
+		promoted = _deterministic_ranking(value)
 	generation = _replicate_outlines(
 		value, config, budget, prepared, promoted, cache_load, cache_accept,
 	)

@@ -165,11 +165,11 @@ def _request(
 
 #============================================
 def _outline(value: RepositoryOutlineInput, result: daily_blog.agents.AgentResult) -> daily_blog.artifacts.RepoOutline:
-	"""Parse one whole outline response; prose assembly never occurs here."""
+	"""Parse one whole outline and attach packet provenance when the model omits it."""
 	content = result.text.rstrip() + "\n"
-	evidence_ids = daily_blog.artifacts.evidence_references(content)
-	if not evidence_ids:
-		raise daily_blog.agents.RepairableStructuredOutput("Repository outline has no evidence reference.")
+	content, evidence_ids = daily_blog.artifacts.ensure_evidence_references(
+		content, tuple(sorted(item.evidence_id for item in value.packet.items)),
+	)
 	return daily_blog.artifacts.RepoOutline.create(
 		value.report_date, (value.packet,), value.repository, content, evidence_ids,
 		daily_blog.artifacts.referenced_image_paths(content),

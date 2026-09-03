@@ -195,6 +195,8 @@ scope; they are not alternate editorial-promotion suites.
 - [`FILE_FORMATS.md`](FILE_FORMATS.md): durable formats and publication schemas.
 - [`OUT_DIRECTORY_ORGANIZATION_SPEC.md`](OUT_DIRECTORY_ORGANIZATION_SPEC.md): output ownership.
 - [`PYTEST_STYLE.md`](PYTEST_STYLE.md): permanent-test policy and commands.
+- [`LLM_GATE_STYLE.md`](LLM_GATE_STYLE.md): audit checklist for keeping editorial LLM preferences
+  out of publication control flow.
 - [`active_plans/`](active_plans/): in-flight plans, reports, decisions, and workstreams.
 
 ## Where to add work

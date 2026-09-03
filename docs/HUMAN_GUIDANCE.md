@@ -10,8 +10,15 @@ origin belongs there too. Rules: [REPO_STYLE.md](REPO_STYLE.md).
 
 ## System design
 
+- Robust means the workflow succeeds despite imperfect, stochastic LLM behavior. It does not mean adding more gates that require the LLM to follow increasingly strict instructions.
+- An LLM stage may be sloppy, incomplete, malformed, or contrary to instructions. The pipeline should salvage whatever is usable, normalize it mechanically where possible, and continue unless the artifact is genuinely unusable for the next stage.
 - LLMs are stochastic, random, and do not always follow the rules
-
+- Treat imperfect LLM output as normal operating conditions.
+- Prefer tolerant parsing, normalization, defaults, repair, and deterministic post-processing.
+- Remove gates whose only purpose is verifying that the LLM followed formatting or procedural instructions exactly.
+- Remove tests that expect stochastic LLM behavior to be deterministic or instruction-perfect.
+- Keep gates only where failure represents a genuine correctness, safety, or artifact-validity boundary.
+- Judge success primarily by whether a valid blog entry is ultimately produced, not whether the LLM took the prescribed path to produce it.
 - This is pre-production: improve foundational schemas, contracts, abstractions, and ownership
   boundaries directly instead of carrying legacy support.
 - Prioritize the long term and adaptability. Keep responsibilities explicit and components replaceable;

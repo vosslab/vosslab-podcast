@@ -12,7 +12,6 @@ from collections.abc import Callable, Iterator
 
 # local repo modules
 import daily_blog.io_utils
-import daily_blog.attempt_ledger
 import daily_blog.recovery
 import daily_blog.replication
 import daily_blog.run_contracts
@@ -40,7 +39,7 @@ _SUMMARY_FIELDS = frozenset({
 	"schema_version", "summary_id", "terminal_record_sha256", "report_date", "run_id",
 	"created_at", "completed_at", "state", "outcome", "best_artifact_id",
 	"failure_phase", "terminal_fault_category", "operational_failure_kind",
-	"terminal_fault_subtype", "terminal_fault_owner", "attempt_summary",
+	"terminal_fault_subtype", "terminal_fault_owner",
 	"publication_completed", "verified_page_sha256", "incumbent_replacement_count",
 	"editorial_steps",
 })
@@ -191,14 +190,6 @@ def validate_terminal_summary(value: object) -> dict[str, object]:
 		"verified_page_sha256": _sha256(value["verified_page_sha256"], "Verified page identity", True),
 		"incumbent_replacement_count": value["incumbent_replacement_count"],
 	}
-	if type(value["attempt_summary"]) is not dict:
-		raise RuntimeError("Terminal summary attempt reliability is invalid.")
-	if value["attempt_summary"]:
-		result["attempt_summary"] = daily_blog.attempt_ledger.AttemptReliabilitySummary.from_dict(
-			value["attempt_summary"],
-		).to_dict()
-	else:
-		result["attempt_summary"] = {}
 	if result["summary_id"] != daily_blog.io_utils.sha256_text(
 		f"{result['run_id']}:{result['terminal_record_sha256']}",
 	):

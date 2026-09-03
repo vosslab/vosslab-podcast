@@ -26,10 +26,6 @@ COVERAGE_REPOSITORY_SCOPES = (
 	"all_packet_activity",
 	"projected_repositories",
 )
-WORD_COUNT_MODES = (
-	"legacy_source",
-	"reader_visible_markdown",
-)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -114,7 +110,7 @@ class CandidateValidationPolicy:
 			or self.coverage_repository_scope not in COVERAGE_REPOSITORY_SCOPES
 		):
 			raise RuntimeError("Candidate validation policy coverage repository scope is unsupported.")
-		if type(self.word_count_mode) is not str or self.word_count_mode not in WORD_COUNT_MODES:
+		if self.word_count_mode != "reader_visible_markdown":
 			raise RuntimeError("Candidate validation policy word count mode is unsupported.")
 
 	#============================================

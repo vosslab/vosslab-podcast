@@ -25,14 +25,14 @@ class RouteCacheIntegrityError(daily_blog.agents.EditorialTerminalError):
 def build_stage6_cache_identity(
 	materialization: daily_blog.stage6_attempt_plan.MaterializedStage6AttemptPlan,
 	attempt: daily_blog.stage6_attempt_plan.PlannedStage6Attempt, *, prompt: str,
-	candidate_identities: tuple[str, ...] = (), feedback_envelope_sha256: str = "",
+	candidate_identities: tuple[str, ...] = (),
 	repair_response: str = "", route_name: str, route_contract_sha256: str,
 ) -> daily_blog.stage6_cache_identity.Stage6CacheIdentity:
 	"""Create the typed Stage 6 witness at the semantic route-cache boundary."""
 	try:
 		return daily_blog.stage6_cache_identity.Stage6CacheIdentity(
 			materialization, attempt, prompt=prompt, candidate_identities=candidate_identities,
-			feedback_envelope_sha256=feedback_envelope_sha256, repair_response=repair_response,
+			repair_response=repair_response,
 			route_name=route_name, route_contract_sha256=route_contract_sha256,
 		)
 	except daily_blog.stage6_cache_identity.Stage6CacheIdentityError as error:

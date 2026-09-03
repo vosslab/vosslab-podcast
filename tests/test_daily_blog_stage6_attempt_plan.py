@@ -8,8 +8,6 @@ import hashlib
 import pytest
 
 # local repo modules
-import daily_blog.replication
-import daily_blog.attempt_ledger
 import daily_blog.stage6_attempt_plan
 
 
@@ -17,14 +15,6 @@ import daily_blog.stage6_attempt_plan
 def make_policy(fresh_batch_count: int = 1) -> daily_blog.stage6_attempt_plan.Stage6AttemptPolicy:
 	"""Build a small valid policy without coupling tests to live tuning."""
 	return daily_blog.stage6_attempt_plan.Stage6AttemptPolicy(2, 2, 1, 1, fresh_batch_count)
-
-
-#============================================
-def route_failure(slot_id: str) -> daily_blog.attempt_ledger.AttemptFact:
-	"""Close one test slot with a valid non-secret terminal transport fact."""
-	return daily_blog.attempt_ledger.AttemptFact(
-		slot_id, "fresh_route", 1, 0, "timeout", "transport", "route_failed", "route_timeout",
-	)
 
 
 #============================================
@@ -82,53 +72,6 @@ def test_repair_binds_the_exact_preceding_review_identity() -> None:
 	assert repair.repair_of_identity == review.semantic_identity
 	with pytest.raises(RuntimeError, match="repair source"):
 		dataclasses.replace(repair, repair_of_identity="0" * 64)
-
-
-#============================================
-def test_primary_failure_requires_later_recovery_materialization() -> None:
-	"""A no-selection primary prefix cannot be summarized as global exhaustion."""
-	plan = daily_blog.stage6_attempt_plan.build_stage6_attempt_plan(make_policy(2))
-	materialization = plan.materialize(
-		"primary", 0, generation_ids(plan, "primary", 0),
-	)
-	ledger = daily_blog.attempt_ledger.AttemptLedger(
-		materialization.semantic_identities,
-		tuple(route_failure(item.semantic_identity) for item in materialization.attempts),
-	)
-	with pytest.raises(RuntimeError, match="final applicable"):
-		daily_blog.stage6_attempt_plan.reconcile_stage6_attempt_summary(materialization, ledger)
-
-
-#============================================
-def test_materialization_omits_unavailable_review_pairs_without_false_skips() -> None:
-	"""Candidate absence removes review work instead of inventing skip facts."""
-	plan = daily_blog.stage6_attempt_plan.build_stage6_attempt_plan(make_policy())
-	available = tuple(
-		item.semantic_identity for item in plan.attempts if item.work_kind == "generation"
-	)
-	materialization = plan.materialize("repository_story_merge", 0, available)
-	assert materialization.semantic_identities == available
-	ledger = daily_blog.attempt_ledger.AttemptLedger(
-		materialization.semantic_identities,
-		tuple(route_failure(slot_id) for slot_id in materialization.semantic_identities),
-	)
-	summary = daily_blog.stage6_attempt_plan.reconcile_stage6_attempt_summary(materialization, ledger)
-	assert summary.skipped == 0
-
-
-#============================================
-def test_final_ladder_reports_exhaustion_after_no_selection() -> None:
-	"""Only a final no-selection materialization reports exhaustion."""
-	plan = daily_blog.stage6_attempt_plan.build_stage6_attempt_plan(make_policy())
-	final = plan.materialize(
-		"repository_story_merge", 0,
-		generation_ids(plan, "repository_story_merge", 0),
-	)
-	failed = daily_blog.attempt_ledger.AttemptLedger(
-		final.semantic_identities,
-		tuple(route_failure(slot_id) for slot_id in final.semantic_identities),
-	)
-	assert daily_blog.stage6_attempt_plan.reconcile_stage6_attempt_summary(final, failed).exhausted == 1
 
 
 #============================================

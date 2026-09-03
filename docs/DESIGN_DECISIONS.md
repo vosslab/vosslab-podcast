@@ -24,6 +24,25 @@ authoritative code or contract document, rather than a person.
 
 ## Software design
 
+### Pre-production contracts replace obsolete designs
+
+**Decision.** Before production, each boundary has one current schema and one current code path.
+When its design changes, update its producers and consumers together and delete the superseded
+reader, adapter, version branch, fixture, and migration test. Do not add `v1`, `v2`, `legacy`, or
+compatibility names to preserve code that no user depends on.
+
+**Why.** Compatibility machinery makes unfinished designs look permanent, multiplies branches and
+gates, and obscures which abstraction actually owns the behavior. Content hashes and exact boundary
+validation already identify the current artifacts without pretending that abandoned shapes remain
+supported products.
+
+**Consequence.** Foundational fixes replace the pre-production contract in place. Cross-repository
+boundaries change atomically. Historical prose may remain in changelogs and archives, but executable
+code and permanent tests describe only the current design.
+
+**Owner.** [REPO_STYLE.md](REPO_STYLE.md), this decision record, and the current producer and
+consumer boundary modules.
+
 ### Report date owns a publication
 
 **Decision.** `report_date` is the sole identity for a daily publication. The producer writes one
@@ -80,7 +99,8 @@ follow exact prose or formatting directions; one-time checks may assess editoria
 becoming suite gates.
 
 **Owner.** `pipeline/daily_blog/publication_admission.py`,
-`pipeline/daily_blog/publication_validation.py`, and [PYTEST_STYLE.md](PYTEST_STYLE.md).
+`pipeline/daily_blog/publication_validation.py`, [LLM_GATE_STYLE.md](LLM_GATE_STYLE.md), and
+[PYTEST_STYLE.md](PYTEST_STYLE.md).
 
 ### Runtime code owns GitHub credential consumption
 

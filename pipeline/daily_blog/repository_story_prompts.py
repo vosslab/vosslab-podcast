@@ -31,7 +31,7 @@ def _loaded(value: daily_blog.prompt_registry.loader.LoadedPromptSet | None) -> 
 
 def repository_story_prompt_identity(loaded: daily_blog.prompt_registry.loader.LoadedPromptSet | None = None) -> dict[str, object]:
 	"""Return durable Stage 4 prompt provenance in its legacy payload form."""
-	return _loaded(loaded).legacy_identity_dict()
+	return _loaded(loaded).identity_dict()
 
 
 def _bounded_text(value: object, label: str, maximum: int) -> str:

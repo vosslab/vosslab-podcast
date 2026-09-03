@@ -67,14 +67,7 @@ def _recovery_sources(
 		"Outline <!-- evidence: " + evidence_id + " -->", (evidence_id,),
 	)
 	ranking_hash = "a" * 64
-	payload = {
-		"candidate_id": "ranking-1", "accepted_review_ids": ["review-1"],
-		"ranking_content_sha256": ranking_hash,
-	}
 	promoted = daily_blog.daily_outline_workflow.PromotedRanking(
-		"ranking-promotion-" + daily_blog.io_utils.sha256_text(
-			json.dumps(payload, sort_keys=True, separators=(",", ":")),
-		)[:24],
 		"ranking-1", ranking_hash, (story.content_hash,), ((story.content_hash, 100),),
 		"Grounded ranking rationale.", ("review-1",),
 	)

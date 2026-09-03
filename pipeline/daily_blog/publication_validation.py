@@ -5,20 +5,22 @@ import collections.abc
 import dataclasses
 import os
 import re
+import unicodedata
 
 # local repo modules
 import daily_blog.artifacts
-import daily_blog.candidates
 import daily_blog.schema
 import daily_blog.publication_admission
 
 
 MACHINE_METADATA_FIELDS = daily_blog.artifacts.PUBLICATION_MACHINE_METADATA_FIELDS
-MACHINE_METADATA_REASONS = frozenset({
+PUBLICATION_REPAIR_REASONS = frozenset({
 	"machine_metadata_constructed", "machine_metadata_repaired",
+	"publication_heading_normalized",
 })
 FRONT_MATTER_RE = re.compile(r"\A---\n(?P<metadata>.*?)\n---\n", re.DOTALL)
 H1_RE = re.compile(r"^#\s+(?P<title>\S.*?)\s*$", re.MULTILINE)
+SLUG_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 
 
 #============================================
@@ -50,7 +52,7 @@ class PublicationValidationResult:
 			raise RuntimeError("Publication validation result state is invalid.")
 		if tuple(sorted(set(self.reasons))) != self.reasons:
 			raise RuntimeError("Publication validation reasons must be canonical.")
-		if any(reason not in MACHINE_METADATA_REASONS for reason in self.reasons):
+		if any(reason not in PUBLICATION_REPAIR_REASONS for reason in self.reasons):
 			raise RuntimeError("Publication validation reason is unsupported.")
 		if self.repaired != bool(self.reasons):
 			raise RuntimeError("Publication validation repair state is inconsistent.")
@@ -68,8 +70,13 @@ class PublicationValidationResult:
 				raise RuntimeError("Publication validation repair changed trusted provenance.")
 		source_body, _source_metadata = _body_and_metadata(self.source_post.content)
 		post_body, post_metadata = _body_and_metadata(self.post.content)
-		if source_body != post_body or set(post_metadata or ()) != set(MACHINE_METADATA_FIELDS):
-			raise RuntimeError("Publication validation repair changed authored post bytes.")
+		expected_body = source_body
+		if "publication_heading_normalized" in self.reasons:
+			expected_body, _title, _changed = _normalize_publication_heading(
+				source_body, self.source_post.report_date,
+			)
+		if expected_body != post_body or set(post_metadata or ()) != set(MACHINE_METADATA_FIELDS):
+			raise RuntimeError("Publication validation repair changed content outside machine packaging.")
 
 
 #============================================
@@ -116,8 +123,10 @@ def _body_and_metadata(content: str) -> tuple[str, dict[str, str] | None]:
 #============================================
 def _metadata(report_date: str, title: str, generator_run: str) -> dict[str, str]:
 	"""Construct the one closed publisher metadata mapping from trusted inputs."""
-	slug = daily_blog.candidates.slug_from_title(title)
-	if not slug or daily_blog.candidates.SLUG_RE.fullmatch(slug) is None:
+	decomposed = unicodedata.normalize("NFKD", title)
+	ascii_title = decomposed.encode("ascii", "ignore").decode("ascii").casefold()
+	slug = re.sub(r"[^a-z0-9]+", "-", ascii_title).strip("-")
+	if not slug or SLUG_RE.fullmatch(slug) is None:
 		raise RuntimeError("Publication title cannot produce a publisher slug.")
 	return {
 		"date": report_date,
@@ -126,6 +135,27 @@ def _metadata(report_date: str, title: str, generator_run: str) -> dict[str, str
 		"evidence_manifest": "evidence.json",
 		"editorial_projection": "editorial_projection.json",
 	}
+
+
+#============================================
+def _normalize_publication_heading(body: str, report_date: str) -> tuple[str, str, bool]:
+	"""Return one publishable H1 without requiring model packaging compliance."""
+	matches = tuple(H1_RE.finditer(body))
+	if len(matches) == 1:
+		return body, matches[0].group("title"), False
+	if not matches:
+		title = "Work on " + report_date
+		return "# " + title + "\n\n" + body.lstrip(), title, True
+	first = True
+
+	def normalize(match: re.Match[str]) -> str:
+		nonlocal first
+		if first:
+			first = False
+			return match.group(0)
+		return "## " + match.group("title")
+
+	return H1_RE.sub(normalize, body), matches[0].group("title"), True
 
 
 #============================================
@@ -253,17 +283,16 @@ def validate_and_repair_complete_post(
 	if type(recovery) is not bool:
 		raise RuntimeError("Publication validation recovery scope is invalid.")
 	body, existing_metadata = _body_and_metadata(post.content)
-	titles = tuple(match.group("title") for match in H1_RE.finditer(body))
-	if len(titles) != 1:
-		raise RuntimeError("Publication content must contain exactly one descriptive H1.")
-	canonical_metadata = _metadata(report_date, titles[0], run_id)
-	repaired = existing_metadata != canonical_metadata
+	body, title, heading_changed = _normalize_publication_heading(body, report_date)
+	canonical_metadata = _metadata(report_date, title, run_id)
+	reason_set = set()
+	if heading_changed:
+		reason_set.add("publication_heading_normalized")
 	if existing_metadata is None:
-		reasons = ("machine_metadata_constructed",)
-	elif repaired:
-		reasons = ("machine_metadata_repaired",)
-	else:
-		reasons = ()
+		reason_set.add("machine_metadata_constructed")
+	elif existing_metadata != canonical_metadata:
+		reason_set.add("machine_metadata_repaired")
+	reasons = tuple(sorted(reason_set))
 	validated = post if not reasons else daily_blog.artifacts.CompletePost.create_publication_derivative(
 		report_date, packets, semantic_scope, body, post.evidence_ids,
 		report_date, post.output_path, canonical_metadata, post.image_paths,

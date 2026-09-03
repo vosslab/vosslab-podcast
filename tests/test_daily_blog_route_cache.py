@@ -84,7 +84,7 @@ def _cache(tmp_path: pathlib.Path) -> daily_blog.route_cache.RouteResultCache:
 def _stage6_request(
 	materialization: daily_blog.stage6_attempt_plan.MaterializedStage6AttemptPlan,
 	attempt: daily_blog.stage6_attempt_plan.PlannedStage6Attempt, *, candidate_input: str = "candidate",
-	feedback_envelope: str = "", repair_response: str = "", contract_version: str = "contract-v1",
+	repair_response: str = "", contract_version: str = "contract-v1",
 ) -> daily_blog.agents.RouteRequest:
 	"""Materialize one planned Stage 6 request with digest-only cache witnesses."""
 	route = daily_blog.editorial_stage_config.RoleRoute("route_" + attempt.role, ("fixture",))
@@ -98,9 +98,6 @@ def _stage6_request(
 	)
 	identity = daily_blog.route_cache.build_stage6_cache_identity(
 		materialization, attempt, prompt=prompt, candidate_identities=candidate_identities,
-		feedback_envelope_sha256=(
-			"" if not feedback_envelope else daily_blog.io_utils.sha256_text(feedback_envelope)
-		),
 		repair_response=repair_response, route_name=route.name,
 		route_contract_sha256=route_contract_sha256,
 	)
@@ -401,14 +398,7 @@ def _real_stage_requests(
 		stories, outlines, packets, evidence_context, str(root),
 	)
 	ranking_hash = "a" * 64
-	ranking_payload = {
-		"candidate_id": "ranking-1", "accepted_review_ids": ["review-1"],
-		"ranking_content_sha256": ranking_hash,
-	}
 	promoted_ranking = daily_blog.daily_outline_workflow.PromotedRanking(
-		"ranking-promotion-" + daily_blog.io_utils.sha256_text(
-			json.dumps(ranking_payload, sort_keys=True, separators=(",", ":")),
-		)[:24],
 		"ranking-1", ranking_hash, tuple(sorted(item.content_hash for item in stories)),
 		tuple(sorted((item.content_hash, 100) for item in stories)),
 		"Grounded ranking rationale.", ("review-1",),
@@ -512,18 +502,6 @@ def test_stage6_cache_distinguishes_fresh_batch_slots(tmp_path: pathlib.Path) ->
 	assert cache.load(second_batch) is None
 
 
-#============================================
-def test_stage6_editor_feedback_changes_the_semantic_cache_key(tmp_path: pathlib.Path) -> None:
-	"""Closed positive feedback is part of the editor's materialized input."""
-	cache = _cache(tmp_path)
-	first = _stage6_request(*_materialized_attempt("editor"), feedback_envelope="use grounded evidence")
-	cache.commit((daily_blog.route_cache.RouteCacheEffect(first, _result(first)),))
-	changed = _stage6_request(*_materialized_attempt("editor"), feedback_envelope="use concrete implementation detail")
-
-	assert cache.load(changed) is None
-
-
-#============================================
 def test_stage6_repair_response_changes_the_semantic_cache_key(tmp_path: pathlib.Path) -> None:
 	"""Review repair caches only the materialized response it was asked to improve."""
 	cache = _cache(tmp_path)

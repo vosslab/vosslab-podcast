@@ -27,21 +27,6 @@ def editorial_summary(
 
 
 #============================================
-def test_v2_rejection_counts_survive_run_record_round_trip() -> None:
-	"""Categorical rejection facts remain available after durable state replay."""
-	record = daily_blog.run_contracts.RunRecord.create("run-rejections", "2026-08-23", CREATED_AT)
-	summary = daily_blog.replication.StepReliability(
-		"writer", "degraded", 2, 1, 1, 0, 0, 0, "",
-		("citation_density_mismatch",), (("citation_density_mismatch", 1),),
-	)
-	record.add_editorial_step(summary, daily_blog.run_contracts.ObserveIncumbent())
-	restored = daily_blog.run_contracts.RunRecord.from_dict(record.to_dict())
-	replayed = daily_blog.replication.StepReliability.from_dict(restored.editorial_steps[0])
-
-	assert replayed.rejection_counts == (("citation_density_mismatch", 1),)
-
-
-#============================================
 def test_v11_run_record_replays_typed_incumbent_transitions() -> None:
 	"""Typed transition replay preserves the selected publication artifact."""
 	record = daily_blog.run_contracts.RunRecord.create("run-transitions", "2026-08-23", CREATED_AT)

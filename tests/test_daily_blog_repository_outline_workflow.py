@@ -180,22 +180,6 @@ def test_eligible_incumbent_survives_unavailable_review(tmp_path: pathlib.Path) 
 
 
 #============================================
-def test_no_eligible_generator_returns_typed_no_artifact(tmp_path: pathlib.Path) -> None:
-	"""Ordinary ineligibility reports a typed absence rather than a pipeline defect."""
-	value = input_value(tmp_path)
-	bad = "# bad\n\nNo citation.\n"
-	runner = Runner({
-		"repository_outline_generator": [bad, bad],
-		"repository_outline_merger": [], "repository_outline_reviewer": [],
-	})
-	result = daily_blog.repository_outline_workflow.run_repository_outline(
-		value, config(), daily_blog.agents.RouteBudget(2, 8), runner,
-	)
-	assert isinstance(result.promotion, daily_blog.artifacts.NoArtifact)
-	assert result.artifact is None
-
-
-#============================================
 def test_unsupported_runner_response_escapes_as_pipeline_defect(tmp_path: pathlib.Path) -> None:
 	"""Unsupported runner responses are faults, not editorial degradation."""
 	value = input_value(tmp_path)

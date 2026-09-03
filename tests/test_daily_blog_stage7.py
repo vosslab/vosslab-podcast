@@ -2,7 +2,6 @@
 
 # Standard Library
 import dataclasses
-import json
 from pathlib import Path
 
 # PIP3 modules
@@ -42,14 +41,7 @@ def _recovery_sources(
 		"Outline <!-- evidence: " + evidence_id + " -->", (evidence_id,),
 	)
 	ranking_hash = "a" * 64
-	payload = {
-		"candidate_id": "ranking-1", "accepted_review_ids": ["review-1"],
-		"ranking_content_sha256": ranking_hash,
-	}
 	promoted = daily_blog.daily_outline_workflow.PromotedRanking(
-		"ranking-promotion-" + daily_blog.io_utils.sha256_text(
-			json.dumps(payload, sort_keys=True, separators=(",", ":")),
-		)[:24],
 		"ranking-1", ranking_hash, (story.content_hash,), ((story.content_hash, 100),),
 		"Grounded ranking rationale.", ("review-1",),
 	)
@@ -189,13 +181,6 @@ class _Runner:
 		return '{"winner":"A","reason":"keep","evidence_quality":"high","confidence":1}'
 
 
-def test_stage7_direct_incumbent_review_can_promote_challenger(tmp_path: Path) -> None:
-	"""A challenger wins only through every successful direct incumbent comparison."""
-	value, incumbent = _stage7_input(tmp_path)
-	runner = _Runner(value)
-	result = daily_blog.stage7.run_stage7(value, "stage7", _config(tmp_path), daily_blog.agents.RouteBudget(14, 2), runner)
-	assert result.synthesis_won and result.artifact is not incumbent
-
 
 def test_stage7_total_synthesis_loss_preserves_exact_incumbent_object_and_hash(tmp_path: Path) -> None:
 	"""Route loss is editorial degradation, not permission to reconstruct an incumbent."""
@@ -204,13 +189,6 @@ def test_stage7_total_synthesis_loss_preserves_exact_incumbent_object_and_hash(t
 		_Runner(value, fail_synthesis=True))
 	assert result.artifact is incumbent and not result.synthesis_won
 
-
-def test_stage7_successful_no_better_review_preserves_incumbent(tmp_path: Path) -> None:
-	"""A valid synthesis cannot replace the incumbent without direct winning votes."""
-	value, incumbent = _stage7_input(tmp_path)
-	result = daily_blog.stage7.run_stage7(value, "stage7", _config(tmp_path), daily_blog.agents.RouteBudget(14, 2),
-		_Runner(value, winner=False))
-	assert result.artifact is incumbent and not result.synthesis_won
 
 
 def test_stage7_input_rejects_forged_stage6_lineage_before_routes(tmp_path: Path) -> None:

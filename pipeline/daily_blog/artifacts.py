@@ -26,7 +26,7 @@ ELIGIBILITY_REASONS = frozenset({
 })
 NO_ARTIFACT_REASONS = frozenset({
 	"route_unavailable", "no_eligible_generation", "evidence_unavailable", "configuration",
-	"implementation_defect", "no_eligible_ranking_review",
+	"implementation_defect",
 })
 DATE_RE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}\Z")
 SHA256_RE = re.compile(r"[0-9a-f]{64}\Z")
@@ -175,6 +175,24 @@ def evidence_references(content: str) -> tuple[str, ...]:
 	for match in EVIDENCE_COMMENT_RE.finditer(content):
 		identifiers.update(value.strip() for value in match.group(1).split(",") if value.strip())
 	return tuple(sorted(identifiers))
+
+
+#============================================
+def ensure_evidence_references(
+	content: str, fallback_evidence_ids: tuple[str, ...],
+) -> tuple[str, tuple[str, ...]]:
+	"""Attach trusted input provenance when authored prose omits evidence comments.
+
+	Unknown model-authored references remain visible to normal eligibility checks. This
+	normalization only handles the absence of presentation syntax by attaching the
+	caller-owned evidence set to the whole artifact.
+	"""
+	existing = evidence_references(content)
+	if existing:
+		return content, existing
+	identifiers = _require_text_tuple(fallback_evidence_ids, "fallback evidence_ids")
+	closed = content.rstrip() + "\n\n<!-- evidence: " + ", ".join(identifiers) + " -->\n"
+	return closed, identifiers
 
 
 #============================================

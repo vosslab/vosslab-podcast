@@ -8,7 +8,6 @@ import json
 
 # local repo modules
 import daily_blog.artifacts
-import daily_blog.attempt_ledger
 import daily_blog.agents
 import daily_blog.io_utils
 import daily_blog.publication_validation
@@ -21,7 +20,6 @@ import daily_blog.mirrors
 import daily_blog.recovery
 import daily_blog.stage6
 import daily_blog.stage6_attempt_plan
-import daily_blog.stage6_attempt_reliability
 import daily_blog.stage7
 import daily_blog.stage_recovery_coordinator
 import daily_blog.editorial
@@ -183,7 +181,7 @@ def _stage5_terminal_fault(coordinator: object, value: daily_blog.daily_outline_
 	prompt_set = daily_blog.prompt_registry.loader.load_prompt_set(
 		daily_blog.prompt_registry.definitions.DAILY_OUTLINE_PROMPT_SET,
 	)
-	resources = prompt_set.legacy_identity_dict()["resources"]
+	resources = prompt_set.identity_dict()["resources"]
 	if type(resources) is not dict:
 		raise RuntimeError("Stage 5 prompt registry identity is invalid.")
 	prompts = tuple(sorted(item for name, item in resources.items() if name.endswith(".txt")))
@@ -318,85 +316,6 @@ def _stage6_incumbent_transition(
 
 
 #============================================
-def _persist_stage6_attempt_ledger(
-	coordinator: object,
-	ledger: daily_blog.attempt_ledger.AttemptLedger,
-) -> daily_blog.attempt_ledger.AttemptReliabilitySummary | None:
-	"""Persist one already reconciled, response-free Stage 6 reliability ledger.
-
-	The caller closes the exact configured plan before this serial durability
-	boundary.  Saving only a validated ledger keeps every durable record and
-	journal projection derived from closed execution facts.
-	"""
-	if type(ledger) is not daily_blog.attempt_ledger.AttemptLedger or not ledger.complete:
-		raise RuntimeError("Stage 6 persistence requires one complete reconciled attempt ledger.")
-	coordinator.record.set_attempt_ledger(ledger)
-	coordinator.store.save(coordinator.record)
-	summary = ledger.summary()
-	coordinator.store.append_event(
-		"daily_publication.stage6_attempt_reliability_persisted",
-		_stage6_attempt_summary_event_details(summary),
-	)
-	return summary
-
-
-#============================================
-def _reconcile_stage6_attempt_ledger(
-	coordinator: object,
-	observations: tuple[object, ...],
-) -> daily_blog.attempt_ledger.AttemptLedger:
-	"""Build and reconcile the configured canonical plan before durable Stage 6 work."""
-	plan = daily_blog.stage6_attempt_plan.build_stage6_attempt_plan(
-		coordinator.config.complete_post.stage6_attempt_policy,
-	)
-	ledger = daily_blog.stage6_attempt_reliability.aggregate_stage6_attempt_ledger(
-		plan, observations,
-	)
-	if not ledger.complete:
-		raise RuntimeError("Stage 6 reconciliation requires every materialized attempt fact.")
-	return ledger
-
-
-#============================================
-def _validate_stage6_attempt_prefix(
-	coordinator: object,
-	observations: tuple[object, ...],
-) -> daily_blog.attempt_ledger.AttemptLedger:
-	"""Validate observed primary facts before recovery chooses a final ladder."""
-	plan = daily_blog.stage6_attempt_plan.build_stage6_attempt_plan(
-		coordinator.config.complete_post.stage6_attempt_policy,
-	)
-	ledger = daily_blog.stage6_attempt_reliability.observed_stage6_attempt_prefix_ledger(
-		plan, observations,
-	)
-	if not ledger.complete:
-		raise RuntimeError("Stage 6 primary validation requires every materialized attempt fact.")
-	return ledger
-
-
-#============================================
-def _stage6_attempt_summary_event_details(
-	summary: daily_blog.attempt_ledger.AttemptReliabilitySummary,
-) -> dict[str, object]:
-	"""Return the scalar, bounded event projection of one reconciled summary."""
-	if type(summary) is not daily_blog.attempt_ledger.AttemptReliabilitySummary:
-		raise RuntimeError("Stage 6 event requires an exact reliability summary.")
-	canonical = daily_blog.attempt_ledger.AttemptReliabilitySummary.from_dict(summary.to_dict())
-	counts = dict(canonical.reason_counts)
-	value = {name: getattr(canonical, name) for name in (
-		"planned", "fresh", "cache", "skipped", "current_physical_calls",
-		"transport_success", "transport_failure", "parsed", "mechanical", "policy",
-		"selected", "exhausted", "dispatched", "reviewed", "rejected",
-	)}
-	value["schema_version"] = "vosslab.daily-blog.stage6-attempt-summary-event.v1"
-	value.update({
-		"reason_" + code: counts.get(code, 0)
-		for code in sorted(daily_blog.attempt_ledger.ATTEMPT_REASON_CODES - {""})
-	})
-	return value
-
-
-#============================================
 def run_typed_stage6(
 	coordinator: object, value: daily_blog.stage6.Stage6Input,
 ) -> daily_blog.stage6.Stage6Result:
@@ -414,14 +333,6 @@ def run_typed_stage6(
 		snapshot=coordinator.prompt_snapshot, cache_load=cache_effects.load,
 		cache_accept=cache_effects.accept,
 	)
-	if (
-		result.reliability_scope != daily_blog.stage6.RELIABILITY_SCOPE_PLANNED_ROUTES_COMPLETE
-		or not result.primary_observations
-	):
-		raise RuntimeError("Stage 6 production execution requires planned-route observations.")
-	# Validate primary route facts before the phase begins or writes Stage 6
-	# artifacts.  Recovery then supplies the final durable ladder when needed.
-	primary_ledger = _validate_stage6_attempt_prefix(coordinator, result.primary_observations)
 	coordinator._start("stage6_complete_post", {
 		"packet_ids": [item.packet_id for item in value.packets], "output_path": output_path,
 		"evidence_context_id": value.evidence_context.context_id,
@@ -459,22 +370,9 @@ def run_typed_stage6(
 	if result.artifact is None:
 		try:
 			result = _recover_stage6(coordinator, value, result, cache_effects)
-		except daily_blog.recovery.PipelineFaultError as error:
-			# Recovery may finish with a typed terminal fault after valid primary
-			# or fallback route results were buffered.  Preserve those validated
-			# cache effects before the fault leaves this serial write boundary.
-			ledger = _reconcile_stage6_attempt_ledger(
-				coordinator, result.primary_observations + error.fault.stage6_observations,
-			)
-			_persist_stage6_attempt_ledger(coordinator, ledger)
+		except daily_blog.recovery.PipelineFaultError:
 			coordinator.route_cache.commit(cache_effects.drain())
 			raise
-	ledger = primary_ledger
-	if result.recovery_observations:
-		ledger = _reconcile_stage6_attempt_ledger(
-			coordinator, result.primary_observations + result.recovery_observations,
-		)
-	_persist_stage6_attempt_ledger(coordinator, ledger)
 	coordinator.route_cache.commit(cache_effects.drain())
 	coordinator._complete("stage6_complete_post", {
 		"artifact_id": result.artifact.artifact_id,

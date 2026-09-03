@@ -224,7 +224,7 @@ def test_observability_rejects_diagnostic_data_outside_its_bounded_contract(
 		"completed_at": FIXED_TIME, "state": "failed", "outcome": "failed",
 		"best_artifact_id": "", "failure_phase": "repository_discovery",
 		"terminal_fault_category": "unknown_fault", "operational_failure_kind": "",
-		"terminal_fault_subtype": "", "terminal_fault_owner": "", "attempt_summary": {},
+		"terminal_fault_subtype": "", "terminal_fault_owner": "",
 		"publication_completed": False, "verified_page_sha256": "",
 		"incumbent_replacement_count": 0, "editorial_steps": [],
 	}

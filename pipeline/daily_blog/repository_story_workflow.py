@@ -177,11 +177,12 @@ def _request(
 
 #============================================
 def _story(value: RepositoryStoryInput, result: daily_blog.agents.AgentResult) -> daily_blog.artifacts.RepoStory:
-	"""Parse one whole story response; no mechanical prose assembly occurs here."""
+	"""Parse one whole story and attach packet provenance when the model omits it."""
 	content = result.text.rstrip() + "\n"
-	evidence_ids = daily_blog.artifacts.evidence_references(content)
-	if not evidence_ids:
-		raise daily_blog.agents.RepairableStructuredOutput("Repository story has no evidence reference.")
+	content, evidence_ids = daily_blog.artifacts.ensure_evidence_references(
+		content,
+		tuple(sorted(item.evidence_id for packet in value.packets for item in packet.items)),
+	)
 	return daily_blog.artifacts.RepoStory.create(value.report_date, value.packets, value.repository, content,
 		evidence_ids, daily_blog.artifacts.referenced_image_paths(content))
 

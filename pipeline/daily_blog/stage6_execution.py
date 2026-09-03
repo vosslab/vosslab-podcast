@@ -36,7 +36,7 @@ def build_request(
 	materialization: daily_blog.stage6_attempt_plan.MaterializedStage6AttemptPlan,
 	route: daily_blog.editorial_stage_config.RoleRoute, prompt: str,
 	config: daily_blog.editorial_stage_config.CompletePostConfig, contract_version: str,
-	candidate_identities: tuple[str, ...] = (), feedback_envelope_sha256: str = "",
+	candidate_identities: tuple[str, ...] = (),
 	repair_response: str = "", working_directory: str = "",
 ) -> daily_blog.agents.RouteRequest:
 	"""Build one route request with its validated Stage 6 semantic witness."""
@@ -51,7 +51,7 @@ def build_request(
 	)
 	identity = daily_blog.route_cache.build_stage6_cache_identity(
 		materialization, attempt, prompt=prompt, candidate_identities=candidate_identities,
-		feedback_envelope_sha256=feedback_envelope_sha256, repair_response=repair_response,
+		repair_response=repair_response,
 		route_name=route.name, route_contract_sha256=prototype.route_contract_sha256,
 	)
 	return dataclasses.replace(prototype, stage6_cache_identity=identity)

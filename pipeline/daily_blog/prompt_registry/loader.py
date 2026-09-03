@@ -102,7 +102,7 @@ class LoadedPromptSet:
 		return resource._text_value.format(**values)
 
 	#============================================
-	def legacy_identity_dict(self) -> dict[str, object]:
+	def identity_dict(self) -> dict[str, object]:
 		"""Return a current stage payload when its identity is resource-only."""
 		self._require_issued()
 		if self._declaration is daily_blog.prompt_registry.definitions.V4_MAKER_PROMPT_SET:

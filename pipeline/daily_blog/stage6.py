@@ -8,7 +8,6 @@ import os
 
 # local repo modules
 import daily_blog.agents
-import daily_blog.attempt_ledger
 import daily_blog.artifacts
 import daily_blog.complete_post_editor_prompts
 import daily_blog.config
@@ -364,7 +363,6 @@ class Stage6BatchObservation:
 
 	materialization: daily_blog.stage6_attempt_plan.MaterializedStage6AttemptPlan
 	results: tuple[daily_blog.agents.AgentResult, ...]
-	closed_facts: tuple[daily_blog.attempt_ledger.AttemptFact, ...] = ()
 
 	def __post_init__(self) -> None:
 		"""Require canonical request-result coverage without synthetic attempts."""
@@ -372,10 +370,6 @@ class Stage6BatchObservation:
 			raise RuntimeError("Stage 6 batch observation requires an exact materialization.")
 		if type(self.results) is not tuple or any(type(item) is not daily_blog.agents.AgentResult for item in self.results):
 			raise RuntimeError("Stage 6 batch observation requires exact agent results.")
-		if type(self.closed_facts) is not tuple or any(type(item) is not daily_blog.attempt_ledger.AttemptFact for item in self.closed_facts):
-			raise RuntimeError("Stage 6 batch observation requires exact closed facts.")
-		if self.closed_facts and tuple(item.slot_id for item in self.closed_facts) != self.materialization.semantic_identities:
-			raise RuntimeError("Stage 6 batch facts must match materialized slots in canonical order.")
 		if tuple(item.request_id for item in self.results) != self.materialization.semantic_identities:
 			raise RuntimeError("Stage 6 batch observations must match materialized slots in canonical order.")
 
@@ -495,13 +489,13 @@ def _eligible(value: Stage6Input, item: daily_blog.artifacts.EditorialArtifact) 
 
 #============================================
 def _post(value: Stage6Input, result: daily_blog.agents.AgentResult) -> daily_blog.artifacts.CompletePost:
-	"""Parse one whole post response and close its machine-owned front matter."""
+	"""Parse one post and close machine-owned metadata and missing provenance syntax."""
 	content = result.text.rstrip() + "\n"
 	if not content.startswith("---"):
 		content = f"---\ndate: {value.report_date}\n---\n" + content
-	evidence_ids = daily_blog.artifacts.evidence_references(content)
-	if not evidence_ids:
-		raise daily_blog.agents.RepairableStructuredOutput("Complete post has no evidence reference.")
+	content, evidence_ids = daily_blog.artifacts.ensure_evidence_references(
+		content, value.publication_surface.allowed_evidence_ids,
+	)
 	try:
 		repositories = daily_blog.artifacts.resolve_evidence_scope(
 			evidence_ids, value.packets, value.daily_outline.repositories,
@@ -526,35 +520,19 @@ def _unique(items: collections.abc.Iterable[daily_blog.artifacts.CompletePost]) 
 def _anonymous_posts(
 	value: Stage6Input,
 	items: collections.abc.Iterable[daily_blog.artifacts.CompletePost],
-	*, recovery: bool = False,
 ) -> str:
-	"""Render anonymous drafts with bounded candidate-local repair assignments."""
-	candidates = []
-	for index, item in enumerate(_unique(items)):
-		feedback = daily_blog.publication_admission.complete_post_repair_feedback(
-			item, value.publication_surface, value.output_root, recovery=recovery,
-		)
-		candidates.append({
+	"""Render anonymous mechanically grounded drafts for an editor."""
+	candidates = [
+		{
 			"alias": "candidate-" + str(index + 1),
 			"content": item.content,
-			"repair_feedback": {} if feedback is None else feedback.to_dict(),
-		})
+		}
+		for index, item in enumerate(_unique(items))
+	]
 	rendered = json.dumps({"candidates": candidates}, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
 	if len(rendered) > daily_blog.complete_post_editor_prompts.MAX_CANDIDATE_POSTS_CHARS:
 		raise RuntimeError("Stage 6 editor candidate context exceeds its bounded limit.")
 	return rendered
-
-
-#============================================
-def _repair_feedback_digest(
-	value: Stage6Input, items: tuple[daily_blog.artifacts.CompletePost, ...], *, recovery: bool = False,
-) -> str:
-	"""Return the exact positive feedback witness consumed by an editor generation."""
-	return daily_blog.publication_admission.repair_feedback_digest(
-		items, value.publication_surface, value.output_root, recovery=recovery,
-	)
-
-
 #============================================
 def _aggregate(steps: tuple[daily_blog.replication.StepReliability, ...]) -> daily_blog.replication.StepReliability:
 	"""Summarize the current Stage 6 observations for publication consumers."""
@@ -575,13 +553,17 @@ def _recovery_post(
 	value: CompletePostRecoveryInput,
 	result: daily_blog.agents.AgentResult,
 ) -> daily_blog.artifacts.CompletePost:
-	"""Parse one independently authored recovery post and close its front matter."""
+	"""Parse one recovery post and close machine-owned packaging."""
 	content = result.text.rstrip() + "\n"
 	if not content.startswith("---"):
 		content = f"---\ndate: {value.report_date}\n---\n" + content
-	evidence_ids = daily_blog.artifacts.evidence_references(content)
-	if not evidence_ids:
-		raise daily_blog.agents.RepairableStructuredOutput("Recovery complete post has no evidence reference.")
+	content, evidence_ids = daily_blog.artifacts.ensure_evidence_references(
+		content,
+		tuple(sorted(
+			item.evidence_id
+			for item in value.stage6_input.publication_surface.packet.items
+		)),
+	)
 	try:
 		repositories = daily_blog.artifacts.resolve_evidence_scope(
 			evidence_ids, value.packets, value.repositories,

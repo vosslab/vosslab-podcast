@@ -1,7 +1,6 @@
 """Offline behavior checks for the Stage 6 recovery write boundary."""
 
 # Standard Library
-import json
 import pathlib
 
 # local repo modules
@@ -53,14 +52,8 @@ def _input(root: pathlib.Path) -> daily_blog.stage6.Stage6Input:
 		"Daily outline <!-- evidence: " + item.evidence_id + " -->", (item.evidence_id,),
 	)
 	ranking_hash = "a" * 64
-	payload = {
-		"candidate_id": "ranking-1", "accepted_review_ids": ["review-1"],
-		"ranking_content_sha256": ranking_hash,
-	}
 	promoted = daily_blog.daily_outline_workflow.PromotedRanking(
-		"ranking-promotion-" + daily_blog.io_utils.sha256_text(
-			json.dumps(payload, sort_keys=True, separators=(",", ":")),
-		)[:24], "ranking-1", ranking_hash, (story.content_hash,),
+		"ranking-1", ranking_hash, (story.content_hash,),
 		((story.content_hash, 100),), "Grounded ranking rationale.", ("review-1",),
 	)
 	sources = daily_blog.stage6.Stage6RecoverySources(

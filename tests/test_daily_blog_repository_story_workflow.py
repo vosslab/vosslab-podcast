@@ -214,18 +214,6 @@ def test_ineligible_editor_filter_preserves_incumbent_without_improvement_proof(
 
 
 #============================================
-def test_no_eligible_generation_returns_typed_no_artifact() -> None:
-	"""Ordinary ineligibility produces a typed editorial degradation."""
-	source = value()
-	runner = Runner({
-		"repository_story_writer": ["# bad\n", "# bad\n"],
-		"repository_story_editor": [], "repository_story_reviewer": [],
-	})
-	result = run(source, runner)
-	assert isinstance(result.promotion, daily_blog.artifacts.NoArtifact)
-
-
-#============================================
 def test_implementation_defect_propagates() -> None:
 	"""Unexpected runner defects remain pipeline faults rather than editorial loss."""
 	source = value()

@@ -11,10 +11,6 @@ import hashlib
 import json
 import re
 
-import daily_blog
-import daily_blog.attempt_ledger
-
-
 STAGE6_ATTEMPT_PLAN_SCHEMA_VERSION = "vosslab.daily-blog.stage6-attempt-plan.v1"
 STAGE6_COMPLETE_POST = "stage6/complete_post"
 RUNG_ORDER = ("primary", "daily_outline_expansion", "repository_story_merge")
@@ -627,34 +623,3 @@ def _validated_binding_coordinates(
 	if bindings != ordered:
 		raise RuntimeError("Stage 6 candidate pair bindings must preserve canonical plan order.")
 	return bindings
-
-
-#============================================
-def reconcile_stage6_attempt_summary(
-	materialization: MaterializedStage6AttemptPlan, ledger: "daily_blog.attempt_ledger.AttemptLedger",
-) -> "daily_blog.attempt_ledger.AttemptReliabilitySummary":
-	"""Reconcile one closed ledger against its materialized execution contract.
-
-	No-selection is exhaustion only after the final recovery/batch
-	materialization.  Thus a failed primary prefix cannot silently suppress a
-	later applicable recovery rung.  Early selection instead closes every later
-	*materialized* slot as a skip; unavailable work has no invented fact.
-	"""
-	# Delayed import prevents configuration's pure-policy construction from
-	# importing route agents through the ledger implementation.
-	import daily_blog.replication
-	if (type(materialization) is not MaterializedStage6AttemptPlan
-		or type(ledger) is not daily_blog.attempt_ledger.AttemptLedger):
-		raise RuntimeError("Stage 6 reconciliation requires exact materialization and ledger values.")
-	if not ledger.complete:
-		raise RuntimeError("Stage 6 reconciliation requires a closed attempt ledger.")
-	if not materialization.semantic_identities:
-		raise RuntimeError("Stage 6 reconciliation requires at least one materialized slot.")
-	if ledger.planned_slot_ids != materialization.semantic_identities:
-		raise RuntimeError("Stage 6 ledger does not match its materialized canonical sequence.")
-	summary = ledger.summary()
-	if summary.planned != len(ledger.planned_slot_ids):
-		raise RuntimeError("Stage 6 ledger summary does not match its plan sequence.")
-	if summary.exhausted and not materialization.is_final_ladder_materialization:
-		raise RuntimeError("Stage 6 exhaustion requires the final applicable ladder materialization.")
-	return summary

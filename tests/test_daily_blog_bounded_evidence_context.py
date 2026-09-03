@@ -2,7 +2,6 @@
 
 # Standard Library
 import dataclasses
-import json
 import pathlib
 
 # PIP3 modules
@@ -104,15 +103,7 @@ def _stage5_input(
 def _ranking(stories: tuple[daily_blog.artifacts.RepoStory, ...]) -> daily_blog.daily_outline_workflow.PromotedRanking:
 	"""Return the minimum exact Stage-5 ranking provenance required by Stage 6."""
 	content_hash = "a" * 64
-	payload = {
-		"candidate_id": "ranking-1",
-		"accepted_review_ids": ["review-1"],
-		"ranking_content_sha256": content_hash,
-	}
 	return daily_blog.daily_outline_workflow.PromotedRanking(
-		"ranking-promotion-" + daily_blog.io_utils.sha256_text(
-			json.dumps(payload, sort_keys=True, separators=(",", ":")),
-		)[:24],
 		"ranking-1", content_hash, tuple(sorted(item.content_hash for item in stories)),
 		tuple(sorted((item.content_hash, 100) for item in stories)),
 		"Grounded ranking rationale.", ("review-1",),

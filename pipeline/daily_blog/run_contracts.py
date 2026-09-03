@@ -8,7 +8,6 @@ import re
 
 # local repo modules
 import daily_blog.io_utils
-import daily_blog.attempt_ledger
 import daily_blog.replication
 import daily_blog.editorial
 import daily_blog.publisher_contract
@@ -339,9 +338,6 @@ class RunRecord:
 	updated_at: str
 	completed_at: str
 	terminal_fault: dict
-	attempt_ledger: dict
-	attempt_summary: dict
-	repair_feedback: dict
 	schema_version: str = RUN_SCHEMA_VERSION
 
 	#============================================
@@ -371,9 +367,6 @@ class RunRecord:
 			updated_at=now,
 			completed_at="",
 			terminal_fault={},
-			attempt_ledger={},
-			attempt_summary={},
-			repair_feedback={},
 		)
 		return record
 
@@ -427,29 +420,6 @@ class RunRecord:
 			self.outcome = "degraded"
 		self.updated_at = daily_blog.io_utils.utc_now()
 
-	#============================================
-	def set_attempt_ledger(self, ledger: daily_blog.attempt_ledger.AttemptLedger) -> None:
-		"""Persist the exact canonical current reliability projection.
-
-		ASVS 2.1-2.3 and 15.4: only the serial run owner may attach an already
-		validated ledger; summaries are derived here, never inferred from logs.
-		"""
-		if type(ledger) is not daily_blog.attempt_ledger.AttemptLedger:
-			raise RuntimeError("Run attempt ledger must be an exact AttemptLedger.")
-		if self.state != "running":
-			raise RuntimeError("Terminal run records cannot accept an attempt ledger.")
-		self.attempt_ledger = ledger.to_dict()
-		self.attempt_summary = ledger.summary().to_dict()
-		self.updated_at = daily_blog.io_utils.utc_now()
-
-	#============================================
-	def set_repair_feedback_projection(self, value: dict) -> None:
-		"""Reserve a current-schema closed feedback projection for M12."""
-		if type(value) is not dict or value:
-			raise RuntimeError("Repair feedback is not available until its closed contract exists.")
-		self.repair_feedback = {}
-
-	#============================================
 	def complete_phase(self, phase: str, output_hash: str, reused: bool = False) -> None:
 		"""Complete the currently running phase with an output identity."""
 		record = self.phases[phase]
@@ -570,16 +540,6 @@ class RunRecord:
 			fault = daily_blog.recovery.TerminalFaultDigest.from_dict(self.terminal_fault)
 			if self.state != "failed" or self.failure.get("kind") != fault.category.value:
 				raise RuntimeError("Run terminal fault conflicts with failure state.")
-		if type(self.attempt_ledger) is not dict or type(self.attempt_summary) is not dict:
-			raise RuntimeError("Run attempt reliability projections must be objects.")
-		if bool(self.attempt_ledger) != bool(self.attempt_summary):
-			raise RuntimeError("Run attempt reliability projections must be paired.")
-		if self.attempt_ledger:
-			ledger = daily_blog.attempt_ledger.AttemptLedger.from_dict(self.attempt_ledger)
-			if ledger.summary().to_dict() != self.attempt_summary:
-				raise RuntimeError("Run attempt reliability summary does not match its ledger.")
-		if type(self.repair_feedback) is not dict or self.repair_feedback:
-			raise RuntimeError("Run repair feedback projection is not yet supported.")
 		if self.state == "failed" and self.outcome != "failed":
 			raise RuntimeError("Failed run requires a failed outcome.")
 		if self.state != "failed" and self.outcome == "failed":
@@ -683,9 +643,6 @@ class RunRecord:
 			"publication_bundle",
 			"failure",
 			"terminal_fault",
-			"attempt_ledger",
-			"attempt_summary",
-			"repair_feedback",
 		)
 		for field in structured_fields:
 			if type(value[field]) is not dict:
@@ -728,9 +685,6 @@ class RunRecord:
 			updated_at=value["updated_at"],
 			completed_at=value["completed_at"],
 			terminal_fault=value["terminal_fault"].copy(),
-			attempt_ledger=value["attempt_ledger"].copy(),
-			attempt_summary=value["attempt_summary"].copy(),
-			repair_feedback=value["repair_feedback"].copy(),
 			schema_version=value["schema_version"],
 		)
 		record.validate()

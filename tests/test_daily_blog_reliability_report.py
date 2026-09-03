@@ -42,7 +42,6 @@ def terminal_summary(
 		"operational_failure_kind": operational_failure_kind,
 		"terminal_fault_subtype": "",
 		"terminal_fault_owner": "",
-		"attempt_summary": {},
 		"publication_completed": not failed,
 		"verified_page_sha256": "" if failed else "c" * 64,
 		"incumbent_replacement_count": 0,
