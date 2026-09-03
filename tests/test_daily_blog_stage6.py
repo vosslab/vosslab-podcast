@@ -4,9 +4,6 @@
 from pathlib import Path
 import types
 
-# PIP3 modules
-import pytest
-
 # local repo modules
 import daily_blog.agents
 import daily_blog.artifacts
@@ -164,7 +161,7 @@ def two_repository_input(tmp_path: Path) -> tuple[daily_blog.stage6.Stage6Input,
 #============================================
 def config(tmp_path: Path, routes: int = 2) -> daily_blog.config.DailyBlogConfig:
 	"""Return a small exact route configuration with capacity for balanced review."""
-	reliability = daily_blog.config.EditorialReliabilityConfig(2, 1, 2, 4, 0)
+	reliability = daily_blog.config.EditorialReliabilityConfig(2, 1, 2, 0)
 	complete_post = daily_blog.editorial_stage_config.CompletePostConfig(
 		writer_count=2, editor_count=2, reviewer_count=1, maximum_parallel_calls=2,
 		route_retry_attempts=0,
@@ -231,7 +228,7 @@ def test_stage6_partial_writer_failure_preserves_eligible_complete_post(tmp_path
 				raise daily_blog.routes.EditorialRouteTimeout("offline")
 			return post(value)
 	result = daily_blog.stage6.run_stage6(
-		value, "partial", config(tmp_path), daily_blog.agents.RouteBudget(50, 2), Runner(),
+		value, "partial", config(tmp_path), daily_blog.agents.RouteBudget(2), Runner(),
 	)
 	assert type(result.artifact) is daily_blog.artifacts.CompletePost
 	assert any(candidate.failure == "timeout" for candidate in result.generation.candidates)
@@ -247,7 +244,7 @@ def test_stage6_balanced_reviewer_loss_preserves_a_peer(tmp_path: Path) -> None:
 				raise daily_blog.routes.EditorialRouteTimeout("offline")
 			return post(value, route.name)
 	result = daily_blog.stage6.run_stage6(
-		value, "review-loss", config(tmp_path), daily_blog.agents.RouteBudget(50, 2), Runner(),
+		value, "review-loss", config(tmp_path), daily_blog.agents.RouteBudget(2), Runner(),
 	)
 	assert type(result.artifact) is daily_blog.artifacts.CompletePost
 
@@ -265,7 +262,7 @@ def test_stage6_editor_failure_preserves_grounded_peer_and_records_degradation(t
 				raise daily_blog.routes.EditorialRouteTimeout("offline")
 			return post(value, "grounded-peer")
 	result = daily_blog.stage6.run_stage6(
-		value, "editor-loss", config(tmp_path), daily_blog.agents.RouteBudget(50, 2), Runner(),
+		value, "editor-loss", config(tmp_path), daily_blog.agents.RouteBudget(2), Runner(),
 	)
 	assert type(result.artifact) is daily_blog.artifacts.CompletePost and result.artifact == complete_post(
 		value, "grounded-peer",
@@ -285,7 +282,7 @@ def test_stage6_preserves_a_separate_eligible_incumbent(tmp_path: Path) -> None:
 		def run(self, _route: daily_blog.editorial_stage_config.RoleRoute, _prompt: str, _directory: str) -> str:
 			raise daily_blog.routes.EditorialRouteTimeout("offline")
 	result = daily_blog.stage6.run_stage6(
-		value, "incumbent", config(tmp_path), daily_blog.agents.RouteBudget(50, 2), Runner(),
+		value, "incumbent", config(tmp_path), daily_blog.agents.RouteBudget(2), Runner(),
 		incumbent=incumbent,
 	)
 	assert isinstance(result.promotion, daily_blog.artifacts.PreservedArtifact)
@@ -308,27 +305,9 @@ def test_stage6_editor_can_improve_an_incumbent_after_total_writer_loss(tmp_path
 			winner = next(self.reviewer_winners)
 			return '{"winner":"' + winner + '","reason":"grounded","evidence_quality":"high","confidence":1}'
 	result = daily_blog.stage6.run_stage6(
-		value, "incumbent-editor", config(tmp_path), daily_blog.agents.RouteBudget(50, 2), Runner(),
+		value, "incumbent-editor", config(tmp_path), daily_blog.agents.RouteBudget(2), Runner(),
 		incumbent=incumbent,
 	)
 	assert result.artifact in {
 		incumbent, complete_post(value, "editor-improvement"),
 	}
-
-
-#============================================
-def test_stage6_propagates_non_referee_parser_defects(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-	"""Only bounded verdict syntax errors are repairable; implementation defects remain faults."""
-	value = input_value(tmp_path)
-	def broken_parser(_text: str, _allowed: set[str]) -> dict:
-		raise RuntimeError("parser defect")
-	monkeypatch.setattr(daily_blog.editorial, "parse_referee_verdict", broken_parser)
-	class Runner:
-		def run(self, route: daily_blog.editorial_stage_config.RoleRoute, _prompt: str, _directory: str) -> str:
-			if route.name in {"writer", "editor"}:
-				return post(value, route.name)
-			return '{"winner":"A","reason":"grounded","evidence_quality":"high","confidence":1}'
-	with pytest.raises(RuntimeError, match="parser defect"):
-		daily_blog.stage6.run_stage6(
-			value, "parser-defect", config(tmp_path), daily_blog.agents.RouteBudget(50, 2), Runner(),
-		)

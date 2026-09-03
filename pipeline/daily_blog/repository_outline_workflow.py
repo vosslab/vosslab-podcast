@@ -10,6 +10,7 @@ import os
 # local repo modules
 import daily_blog.agents
 import daily_blog.artifacts
+import daily_blog.candidate_set_prompts
 import daily_blog.config
 import daily_blog.editorial_stage_config
 import daily_blog.io_utils
@@ -84,7 +85,7 @@ class RepositoryOutlineResult:
 	)
 	generation: daily_blog.replication.ReplicationResult
 	merger: daily_blog.replication.ReplicationResult
-	review: daily_blog.replication.ReviewResult
+	review: daily_blog.replication.CandidateSetReviewResult
 	reliability: tuple[daily_blog.replication.StepReliability, ...]
 
 	#============================================
@@ -94,7 +95,7 @@ class RepositoryOutlineResult:
 			raise RuntimeError("Repository-outline generation observation is invalid.")
 		if type(self.merger) is not daily_blog.replication.ReplicationResult:
 			raise RuntimeError("Repository-outline merger observation is invalid.")
-		if type(self.review) is not daily_blog.replication.ReviewResult:
+		if type(self.review) is not daily_blog.replication.CandidateSetReviewResult:
 			raise RuntimeError("Repository-outline review observation is invalid.")
 		if type(self.reliability) is not tuple or tuple(item.step for item in self.reliability) != (
 			"3.1", "3.2", "3.3", "3.4",
@@ -125,16 +126,10 @@ def _request(
 	config: daily_blog.editorial_stage_config.RepositoryOutlineConfig,
 	contract_identity: dict[str, object],
 	input_artifact_ids: tuple[str, ...] = (),
-	assignment: daily_blog.replication.ReviewAssignment | None = None,
+	assignment: daily_blog.replication.CandidateSetReviewAssignment | None = None,
 ) -> daily_blog.agents.RouteRequest:
 	"""Build one cache-safe request that attests to all Stage 3 inputs."""
-	assignment_value: dict[str, int] = {}
-	if assignment is not None:
-		assignment_value = {
-			"pair_index": assignment.pair_index,
-			"reviewer_index": assignment.reviewer_index,
-			"display_order": assignment.display_order,
-		}
+	assignment_value = {} if assignment is None else dataclasses.asdict(assignment)
 	logical_identity = {
 		"report_date": value.report_date,
 		"repository": value.repository,
@@ -231,19 +226,14 @@ def _generation_reliability(
 
 #============================================
 def _review_reliability(
-	review: daily_blog.replication.ReviewResult,
+	review: daily_blog.replication.CandidateSetReviewResult,
 	promotion: object,
 	additional_reasons: collections.abc.Iterable[str] = (),
 ) -> daily_blog.replication.StepReliability:
 	"""Summarize reviewer calls only, retaining the reviewed final identity when present."""
 	votes = review.votes
 	reasons = set(additional_reasons)
-	by_pair: dict[tuple[str, str], set[str]] = {}
-	for vote in votes:
-		if vote.status == "succeeded":
-			pair = tuple(sorted((vote.first_artifact_id, vote.second_artifact_id)))
-			by_pair.setdefault(pair, set()).add(vote.winner_artifact_id)
-	disagreements = sum(len(winners) > 1 for winners in by_pair.values())
+	disagreements = daily_blog.replication.review_disagreements(votes)
 	reasons.update(daily_blog.replication.review_reasons(votes, disagreements))
 	best_artifact_id = ""
 	if review.work and not isinstance(promotion, daily_blog.artifacts.NoArtifact):
@@ -263,16 +253,11 @@ def _promotion_reliability(
 		daily_blog.artifacts.SelectedPeer | daily_blog.artifacts.PreservedArtifact
 		| daily_blog.artifacts.DegradedPromotion | daily_blog.artifacts.NoArtifact
 	),
-	votes: collections.abc.Iterable[daily_blog.replication.ReviewVote],
+	votes: collections.abc.Iterable[daily_blog.replication.CandidateSetReviewVote],
 ) -> daily_blog.replication.StepReliability:
 	"""Record promotion as one deterministic editorial decision, not duplicated review work."""
 	vote_values = tuple(votes)
-	by_pair: dict[tuple[str, str], set[str]] = {}
-	for vote in vote_values:
-		if vote.status == "succeeded":
-			pair = tuple(sorted((vote.first_artifact_id, vote.second_artifact_id)))
-			by_pair.setdefault(pair, set()).add(vote.winner_artifact_id)
-	disagreements = sum(len(winners) > 1 for winners in by_pair.values())
+	disagreements = daily_blog.replication.review_disagreements(vote_values)
 	reasons: tuple[str, ...] = ()
 	best_artifact_id = ""
 	if isinstance(promotion, daily_blog.artifacts.DegradedPromotion):
@@ -362,7 +347,7 @@ def run_repository_outline(
 		promotion = daily_blog.artifacts.NoArtifact(
 			daily_blog.artifacts.RepoOutline, "no_eligible_generation",
 		)
-		empty_review = daily_blog.replication.ReviewResult((), ())
+		empty_review = daily_blog.replication.CandidateSetReviewResult((), ())
 		return RepositoryOutlineResult(
 			promotion, generation, merger, empty_review, (
 				_generation_reliability("3.1", generation),
@@ -372,38 +357,43 @@ def run_repository_outline(
 			),
 		)
 
+	review_prompts = daily_blog.candidate_set_prompts.load_prompt_set()
+	review_identity = {
+		**contract_identity,
+		"candidate_set_review": review_prompts.identity_dict(),
+	}
+	review_identity["integrity_sha256"] = daily_blog.io_utils.hash_value(review_identity)
+
 	def build_work(
-		left: daily_blog.artifacts.EditorialArtifact,
-		right: daily_blog.artifacts.EditorialArtifact,
-		assignment: daily_blog.replication.ReviewAssignment,
-	) -> daily_blog.replication.ReviewWork:
-		prompt = daily_blog.repository_outline_prompts.render_repository_outline_comparison(
-			evidence_json, left.content, right.content, loaded_value,
+		ordered: tuple[daily_blog.artifacts.EditorialArtifact, ...],
+		assignment: daily_blog.replication.CandidateSetReviewAssignment,
+	) -> daily_blog.replication.CandidateSetReviewWork:
+		prompt, _labels = daily_blog.candidate_set_prompts.render_candidate_set_review(
+			loaded_value.text(daily_blog.prompt_registry.definitions.REPOSITORY_OUTLINE_RUBRIC_RESOURCE),
+			evidence_json, ordered, review_prompts,
 		)
 		if len(prompt) > config.prompt_limits["reviewer_chars"]:
 			raise daily_blog.replication.ReviewUnavailable(
-				"Repository-outline comparison prompt exceeds its configured limit."
+				"Repository-outline candidate-set prompt exceeds its configured limit."
 			)
 		request = _request(value, "3_3", "reviewer",
-			f"{assignment.pair_index}_{assignment.reviewer_index}_{assignment.display_order}",
-			config.reviewer_route, prompt, config, contract_identity,
-			(left.content_hash, right.content_hash), assignment)
-		return daily_blog.replication.ReviewWork(request, left.artifact_id, right.artifact_id, assignment)
+			str(assignment.reviewer_index), config.reviewer_route, prompt, config, review_identity,
+			tuple(item.content_hash for item in ordered), assignment)
+		return daily_blog.replication.CandidateSetReviewWork(request, assignment)
 
-	def parse_winner(text: str, work: daily_blog.replication.ReviewWork) -> str:
+	def parse_winner(text: str, work: daily_blog.replication.CandidateSetReviewWork) -> str:
+		labels = dict(zip(
+			daily_blog.candidate_set_prompts.candidate_labels(len(work.assignment.candidate_artifact_ids)),
+			work.assignment.candidate_artifact_ids, strict=True,
+		))
 		try:
-			verdict = daily_blog.repository_outline_prompts.parse_repository_outline_verdict(text)
-		except daily_blog.repository_outline_prompts.RepositoryOutlineVerdictParseError as error:
+			return daily_blog.candidate_set_prompts.parse_candidate_set_verdict(text, labels)
+		except daily_blog.candidate_set_prompts.CandidateSetVerdictParseError as error:
 			raise daily_blog.agents.RepairableStructuredOutput(str(error)) from error
-		return {"A": work.first_artifact_id, "B": work.second_artifact_id}.get(verdict["winner"], "")
 
-	def salvage(text: str, work: daily_blog.replication.ReviewWork) -> str | None:
-		label = daily_blog.replication.salvage_allowed_identifier(text, ("A", "B"))
-		return {"A": work.first_artifact_id, "B": work.second_artifact_id}.get(label)
-
-	review = daily_blog.replication.review(
+	review = daily_blog.replication.review_candidate_set(
 		peers, daily_blog.artifacts.RepoOutline, config.reviewer_count, build_work, parse_winner,
-		route_runner, budget, salvage, cache_load, cache_accept,
+		route_runner, budget, cache_load, cache_accept,
 	)
 	promotion = daily_blog.replication.promote(
 		peers, daily_blog.artifacts.RepoOutline, lambda item: _eligible(value, item), review.votes, incumbent,

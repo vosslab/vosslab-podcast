@@ -8,10 +8,12 @@ import pytest
 
 # local repo modules
 import daily_blog.activation
+import daily_blog.agents
 import daily_blog.artifacts
 import daily_blog.activity
 import daily_blog.daily_outline_workflow
 import daily_blog.editorial
+import daily_blog.editorial_stage_config
 import daily_blog.io_utils
 import daily_blog.publication_contract
 import daily_blog.publication_finalization
@@ -404,6 +406,11 @@ def test_final_post_resolves_selected_image_to_sibling_date_directory(tmp_path: 
 	packet = daily_blog.schema.EvidencePacket.create(
 		base.report_date, base.timezone, True, {}, [], list(base.activity), [change, image],
 	)
+	catalog = daily_blog.publication_images.build_image_catalog(
+		packet, {"assets/first.png": b"image"},
+	)
+	assert catalog.images[0].evidence_id == image.evidence_id
+	assert catalog.images[0].markdown_path == "2026-08-29/first.png"
 	surface = _surface((packet,))
 	post = daily_blog.artifacts.CompletePost.create(
 		packet.report_date, (surface.packet,), ("vosslab/first",),
@@ -420,6 +427,114 @@ def test_final_post_resolves_selected_image_to_sibling_date_directory(tmp_path: 
 	assert selection.images[0].destination_path == (
 		"docs/blog/posts/2026-08-29/first.png"
 	)
+
+
+#============================================
+def test_image_decorator_selects_catalog_identity_and_machine_assigns_route(tmp_path: Path) -> None:
+	"""Editorial placement names an ID; deterministic code owns its final path and bytes."""
+	base = _packet("vosslab/first", "first.png")
+	change = next(item for item in base.items if item.kind == "dated_changelog")
+	image = daily_blog.schema.EvidenceItem.create(
+		"screenshot", "vosslab/first", "a" * 40, "image.png", "c" * 40,
+		"Screenshot of the completed work.", "fixture", asset_path="assets/first.png",
+		publish_path="2026-08-29/first.png",
+	)
+	packet = daily_blog.schema.EvidencePacket.create(
+		base.report_date, base.timezone, True, {}, [], list(base.activity), [change, image],
+	)
+	surface = _surface((packet,))
+	catalog = daily_blog.publication_images.build_image_catalog(
+		packet, {"assets/first.png": b"image"},
+	)
+	post = daily_blog.artifacts.CompletePost.create(
+		packet.report_date, (surface.packet,), ("vosslab/first",),
+		"# Work log\n\nI finished the feature. <!-- evidence: "
+		+ change.evidence_id + " -->\n",
+		(change.evidence_id,), packet.report_date, str(tmp_path / "post.md"), (),
+	)
+	response = (
+		'{"placements":[{"image_id":"' + image.evidence_id
+		+ '","after_block":1,"alt_text":"Completed feature view"}]}'
+	)
+	plan = daily_blog.publication_images.parse_image_decoration(
+		response, catalog, len(daily_blog.publication_images.decoratable_blocks(post)),
+	)
+	decorated = daily_blog.publication_images.apply_image_decoration(
+		post, catalog, plan, (surface.packet,),
+	)
+
+	assert "![Completed feature view](2026-08-29/first.png)" in decorated.content
+	assert decorated.image_paths == ("2026-08-29/first.png",)
+	assert image.evidence_id in decorated.evidence_ids
+	selection = daily_blog.publication_images.resolve_final_post_images(
+		surface, decorated, {"assets/first.png": b"image"},
+	)
+	assert selection.assets == {"assets/first.png": b"image"}
+	assert selection.images[0].destination_path == "docs/blog/posts/2026-08-29/first.png"
+
+
+def test_image_decorator_route_is_optional_and_machine_resolves_selected_id(tmp_path: Path) -> None:
+	"""One tolerant decorator call can select an image without gaining path authority."""
+	base = _packet("vosslab/first", "first.png")
+	change = next(item for item in base.items if item.kind == "dated_changelog")
+	image = daily_blog.schema.EvidenceItem.create(
+		"screenshot", "vosslab/first", "a" * 40, "image.png", "c" * 40,
+		"Screenshot of the completed work.", "fixture", asset_path="assets/first.png",
+		publish_path="2026-08-29/first.png",
+	)
+	packet = daily_blog.schema.EvidencePacket.create(
+		base.report_date, base.timezone, True, {}, [], list(base.activity), [change, image],
+	)
+	surface = _surface((packet,))
+	catalog = daily_blog.publication_images.build_image_catalog(
+		packet, {"assets/first.png": b"image"},
+	)
+	post = daily_blog.artifacts.CompletePost.create(
+		packet.report_date, (surface.packet,), ("vosslab/first",),
+		"# Work log\n\nI finished the feature. <!-- evidence: " + change.evidence_id + " -->\n",
+		(change.evidence_id,), packet.report_date, str(tmp_path / "post.md"), (),
+	)
+
+	class Runner:
+		def run(self, _route: object, _prompt: str, _working_directory: str) -> str:
+			return (
+				'{"placements":[{"image_id":"' + image.evidence_id
+				+ '","after_block":1,"alt_text":"Completed feature view"}]}'
+			)
+
+	decorated = daily_blog.publication_images.decorate_post(
+		post, catalog, (surface.packet,), Runner(), daily_blog.agents.RouteBudget(),
+		daily_blog.editorial_stage_config.RoleRoute("image_decorator", ("fixture",)),
+		str(tmp_path), retry_attempts=0, maximum_parallel_calls=1,
+	)
+
+	assert decorated.image_paths == ("2026-08-29/first.png",)
+	assert image.evidence_id in decorated.evidence_ids
+
+
+#============================================
+def test_image_decorator_failure_preserves_publishable_incumbent(tmp_path: Path) -> None:
+	"""Malformed or empty optional image advice cannot destroy the selected post."""
+	packet = _packet("vosslab/first", "first.png")
+	surface = _surface((packet,))
+	post = daily_blog.artifacts.CompletePost.create(
+		packet.report_date, (surface.packet,), ("vosslab/first",),
+		"# Work log\n\nThe incumbent remains publishable. <!-- evidence: "
+		+ packet.items[0].evidence_id + " -->\n",
+		(packet.items[0].evidence_id,), packet.report_date, str(tmp_path / "post.md"), (),
+	)
+	empty_catalog = daily_blog.publication_images.PublicationImageCatalog(packet.report_date, ())
+	block_count = len(daily_blog.publication_images.decoratable_blocks(post))
+
+	assert daily_blog.publication_images.parse_image_decoration(
+		"not json", empty_catalog, block_count,
+	) is None
+	assert daily_blog.publication_images.apply_image_decoration(
+		post, empty_catalog, None, (surface.packet,),
+	) is post
+	assert daily_blog.publication_images.parse_image_decoration(
+		'{"placements":[]}', empty_catalog, block_count,
+	) == daily_blog.publication_images.ImageDecorationPlan(())
 
 
 #============================================

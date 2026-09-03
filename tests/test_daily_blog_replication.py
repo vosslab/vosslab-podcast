@@ -74,7 +74,7 @@ def test_replicate_retains_eligible_peer_after_one_generator_failure() -> None:
 	def parse(result: daily_blog.agents.AgentResult) -> daily_blog.artifacts.EditorialArtifact:
 		return outline(source, result.text)
 	result = daily_blog.replication.replicate(
-		(request("strong"), request("broken")), Runner(), daily_blog.agents.RouteBudget(2, 2),
+		(request("strong"), request("broken")), Runner(), daily_blog.agents.RouteBudget(2),
 		daily_blog.artifacts.RepoOutline, parse,
 		lambda value: daily_blog.artifacts.evaluate_eligibility(value, (source,)),
 	)
@@ -103,7 +103,7 @@ def test_candidate_set_review_scales_with_reviewers_not_candidate_pairs() -> Non
 		return work.assignment.candidate_artifact_ids[0]
 	result = daily_blog.replication.review_candidate_set(
 		peers, daily_blog.artifacts.RepoOutline, 3, build, parse, Runner(),
-		daily_blog.agents.RouteBudget(3, 3),
+		daily_blog.agents.RouteBudget(3),
 	)
 
 	assert len(result.work) == len(result.votes) == 3
@@ -112,65 +112,55 @@ def test_candidate_set_review_scales_with_reviewers_not_candidate_pairs() -> Non
 
 
 #============================================
-def test_review_salvages_an_unambiguous_identity_from_malformed_output() -> None:
-	"""Usable reviewer intent survives a malformed response without another model call."""
+def test_candidate_set_votes_promote_one_plurality_winner() -> None:
+	"""A bounded complete-set judgment can promote without pairwise reconstruction."""
 	source = packet()
-	first, second = outline(source, "First"), outline(source, "Second")
-	def build(
-		left: daily_blog.artifacts.EditorialArtifact,
-		right: daily_blog.artifacts.EditorialArtifact,
-		assignment: daily_blog.replication.ReviewAssignment,
-	) -> daily_blog.replication.ReviewWork:
-		return daily_blog.replication.ReviewWork(
-			request(f"review-{assignment.reviewer_index}-{assignment.display_order}"),
-			left.artifact_id,
-			right.artifact_id,
-			assignment,
+	peers = tuple(outline(source, f"Candidate {index}") for index in range(3))
+	ids = tuple(item.artifact_id for item in peers)
+	votes = tuple(
+		daily_blog.replication.CandidateSetReviewVote(
+			f"review-{index}", ids, "succeeded", peers[1].artifact_id,
 		)
-	def parse(_text: str, _work: daily_blog.replication.ReviewWork) -> str:
-		raise daily_blog.agents.RepairableStructuredOutput("strict structure absent")
-	def salvage(_text: str, work: daily_blog.replication.ReviewWork) -> str | None:
-		return first.artifact_id
-	class SalvageRunner:
-		def run(
-			self,
-			_route: daily_blog.editorial_stage_config.RoleRoute,
-			prompt: str,
-			_directory: str,
-		) -> str:
-			return "malformed verdict " + first.artifact_id
-	result = daily_blog.replication.review(
-		(first, second), daily_blog.artifacts.RepoOutline, 1, build, parse,
-		SalvageRunner(), daily_blog.agents.RouteBudget(2, 1), salvage,
+		for index in range(2)
+	) + (
+		daily_blog.replication.CandidateSetReviewVote(
+			"review-2", ids, "succeeded", peers[0].artifact_id,
+		),
 	)
 
-	assert all(vote.winner_artifact_id == first.artifact_id for vote in result.votes)
+	result = daily_blog.replication.promote(
+		peers, daily_blog.artifacts.RepoOutline,
+		lambda item: daily_blog.artifacts.evaluate_eligibility(item, (source,)), votes,
+	)
+
+	assert isinstance(result, daily_blog.artifacts.DegradedPromotion)
+	assert result.artifact is peers[1]
+	assert result.reasons == ("review_disagreement",)
 
 
 #============================================
-def test_review_propagates_non_repairable_parser_defect() -> None:
-	"""A programming defect remains visible instead of becoming editorial repair."""
+def test_candidate_set_disagreement_preserves_incumbent() -> None:
+	"""A tied optional complete-set review cannot remove the publishable incumbent."""
 	source = packet()
-	first, second = outline(source, "First"), outline(source, "Second")
-	def build(
-		left: daily_blog.artifacts.EditorialArtifact,
-		right: daily_blog.artifacts.EditorialArtifact,
-		assignment: daily_blog.replication.ReviewAssignment,
-	) -> daily_blog.replication.ReviewWork:
-		return daily_blog.replication.ReviewWork(
-			request(f"defect-{assignment.reviewer_index}-{assignment.display_order}"),
-			left.artifact_id,
-			right.artifact_id,
-			assignment,
-		)
-	def parse(_text: str, _work: daily_blog.replication.ReviewWork) -> str:
-		raise RuntimeError("broken parser invariant")
+	peers = tuple(outline(source, f"Candidate {index}") for index in range(3))
+	ids = tuple(item.artifact_id for item in peers)
+	votes = (
+		daily_blog.replication.CandidateSetReviewVote(
+			"review-0", ids, "succeeded", peers[1].artifact_id,
+		),
+		daily_blog.replication.CandidateSetReviewVote(
+			"review-1", ids, "succeeded", peers[2].artifact_id,
+		),
+	)
 
-	with pytest.raises(RuntimeError, match="broken parser invariant"):
-		daily_blog.replication.review(
-			(first, second), daily_blog.artifacts.RepoOutline, 1, build, parse, Runner(),
-			daily_blog.agents.RouteBudget(2, 1),
-		)
+	result = daily_blog.replication.promote(
+		peers, daily_blog.artifacts.RepoOutline,
+		lambda item: daily_blog.artifacts.evaluate_eligibility(item, (source,)), votes,
+		peers[0],
+	)
+
+	assert isinstance(result, daily_blog.artifacts.PreservedArtifact)
+	assert result.artifact is peers[0]
 
 
 #============================================
@@ -182,13 +172,8 @@ def test_promote_preserves_incumbent_on_failed_review() -> None:
 		value: daily_blog.artifacts.EditorialArtifact,
 	) -> daily_blog.artifacts.EligibilityResult:
 		return daily_blog.artifacts.evaluate_eligibility(value, (source,))
-	failed = daily_blog.replication.ReviewVote(
-		"r",
-		first.artifact_id,
-		second.artifact_id,
-		"failed",
-		"",
-		"timeout",
+	failed = daily_blog.replication.CandidateSetReviewVote(
+		"r", (first.artifact_id, second.artifact_id), "failed", "", "timeout",
 	)
 	preserved = daily_blog.replication.promote(
 		(first, second), daily_blog.artifacts.RepoOutline, evaluate, (failed,), first,
@@ -199,15 +184,15 @@ def test_promote_preserves_incumbent_on_failed_review() -> None:
 
 #============================================
 def test_promote_preserves_separate_incumbent_without_complete_direct_review() -> None:
-	"""A missing challenger comparison cannot displace a separately held artifact."""
+	"""A failed complete-set judgment cannot displace a separate incumbent."""
 	source = packet()
 	incumbent, challenger = outline(source, "Incumbent"), outline(source, "Challenger")
 	def evaluate(
 		value: daily_blog.artifacts.EditorialArtifact,
 	) -> daily_blog.artifacts.EligibilityResult:
 		return daily_blog.artifacts.evaluate_eligibility(value, (source,))
-	failed = daily_blog.replication.ReviewVote(
-		"review", incumbent.artifact_id, challenger.artifact_id,
+	failed = daily_blog.replication.CandidateSetReviewVote(
+		"review", (incumbent.artifact_id, challenger.artifact_id),
 		"failed", "", "invalid_verdict",
 	)
 
@@ -219,16 +204,16 @@ def test_promote_preserves_separate_incumbent_without_complete_direct_review() -
 
 
 #============================================
-def test_promote_replaces_incumbent_only_after_direct_challenger_improvement() -> None:
-	"""A challenger wins only after a complete direct peer comparison favors it."""
+def test_promote_replaces_incumbent_only_after_complete_set_prefers_challenger() -> None:
+	"""A challenger wins only after complete-set review favors it."""
 	source = packet()
 	incumbent, challenger = outline(source, "Incumbent"), outline(source, "Challenger")
 	def evaluate(
 		value: daily_blog.artifacts.EditorialArtifact,
 	) -> daily_blog.artifacts.EligibilityResult:
 		return daily_blog.artifacts.evaluate_eligibility(value, (source,))
-	vote = daily_blog.replication.ReviewVote(
-		"review", incumbent.artifact_id, challenger.artifact_id,
+	vote = daily_blog.replication.CandidateSetReviewVote(
+		"review", (incumbent.artifact_id, challenger.artifact_id),
 		"succeeded", challenger.artifact_id,
 	)
 

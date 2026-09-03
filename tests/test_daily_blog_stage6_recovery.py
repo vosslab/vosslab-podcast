@@ -113,7 +113,7 @@ def _config(tmp_path: pathlib.Path) -> daily_blog.config.DailyBlogConfig:
 		(daily_blog.editorial_stage_config.RoleRoute("author", daily_blog.editorial_stage_config.HERMES_EDITORIAL_ROUTE),),
 		daily_blog.editorial_stage_config.RoleRoute("referee", daily_blog.editorial_stage_config.HERMES_EDITORIAL_ROUTE), {}, {},
 		{"author_chars": 72000, "referee_chars": 88000},
-		daily_blog.config.EditorialReliabilityConfig(2, 1, 1, 44), complete_post=complete_post,
+		daily_blog.config.EditorialReliabilityConfig(2, 1, 1), complete_post=complete_post,
 	)
 
 
@@ -239,7 +239,7 @@ def test_daily_outline_recovery_authors_an_eligible_grounded_post(
 		def run(self, _route: daily_blog.editorial_stage_config.RoleRoute, _prompt: str, _directory: str) -> str:
 			return _post(value.stage6_input)
 	attempt = daily_blog.stage6.recover_daily_outline_expansion(
-		value, "run-1", _config(tmp_path), daily_blog.agents.RouteBudget(4, 1), Runner(),
+		value, "run-1", _config(tmp_path), daily_blog.agents.RouteBudget(1), Runner(),
 		cache_load=lambda _request: None,
 		cache_accept=lambda request, result: accepted.append((request, result)),
 	)
@@ -255,7 +255,7 @@ def test_repository_story_recovery_authors_an_eligible_grounded_post(
 ) -> None:
 	"""The story merge rung retains its independently authored eligible post."""
 	value = _recovery_input(tmp_path, daily_blog.recovery.RecoveryRung.REPOSITORY_STORY_MERGE)
-	budget, accepted = daily_blog.agents.RouteBudget(4, 1), []
+	budget, accepted = daily_blog.agents.RouteBudget(1), []
 	class Runner:
 		def run(self, _route: daily_blog.editorial_stage_config.RoleRoute, _prompt: str, _directory: str) -> str:
 			return _post(value.stage6_input)
@@ -280,7 +280,7 @@ def test_recovery_route_loss_is_classified_as_route_unavailable(
 		def run(self, _route: daily_blog.editorial_stage_config.RoleRoute, _prompt: str, _directory: str) -> str:
 			raise daily_blog.routes.EditorialRouteTimeout("fixture")
 	attempt = daily_blog.stage6.recover_daily_outline_expansion(
-		value, "run-5", _config(tmp_path), daily_blog.agents.RouteBudget(4, 1), Runner(),
+		value, "run-5", _config(tmp_path), daily_blog.agents.RouteBudget(1), Runner(),
 	)
 
 	assert isinstance(attempt.outcome, daily_blog.artifacts.NoArtifact)
@@ -314,7 +314,7 @@ def test_recovery_reuses_grounded_writer_cache_when_editor_prompt_is_limited(
 		)
 
 	full = daily_blog.stage6.recover_daily_outline_expansion(
-		value, "recovery-cache-source", _config(tmp_path), daily_blog.agents.RouteBudget(44, 1), Runner(),
+		value, "recovery-cache-source", _config(tmp_path), daily_blog.agents.RouteBudget(1), Runner(),
 		cache_load=cached,
 	)
 	full_summaries = {item.step: item for item in full.step_reliability}
@@ -325,7 +325,7 @@ def test_recovery_reuses_grounded_writer_cache_when_editor_prompt_is_limited(
 		base, prompt_limits=limits,
 	))
 	attempt = daily_blog.stage6.recover_daily_outline_expansion(
-		value, "recovery-cache-limited", limited_config, daily_blog.agents.RouteBudget(44, 1), Runner(),
+		value, "recovery-cache-limited", limited_config, daily_blog.agents.RouteBudget(1), Runner(),
 		cache_load=cached,
 	)
 	summaries = {item.step: item for item in attempt.step_reliability}

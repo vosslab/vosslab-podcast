@@ -56,6 +56,18 @@ that catalog and exports only the referenced bytes. Each selected image is store
 post under `docs/blog/posts/YYYY-MM-DD/`, and the Markdown uses `YYYY-MM-DD/<asset>` links. The display
 repository must grow with images actually published, never with images merely discovered.
 
+The editorial target is at least one useful image in each post when suitable catalog imagery exists.
+A bounded image decorator may receive the selected prose and a machine-generated catalog containing
+stable image IDs, repository identity, source filename, and concise context. It selects identities,
+placements, and captions; deterministic code owns path assignment, byte lookup, Markdown substitution,
+and copying. Image decoration is optional improvement. An empty catalog, no suitable image, malformed
+selection, or decorator failure preserves the publishable post and cannot stop publication.
+
+The decorator response is a bounded list of at most three placements. Each placement contains only a
+catalog image ID, a zero-based prose-block position, and concise alt text. The producer rejects unknown
+IDs and invalid positions as unusable advice, without rejecting the incumbent post. The decorator never
+receives authority to name a source path, destination path, or asset filename.
+
 Repository stories may be combined, reorganized, shortened, referenced briefly, or omitted when constructing the daily article.
 
 Repository boundaries do not dictate final article structure.
@@ -99,8 +111,6 @@ Candidate generation may scale linearly with the configured replication count. A
 judgment for meaningful disagreement, not another exhaustive comparison layer. When independent reviewers materially
 disagree about the winner, use one bounded tie-breaking judgment or a deterministic promotion rule.
 
-Meaningful reviewer disagreement should be resolved by an additional referee or another explicit promotion mechanism.
-
 ## 5. Parallelism
 
 Independent work should run in parallel wherever practical.
@@ -137,6 +147,12 @@ retaining selective access to underlying evidence for factual grounding.
 
 Progressive reduction must remain linear and bounded. Summarization controls what an LLM sees in one call; it must not
 erase machine-owned evidence, alter the active roster, or become a publication gate.
+
+Context size is not an admission gate. When the repository-story corpus is too large for the next editorial task, run
+one compacting summarizer per repository and pass those summaries forward. A missing, malformed, or unhelpful summary
+falls back to the already available repository artifact excerpt; it does not invalidate the repository, the candidate
+set, or a publishable incumbent. Route-call counts are observations, not publication limits. Boundedness comes from the
+finite configured topology and one complete-set judgment per reviewer.
 
 Later agents may consult underlying repository evidence rather than being restricted to summaries produced by earlier stages.
 

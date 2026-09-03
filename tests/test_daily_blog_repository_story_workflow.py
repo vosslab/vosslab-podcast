@@ -78,8 +78,9 @@ def story(source: daily_blog.repository_story_workflow.RepositoryStoryInput, nam
 
 #============================================
 def verdict(winner: str) -> str:
-	"""Return one strict anonymous comparison verdict."""
-	return '{"winner":"' + winner + '","reason":"grounded","evidence_quality":"high","confidence":1}'
+	"""Return one strict anonymous complete-set verdict."""
+	label = {"A": "C01", "B": "C02"}.get(winner, winner)
+	return '{"winner":"' + label + '","reason":"grounded","evidence_quality":"high","confidence":1}'
 
 
 class Runner:
@@ -112,7 +113,7 @@ def run(
 	"""Run one fixture with a generously shared, explicitly supplied budget."""
 	text, digest = rubric()
 	return daily_blog.repository_story_workflow.run_repository_story(source, stage_config or config(),
-		daily_blog.agents.RouteBudget(200, 16), runner, rubric=text, rubric_sha256=digest, **kwargs)
+		daily_blog.agents.RouteBudget(16), runner, rubric=text, rubric_sha256=digest, **kwargs)
 
 
 #============================================

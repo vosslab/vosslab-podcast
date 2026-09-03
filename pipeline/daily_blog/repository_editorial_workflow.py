@@ -122,7 +122,6 @@ class RepositoryEditorialResult:
 			type(self.stage5_input) is not daily_blog.daily_outline_workflow.DailyOutlineInput
 			or type(self.route_capacity) is not daily_blog.route_cache.RunCapacityPlan
 			or type(self.route_budget) is not daily_blog.agents.RouteBudget
-			or self.route_budget.maximum_calls != self.route_capacity.maximum_calls
 			or self.route_budget.maximum_parallel_calls != self.route_capacity.maximum_parallel_calls
 		):
 			raise RuntimeError("Repository editorial result is invalid.")

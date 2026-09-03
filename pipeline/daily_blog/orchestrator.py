@@ -284,6 +284,10 @@ class DailyPublicationOrchestrator:
 					self.store, self.record, self.cache, self._start, self._complete,
 				)
 			).acquire()
+			image_catalog = daily_blog.publication_images.build_image_catalog(
+				acquisition.packet, acquisition.assets,
+			)
+			self.store.write_artifact("image_catalog.json", image_catalog.to_dict())
 			repository_editorial = daily_blog.repository_editorial_workflow.RepositoryEditorialCoordinator(
 				daily_blog.repository_editorial_workflow.RepositoryEditorialDependencies(
 					self.config, self.report_date, self.prompt_snapshot, self.route_runner,
@@ -304,12 +308,19 @@ class DailyPublicationOrchestrator:
 				self, stage6_input, stage6_result,
 			)
 			surface = stage6_input.publication_surface
+			decorated_post = daily_blog.publication_images.decorate_post(
+				stage7_result.artifact, image_catalog, surface.source_packets,
+				self.route_runner, self.route_budget,
+				self.config.final_synthesis.reviewer_route, self.generator_root,
+				retry_attempts=self.config.final_synthesis.route_retry_attempts,
+				maximum_parallel_calls=self.config.final_synthesis.maximum_parallel_calls,
+			)
 			validated = daily_blog.publication_workflow.validate_selected_post(
-				self, stage7_result.artifact, surface,
+				self, decorated_post, surface,
 				recovery=stage6_result.recovery_generation is not None,
 			)
-			if validated.source_post is not stage7_result.artifact:
-				raise RuntimeError("Publication validation must retain the exact Stage 7 selected source post.")
+			if validated.source_post is not decorated_post:
+				raise RuntimeError("Publication validation must retain the exact decorated source post.")
 			image_selection = daily_blog.publication_images.resolve_final_post_images(
 				surface, validated.post, acquisition.assets,
 			)

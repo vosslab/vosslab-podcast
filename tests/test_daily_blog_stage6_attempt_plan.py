@@ -1,7 +1,6 @@
-"""Offline contract tests for the immutable Stage 6 attempt topology."""
+"""Offline contract tests for the bounded Stage 6 attempt topology."""
 
 # Standard Library
-import dataclasses
 import hashlib
 
 # PIP3 modules
@@ -14,7 +13,7 @@ import daily_blog.stage6_attempt_plan
 #============================================
 def make_policy(fresh_batch_count: int = 1) -> daily_blog.stage6_attempt_plan.Stage6AttemptPolicy:
 	"""Build a small valid policy without coupling tests to live tuning."""
-	return daily_blog.stage6_attempt_plan.Stage6AttemptPolicy(2, 2, 1, 1, fresh_batch_count)
+	return daily_blog.stage6_attempt_plan.Stage6AttemptPolicy(2, 2, 3, 1, fresh_batch_count)
 
 
 #============================================
@@ -31,18 +30,16 @@ def generation_ids(
 
 
 #============================================
-def candidate_pair(
-	rung: str, batch_index: int, pair_index: int,
-) -> daily_blog.stage6_attempt_plan.Stage6CandidatePairBinding:
-	"""Build one safe, ordered dynamic peer witness without raw artifacts."""
-	def identity(label: str) -> str:
-		return hashlib.sha256(label.encode("ascii")).hexdigest()
-	first = identity(f"{rung}:{batch_index}:{pair_index}:first")
-	second = identity(f"{rung}:{batch_index}:{pair_index}:second")
-	if first > second:
-		first, second = second, first
-	return daily_blog.stage6_attempt_plan.Stage6CandidatePairBinding(
-		rung, batch_index, pair_index, first, second,
+def candidate_set(
+	rung: str, batch_index: int,
+) -> daily_blog.stage6_attempt_plan.Stage6CandidateSetBinding:
+	"""Build one safe canonical complete-set witness without raw artifacts."""
+	identities = tuple(sorted(
+		hashlib.sha256(f"{rung}:{batch_index}:{index}".encode("ascii")).hexdigest()
+		for index in range(5)
+	))
+	return daily_blog.stage6_attempt_plan.Stage6CandidateSetBinding(
+		rung, batch_index, identities,
 	)
 
 
@@ -57,6 +54,16 @@ def test_batch_identity_is_fresh_while_transport_identity_is_stable() -> None:
 
 
 #============================================
+def test_plan_review_slots_scale_with_reviewers_not_candidate_count() -> None:
+	"""Every rung reserves exactly one review slot per independent reviewer."""
+	plan = daily_blog.stage6_attempt_plan.build_stage6_attempt_plan(make_policy())
+	for rung in daily_blog.stage6_attempt_plan.RUNG_ORDER:
+		reviews = tuple(item for item in plan.attempts_for(rung, 0) if item.work_kind == "review")
+		assert len(reviews) == 3
+		assert {item.replica_index for item in reviews} == {1, 2, 3}
+
+
+#============================================
 def test_materialization_rejects_generation_outside_its_terminal_boundary() -> None:
 	"""Generation materialization stays within its named terminal boundary."""
 	plan = daily_blog.stage6_attempt_plan.build_stage6_attempt_plan(make_policy())
@@ -66,53 +73,35 @@ def test_materialization_rejects_generation_outside_its_terminal_boundary() -> N
 
 
 #============================================
-def test_materialization_rejects_lone_review_slot() -> None:
-	"""Review work is derived from a pair witness rather than a bare slot."""
-	plan = daily_blog.stage6_attempt_plan.build_stage6_attempt_plan(make_policy())
-	review = next(item for item in plan.attempts if item.work_kind == "review")
-	with pytest.raises(RuntimeError, match="dependency-closed"):
-		daily_blog.stage6_attempt_plan.MaterializedStage6AttemptPlan(
-			plan, "primary", 0, (), (), (review,),
+def test_candidate_set_binding_requires_canonical_distinct_digests() -> None:
+	"""A review witness contains one complete canonical identity set."""
+	with pytest.raises(RuntimeError, match="distinct canonical SHA-256"):
+		daily_blog.stage6_attempt_plan.Stage6CandidateSetBinding(
+			"primary", 0, ("1" * 64, "1" * 64),
+		)
+	with pytest.raises(RuntimeError, match="distinct canonical SHA-256"):
+		daily_blog.stage6_attempt_plan.Stage6CandidateSetBinding(
+			"primary", 0, ("unsafe", "2" * 64),
 		)
 
 
 #============================================
-def test_candidate_pair_binding_requires_distinct_safe_digests() -> None:
-	"""Each dynamic witness contains two distinct fixed-size candidate digests."""
-	first = "1" * 64
-	with pytest.raises(RuntimeError, match="distinct canonical"):
-		daily_blog.stage6_attempt_plan.Stage6CandidatePairBinding("primary", 0, 1, first, first)
-	with pytest.raises(RuntimeError, match="SHA-256"):
-		daily_blog.stage6_attempt_plan.Stage6CandidatePairBinding("primary", 0, 1, "unsafe", "2" * 64)
-
-
-#============================================
-def test_candidate_pair_binding_requires_canonical_peer_order() -> None:
-	"""A pair witness has one deterministic peer order before slot derivation."""
-	with pytest.raises(RuntimeError, match="distinct canonical"):
-		daily_blog.stage6_attempt_plan.Stage6CandidatePairBinding(
-			"primary", 0, 1, "f" * 64, "1" * 64,
-		)
-
-
-#============================================
-def test_candidate_pair_binding_requires_canonical_prefix_coordinates() -> None:
-	"""Dynamic pair witnesses stay within one contiguous terminal prefix."""
+def test_materialization_derives_one_slot_per_reviewer_from_complete_set() -> None:
+	"""One set witness derives the bounded reviewer wave, never candidate pairs."""
 	plan = daily_blog.stage6_attempt_plan.build_stage6_attempt_plan(make_policy())
-	valid = candidate_pair("primary", 0, 1)
-	with pytest.raises(RuntimeError, match="contiguous dynamic"):
-		plan.materialize("primary", 0, (), (dataclasses.replace(valid, pair_index=2),))
-	with pytest.raises(RuntimeError, match="noncanonical or post-terminal"):
-		plan.materialize("primary", 0, (), (candidate_pair("daily_outline_expansion", 0, 1),))
-
-
-#============================================
-def test_materialization_derives_reviews_from_valid_dynamic_pair_subset() -> None:
-	"""A canonical dynamic subset derives all reviewer slots, never bare slots."""
-	plan = daily_blog.stage6_attempt_plan.build_stage6_attempt_plan(make_policy())
-	binding = candidate_pair("primary", 0, 1)
 	materialization = plan.materialize(
-		"primary", 0, generation_ids(plan, "primary", 0), (binding,),
+		"primary", 0, generation_ids(plan, "primary", 0), (candidate_set("primary", 0),),
 	)
 	reviews = tuple(item for item in materialization.attempts if item.work_kind == "review")
-	assert {item.pair_index for item in reviews} == {1}
+	assert len(reviews) == 3
+
+
+#============================================
+def test_materialization_rejects_duplicate_or_post_terminal_set_bindings() -> None:
+	"""Only one complete-set witness belongs to each admitted review wave."""
+	plan = daily_blog.stage6_attempt_plan.build_stage6_attempt_plan(make_policy())
+	binding = candidate_set("primary", 0)
+	with pytest.raises(RuntimeError, match="unique per review wave"):
+		plan.materialize("primary", 0, (), (binding, binding))
+	with pytest.raises(RuntimeError, match="noncanonical or post-terminal"):
+		plan.materialize("primary", 0, (), (candidate_set("daily_outline_expansion", 0),))

@@ -69,7 +69,7 @@ def test_every_recoverable_transport_category_returns_a_typed_result(
 		[request()],
 		SequenceRunner([error]),
 		2,
-		daily_blog.agents.RouteBudget(1, 2),
+		daily_blog.agents.RouteBudget(2),
 	)[0]
 
 	assert (result.ok, result.failure, result.text) == (False, failure, "")
@@ -83,7 +83,7 @@ def test_recoverable_failure_retries_until_a_later_success() -> None:
 	runner = SequenceRunner([
 		daily_blog.routes.EditorialRouteTimeout("private"), "recovered",
 	])
-	budget = daily_blog.agents.RouteBudget(2, 1)
+	budget = daily_blog.agents.RouteBudget(1)
 
 	result = daily_blog.agents.execute_requests(
 		[request(retry_attempts=1, maximum_parallel_calls=1)], runner, 1, budget
@@ -96,7 +96,7 @@ def test_recoverable_failure_retries_until_a_later_success() -> None:
 def test_whitespace_response_retries_then_records_only_nonempty_text() -> None:
 	"""Whitespace-only output is a typed retryable failure, never publishable text."""
 	runner = SequenceRunner([" \n", "recovered"])
-	budget = daily_blog.agents.RouteBudget(2, 1)
+	budget = daily_blog.agents.RouteBudget(1)
 
 	result = daily_blog.agents.execute_requests(
 		[request(retry_attempts=1, maximum_parallel_calls=1)], runner, 1, budget
@@ -113,7 +113,7 @@ def test_recoverable_failure_stops_at_the_configured_retry_boundary() -> None:
 		daily_blog.routes.EditorialRouteProcessError("private"),
 		daily_blog.routes.EditorialRouteProcessError("private"),
 	])
-	budget = daily_blog.agents.RouteBudget(3, 1)
+	budget = daily_blog.agents.RouteBudget(1)
 
 	result = daily_blog.agents.execute_requests(
 		[request(retry_attempts=2, maximum_parallel_calls=1)], runner, 1, budget
@@ -128,7 +128,7 @@ def test_unexpected_runner_defect_propagates_without_typed_failure_conversion() 
 	with pytest.raises(ValueError, match="implementation defect"):
 		daily_blog.agents.execute_requests(
 			[request()], SequenceRunner([ValueError("implementation defect")]), 2,
-			daily_blog.agents.RouteBudget(1, 2),
+			daily_blog.agents.RouteBudget(2),
 		)
 
 
@@ -144,23 +144,23 @@ def test_non_route_taxonomy_classes_remain_precise_exceptions(
 	with pytest.raises(error_type, match="classified"):
 		daily_blog.agents.execute_requests(
 			[request(maximum_parallel_calls=1)], SequenceRunner([error_type("classified")]), 1,
-			daily_blog.agents.RouteBudget(1, 1),
+			daily_blog.agents.RouteBudget(1),
 		)
 
 
-def test_shared_budget_counts_actual_calls_across_multiple_stage_batches() -> None:
-	"""Two stages sharing one budget cannot silently exceed the run's external limit."""
-	budget = daily_blog.agents.RouteBudget(2, 1)
+def test_shared_tracker_counts_actual_calls_across_multiple_stage_batches() -> None:
+	"""Call accounting remains observable without becoming a publication gate."""
+	budget = daily_blog.agents.RouteBudget(1)
 	daily_blog.agents.execute_requests(
 		[request("first", maximum_parallel_calls=1)], SequenceRunner(["one"]), 1, budget
 	)
 	daily_blog.agents.execute_requests(
 		[request("second", maximum_parallel_calls=1)], SequenceRunner(["two"]), 1, budget
 	)
-	with pytest.raises(daily_blog.agents.RouteBudgetExhausted, match="exhausted"):
-		daily_blog.agents.execute_requests(
-			[request("third", maximum_parallel_calls=1)], SequenceRunner(["three"]), 1, budget
-		)
+	daily_blog.agents.execute_requests(
+		[request("third", maximum_parallel_calls=1)], SequenceRunner(["three"]), 1, budget
+	)
+	assert budget.used_calls == 3
 
 
 def test_resume_requires_full_checksum_validation_and_avoids_new_route_call() -> None:
@@ -169,14 +169,14 @@ def test_resume_requires_full_checksum_validation_and_avoids_new_route_call() ->
 	first = request(maximum_parallel_calls=1)
 	first_runner = SequenceRunner(["sealed response"])
 	first_result = daily_blog.agents.execute_requests(
-		[first], first_runner, 1, daily_blog.agents.RouteBudget(1, 1),
+		[first], first_runner, 1, daily_blog.agents.RouteBudget(1),
 	)[0]
 	recorded.update(first_result.to_cache_dict())
 	assert first_result.ok
 
 	resumed = daily_blog.agents.execute_requests(
 		[first], SequenceRunner([AssertionError("route should not run")]), 1,
-		daily_blog.agents.RouteBudget(1, 1),
+		daily_blog.agents.RouteBudget(1),
 		cache_load=lambda _request: daily_blog.agents.AgentResult.from_cache_dict(recorded),
 	)[0]
 	assert resumed.resumed is True
@@ -193,12 +193,12 @@ def test_cache_request_identity_mismatch_stops_before_route_work() -> None:
 	second = request("second", maximum_parallel_calls=1)
 	result = daily_blog.agents.execute_requests(
 		[first], SequenceRunner(["sealed response"]), 1,
-		daily_blog.agents.RouteBudget(1, 1),
+		daily_blog.agents.RouteBudget(1),
 	)[0]
 	with pytest.raises(daily_blog.agents.EditorialIdentityError, match="does not match"):
 		daily_blog.agents.execute_requests(
 			[second], SequenceRunner([AssertionError("route work must not occur")]), 1,
-			daily_blog.agents.RouteBudget(1, 1),
+			daily_blog.agents.RouteBudget(1),
 			cache_load=lambda _request: daily_blog.agents.AgentResult.from_cache_dict(
 				result.to_cache_dict()
 			),

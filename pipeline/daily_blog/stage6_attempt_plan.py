@@ -20,9 +20,7 @@ MAX_REPLICAS = 16
 MAX_REVIEWERS = 16
 MAX_TRANSPORT_RETRY_ATTEMPTS = 3
 MAX_FRESH_BATCHES = 3
-MAX_PAIR_INDEX = 528
 MAX_PLANNED_ATTEMPTS = 10_000
-MAX_ROUTE_CALLS = 40_000
 SHA256_RE = re.compile(r"[0-9a-f]{64}\Z")
 
 
@@ -50,7 +48,6 @@ def _prompt_identity(rung: str, role: str) -> str:
 #============================================
 def _semantic_input_identity(
 	rung: str, batch_index: int, role: str, replica_index: int,
-	pair_index: int, display_order: int,
 ) -> str:
 	"""Bind a fresh batch without admitting prompt or candidate contents."""
 	return _canonical_hash({
@@ -59,8 +56,6 @@ def _semantic_input_identity(
 		"batch_index": batch_index,
 		"role": role,
 		"replica_index": replica_index,
-		"pair_index": pair_index,
-		"display_order": display_order,
 	})
 
 
@@ -94,8 +89,6 @@ class Stage6AttemptPolicy:
 		_bounded_int(self.fresh_batch_count, "fresh_batch_count", 1, MAX_FRESH_BATCHES)
 		if self.planned_attempt_upper_bound > MAX_PLANNED_ATTEMPTS:
 			raise RuntimeError("Stage 6 policy exceeds the planned-attempt ceiling.")
-		if self.maximum_route_calls_upper_bound > MAX_ROUTE_CALLS:
-			raise RuntimeError("Stage 6 policy exceeds the route-call ceiling.")
 
 	#============================================
 	@property
@@ -106,12 +99,6 @@ class Stage6AttemptPolicy:
 		return self.fresh_batch_count * (primary + (2 * recovery))
 
 	#============================================
-	@property
-	def maximum_route_calls_upper_bound(self) -> int:
-		"""Return physical route capacity including bounded same-slot retries."""
-		return self.planned_attempt_upper_bound * (self.transport_retry_attempts + 1)
-
-
 #============================================
 @dataclasses.dataclass(frozen=True)
 class PlannedStage6Attempt:
@@ -127,8 +114,6 @@ class PlannedStage6Attempt:
 	work_kind: str
 	role: str
 	replica_index: int
-	pair_index: int
-	display_order: int
 	prompt_identity: str
 	semantic_input_identity: str
 
@@ -144,14 +129,10 @@ class PlannedStage6Attempt:
 			if self.role not in {"writer", "editor"}:
 				raise RuntimeError("Stage 6 generation role is invalid.")
 			_bounded_int(self.replica_index, "replica_index", 1, MAX_REPLICAS)
-			if self.pair_index != 0 or self.display_order != 0:
-				raise RuntimeError("Stage 6 generation coordinates are invalid.")
 		else:
 			if self.work_kind != "review" or self.role != "reviewer":
 				raise RuntimeError("Stage 6 review role is invalid.")
 			_bounded_int(self.replica_index, "replica_index", 1, MAX_REVIEWERS)
-			_bounded_int(self.pair_index, "pair_index", 1, MAX_PAIR_INDEX)
-			_bounded_int(self.display_order, "display_order", 1, 2)
 		if type(self.prompt_identity) is not str or self.prompt_identity != _prompt_identity(self.rung, self.role):
 			raise RuntimeError("Stage 6 prompt identity is invalid.")
 		expected_input = _semantic_input_identity(
@@ -159,8 +140,6 @@ class PlannedStage6Attempt:
 			self.batch_index,
 			self.role,
 			self.replica_index,
-			self.pair_index,
-			self.display_order,
 		)
 		if type(self.semantic_input_identity) is not str or self.semantic_input_identity != expected_input:
 			raise RuntimeError("Stage 6 semantic input identity is invalid.")
@@ -206,19 +185,11 @@ class Stage6AttemptPlan:
 
 	#============================================
 	@property
-	def maximum_route_calls(self) -> int:
-		"""Reserve finite retry capacity before dispatch (ASVS 13.2 and 15.2)."""
-		return self.maximum_attempts * (self.policy.transport_retry_attempts + 1)
-
-	#============================================
-	@property
 	def terminal_bounds(self) -> dict[str, int]:
 		"""Expose finite terminal limits without claiming any realized result."""
 		return {
 			"maximum_planned_attempts": self.maximum_attempts,
-			"maximum_route_calls": self.maximum_route_calls,
 			"global_planned_attempt_ceiling": MAX_PLANNED_ATTEMPTS,
-			"global_route_call_ceiling": MAX_ROUTE_CALLS,
 			"maximum_fresh_batches": self.policy.fresh_batch_count,
 			"eligible_promotions_to_terminate": 1,
 		}
@@ -265,13 +236,13 @@ class Stage6AttemptPlan:
 		final_rung: str,
 		final_batch_index: int,
 		available_generation_slot_ids: tuple[str, ...],
-		candidate_pair_bindings: tuple["Stage6CandidatePairBinding", ...] = (),
+		candidate_set_bindings: tuple["Stage6CandidateSetBinding", ...] = (),
 	) -> "MaterializedStage6AttemptPlan":
 		"""Build one ordered dispatch view from actual candidate availability.
 
 		The canonical plan remains the reservation and topology authority.  This
 		method admits generation slots directly, while it derives every review from
-		a typed pair witness for two actual candidate identities. It
+		a typed complete-set witness for actual candidate identities. It
 		cannot add work, reorder work, or reach past the named terminal
 		materialization.  A bare review slot is deliberately not an API input.
 		"""
@@ -280,13 +251,13 @@ class Stage6AttemptPlan:
 			final_rung,
 			final_batch_index,
 			available_generation_slot_ids,
-			candidate_pair_bindings,
+			candidate_set_bindings,
 			_materialized_attempts(
 				self,
 				final_rung,
 				final_batch_index,
 				available_generation_slot_ids,
-				candidate_pair_bindings,
+				candidate_set_bindings,
 			),
 		)
 
@@ -299,42 +270,33 @@ class Stage6AttemptPlan:
 
 #============================================
 @dataclasses.dataclass(frozen=True)
-class Stage6CandidatePairBinding:
-	"""Validated dynamic peer-pair witness for derived review work.
-
-	``pair_index`` is assigned only after the caller sorts actual peer pairs by
-	the two safe opaque candidate digests.  The maximum topology reserves all
-	possible pair indices, but this binding identifies which concrete peers are
-	present for a particular rung and fresh batch. Execution-time materialization
-	proves that these digests bind to the actual candidate inputs.
-	"""
+class Stage6CandidateSetBinding:
+	"""Validated complete candidate-set witness for derived review work."""
 
 	rung: str
 	batch_index: int
-	pair_index: int
-	first_candidate_identity: str
-	second_candidate_identity: str
+	candidate_identities: tuple[str, ...]
 
 	#============================================
 	def __post_init__(self) -> None:
-		"""Reject unsafe, unordered, or self-paired candidate witnesses."""
+		"""Reject unsafe, unordered, or duplicate candidate witnesses."""
 		if self.rung not in RUNG_ORDER:
-			raise RuntimeError("Stage 6 candidate pair rung is invalid.")
-		_bounded_int(self.batch_index, "candidate pair batch_index", 0, MAX_FRESH_BATCHES - 1)
-		_bounded_int(self.pair_index, "candidate pair pair_index", 1, MAX_PAIR_INDEX)
-		if any(type(value) is not str or SHA256_RE.fullmatch(value) is None for value in (
-			self.first_candidate_identity,
-			self.second_candidate_identity,
-		)):
-			raise RuntimeError("Stage 6 candidate pair identities must be SHA-256 digests.")
-		if self.first_candidate_identity >= self.second_candidate_identity:
-			raise RuntimeError("Stage 6 candidate pair members must be distinct canonical peers.")
+			raise RuntimeError("Stage 6 candidate-set rung is invalid.")
+		_bounded_int(self.batch_index, "candidate-set batch_index", 0, MAX_FRESH_BATCHES - 1)
+		if (
+			type(self.candidate_identities) is not tuple
+			or len(self.candidate_identities) < 2
+			or any(type(value) is not str or SHA256_RE.fullmatch(value) is None for value in self.candidate_identities)
+			or tuple(sorted(self.candidate_identities)) != self.candidate_identities
+			or len(set(self.candidate_identities)) != len(self.candidate_identities)
+		):
+			raise RuntimeError("Stage 6 candidate-set identities must be distinct canonical SHA-256 digests.")
 
 	#============================================
 	@property
-	def canonical_key(self) -> tuple[str, str]:
-		"""Return the safe dynamic ordering key used to number pair witnesses."""
-		return (self.first_candidate_identity, self.second_candidate_identity)
+	def canonical_key(self) -> tuple[str, ...]:
+		"""Return the complete safe dynamic candidate ordering."""
+		return self.candidate_identities
 
 
 #============================================
@@ -343,7 +305,7 @@ class MaterializedStage6AttemptPlan:
 	"""Immutable ordered execution subset of one canonical maximum plan.
 
 	``attempts`` contains only slots whose concrete candidate or review input is
-	available. It never represents a skip; unavailable review pairs simply do
+	available. It never represents a skip; unavailable review sets simply do
 	not materialize.
 	"""
 
@@ -351,7 +313,7 @@ class MaterializedStage6AttemptPlan:
 	final_rung: str
 	final_batch_index: int
 	available_generation_slot_ids: tuple[str, ...]
-	candidate_pair_bindings: tuple[Stage6CandidatePairBinding, ...]
+	candidate_set_bindings: tuple[Stage6CandidateSetBinding, ...]
 	attempts: tuple[PlannedStage6Attempt, ...]
 
 	#============================================
@@ -359,18 +321,18 @@ class MaterializedStage6AttemptPlan:
 		"""Require an ordered, dependency-closed subset before dispatch."""
 		if (type(self.plan) is not Stage6AttemptPlan
 			or type(self.available_generation_slot_ids) is not tuple
-			or type(self.candidate_pair_bindings) is not tuple
+			or type(self.candidate_set_bindings) is not tuple
 			or type(self.attempts) is not tuple):
 			raise RuntimeError("Stage 6 materialization requires exact immutable values.")
 		self.plan._validate_boundary(self.final_rung, self.final_batch_index)
-		if any(type(binding) is not Stage6CandidatePairBinding for binding in self.candidate_pair_bindings):
-			raise RuntimeError("Stage 6 materialization requires exact candidate pair bindings.")
+		if any(type(binding) is not Stage6CandidateSetBinding for binding in self.candidate_set_bindings):
+			raise RuntimeError("Stage 6 materialization requires exact candidate-set bindings.")
 		expected = _materialized_attempts(
 			self.plan,
 			self.final_rung,
 			self.final_batch_index,
 			self.available_generation_slot_ids,
-			self.candidate_pair_bindings,
+			self.candidate_set_bindings,
 		)
 		if self.attempts != expected:
 			raise RuntimeError("Stage 6 materialization must derive its canonical dependency-closed slots.")
@@ -392,10 +354,9 @@ class MaterializedStage6AttemptPlan:
 
 #============================================
 def _rung_attempt_count(policy: Stage6AttemptPolicy, includes_incumbent: bool) -> int:
-	"""Return generation and review slots for one bounded rung."""
-	peers = policy.writer_count + policy.editor_count + int(includes_incumbent)
-	pairs = peers * (peers - 1) // 2
-	return policy.writer_count + policy.editor_count + (pairs * policy.reviewer_count * 2)
+	"""Return generation plus one complete-set slot per independent reviewer."""
+	del includes_incumbent
+	return policy.writer_count + policy.editor_count + policy.reviewer_count
 
 
 #============================================
@@ -405,13 +366,13 @@ def _rung_batch_order(attempt: PlannedStage6Attempt) -> tuple[int, int]:
 
 
 #============================================
-def _attempt_order(attempt: PlannedStage6Attempt) -> tuple[int, int, int, int, int, int, int]:
+def _attempt_order(attempt: PlannedStage6Attempt) -> tuple[int, int, int, int, int]:
 	"""Return the canonical generation then review work order."""
 	work_order = {"generation": 0, "review": 1}[attempt.work_kind]
 	role_order = {"writer": 0, "editor": 1, "reviewer": 2}[attempt.role]
 	return (
 		RUNG_ORDER.index(attempt.rung), attempt.batch_index, work_order,
-		attempt.pair_index, attempt.replica_index, attempt.display_order, role_order,
+		attempt.replica_index, role_order,
 	)
 
 
@@ -420,28 +381,21 @@ def _canonical_attempts(policy: Stage6AttemptPolicy) -> tuple[PlannedStage6Attem
 	"""Expand the sole canonical maximum topology without I/O or mutation."""
 	attempts: list[PlannedStage6Attempt] = []
 	for rung in RUNG_ORDER:
-		peers = policy.writer_count + policy.editor_count + int(rung == "primary")
-		pair_count = peers * (peers - 1) // 2
 		for batch_index in range(policy.fresh_batch_count):
 			for role, count in (("writer", policy.writer_count), ("editor", policy.editor_count)):
 				for replica_index in range(1, count + 1):
 					attempts.append(PlannedStage6Attempt(
 						STAGE6_COMPLETE_POST, rung, batch_index, "generation", role, replica_index,
-						0, 0, _prompt_identity(rung, role),
-						_semantic_input_identity(rung, batch_index, role, replica_index, 0, 0),
+						_prompt_identity(rung, role),
+						_semantic_input_identity(rung, batch_index, role, replica_index),
 					))
-			for pair_index in range(1, pair_count + 1):
-				for reviewer_index in range(1, policy.reviewer_count + 1):
-					for display_order in (1, 2):
-						review = PlannedStage6Attempt(
-							STAGE6_COMPLETE_POST, rung, batch_index, "review", "reviewer",
-							reviewer_index, pair_index, display_order,
-							_prompt_identity(rung, "reviewer"),
-							_semantic_input_identity(
-								rung, batch_index, "reviewer", reviewer_index, pair_index, display_order,
-							),
-						)
-						attempts.append(review)
+			for reviewer_index in range(1, policy.reviewer_count + 1):
+				review = PlannedStage6Attempt(
+					STAGE6_COMPLETE_POST, rung, batch_index, "review", "reviewer",
+					reviewer_index, _prompt_identity(rung, "reviewer"),
+					_semantic_input_identity(rung, batch_index, "reviewer", reviewer_index),
+				)
+				attempts.append(review)
 	return tuple(sorted(attempts, key=_attempt_order))
 
 
@@ -477,7 +431,7 @@ def _materialized_attempts(
 	final_rung: str,
 	final_batch_index: int,
 	available_generation_slot_ids: tuple[str, ...],
-	candidate_pair_bindings: tuple[Stage6CandidatePairBinding, ...],
+	candidate_set_bindings: tuple[Stage6CandidateSetBinding, ...],
 ) -> tuple[PlannedStage6Attempt, ...]:
 	"""Return the canonical, witness-derived subset through one boundary."""
 	plan._validate_boundary(final_rung, final_batch_index)
@@ -486,10 +440,10 @@ def _materialized_attempts(
 		raise RuntimeError("Stage 6 available generation identities must be an exact digest tuple.")
 	if len(available_generation_slot_ids) != len(set(available_generation_slot_ids)):
 		raise RuntimeError("Stage 6 available generation identities must be unique.")
-	if type(candidate_pair_bindings) is not tuple or any(
-		type(item) is not Stage6CandidatePairBinding for item in candidate_pair_bindings
+	if type(candidate_set_bindings) is not tuple or any(
+		type(item) is not Stage6CandidateSetBinding for item in candidate_set_bindings
 	):
-		raise RuntimeError("Stage 6 candidate pair bindings must be an exact tuple.")
+		raise RuntimeError("Stage 6 candidate-set bindings must be an exact tuple.")
 	allowed = plan.terminal_prefix(final_rung, final_batch_index)
 	allowed_generation_ids = {
 		attempt.semantic_identity for attempt in allowed if attempt.work_kind == "generation"
@@ -497,17 +451,14 @@ def _materialized_attempts(
 	available = set(available_generation_slot_ids)
 	if not available <= allowed_generation_ids:
 		raise RuntimeError("Stage 6 availability contains a noncanonical or post-terminal generation slot.")
-	binding_coordinates = _validated_binding_coordinates(plan, allowed, candidate_pair_bindings)
-	derived_review_coordinates = {
-		(binding.rung, binding.batch_index, binding.pair_index)
-		for binding in binding_coordinates
-	}
+	binding_coordinates = _validated_binding_coordinates(plan, allowed, candidate_set_bindings)
+	derived_review_coordinates = {(binding.rung, binding.batch_index) for binding in binding_coordinates}
 	return tuple(
 		attempt for attempt in allowed
 		if (attempt.work_kind == "generation" and attempt.semantic_identity in available)
 		or (
 			attempt.work_kind == "review"
-			and (attempt.rung, attempt.batch_index, attempt.pair_index) in derived_review_coordinates
+			and (attempt.rung, attempt.batch_index) in derived_review_coordinates
 		)
 	)
 
@@ -516,39 +467,23 @@ def _materialized_attempts(
 def _validated_binding_coordinates(
 	plan: Stage6AttemptPlan,
 	allowed: tuple[PlannedStage6Attempt, ...],
-	bindings: tuple[Stage6CandidatePairBinding, ...],
-) -> tuple[Stage6CandidatePairBinding, ...]:
-	"""Validate canonical dynamic pair witnesses against maximum templates.
-
-	Pair indices are assigned after concrete peers are known.  Requiring a
-	contiguous, lexically ordered sequence per rung/batch gives later workers a
-	deterministic, bounded mapping without claiming that static generation slots
-	identify pair members.
-	"""
-	allowed_pair_coordinates = {
-		(attempt.rung, attempt.batch_index, attempt.pair_index)
+	bindings: tuple[Stage6CandidateSetBinding, ...],
+) -> tuple[Stage6CandidateSetBinding, ...]:
+	"""Validate one canonical dynamic candidate-set witness per review wave."""
+	allowed_coordinates = {
+		(attempt.rung, attempt.batch_index)
 		for attempt in allowed if attempt.work_kind == "review"
 	}
 	if any(binding.batch_index >= plan.policy.fresh_batch_count for binding in bindings):
-		raise RuntimeError("Stage 6 candidate pair binding batch is outside the policy.")
-	if any((binding.rung, binding.batch_index, binding.pair_index) not in allowed_pair_coordinates for binding in bindings):
-		raise RuntimeError("Stage 6 candidate pair binding is noncanonical or post-terminal.")
-	grouped: dict[tuple[str, int], list[Stage6CandidatePairBinding]] = {}
-	for binding in bindings:
-		grouped.setdefault((binding.rung, binding.batch_index), []).append(binding)
-	for coordinate, group in grouped.items():
-		if tuple(binding.pair_index for binding in group) != tuple(range(1, len(group) + 1)):
-			raise RuntimeError("Stage 6 candidate pair bindings require contiguous dynamic indices.")
-		if tuple(binding.canonical_key for binding in group) != tuple(sorted(binding.canonical_key for binding in group)):
-			raise RuntimeError("Stage 6 candidate pair bindings must use canonical peer order.")
-		if len({binding.canonical_key for binding in group}) != len(group):
-			raise RuntimeError("Stage 6 candidate pair bindings must be unique.")
-		if coordinate not in {(attempt.rung, attempt.batch_index) for attempt in allowed}:
-			raise RuntimeError("Stage 6 candidate pair binding is outside the terminal prefix.")
+		raise RuntimeError("Stage 6 candidate-set binding batch is outside the policy.")
+	if any((binding.rung, binding.batch_index) not in allowed_coordinates for binding in bindings):
+		raise RuntimeError("Stage 6 candidate-set binding is noncanonical or post-terminal.")
+	if len({(binding.rung, binding.batch_index) for binding in bindings}) != len(bindings):
+		raise RuntimeError("Stage 6 candidate-set bindings must be unique per review wave.")
 	ordered = tuple(sorted(
 		bindings,
-		key=lambda binding: (RUNG_ORDER.index(binding.rung), binding.batch_index, binding.pair_index),
+		key=lambda binding: (RUNG_ORDER.index(binding.rung), binding.batch_index),
 	))
 	if bindings != ordered:
-		raise RuntimeError("Stage 6 candidate pair bindings must preserve canonical plan order.")
+		raise RuntimeError("Stage 6 candidate-set bindings must preserve canonical plan order.")
 	return bindings

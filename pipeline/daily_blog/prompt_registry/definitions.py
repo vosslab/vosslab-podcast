@@ -383,13 +383,6 @@ REPOSITORY_OUTLINE_PROMPT_SET = RegisteredPromptSet(
 			"3efa235111913cb67ab961d5bd75f1754d52887a914b7a19876b9974d3468633",
 			(), "rubric-markdown.v1",
 		),
-		_resource(
-			"comparison",
-			"repository_outline_comparison_v1.txt",
-			"084140fa6d3d103878db8e181d9623b345536c908bdce720d851f228cb5c16ad",
-			("rubric", "evidence_json", "candidate_a", "candidate_b"),
-			"repository-outline-verdict-json.v1",
-		),
 	),
 )
 REPOSITORY_STORY_PROMPT_SET = RegisteredPromptSet(
@@ -408,16 +401,6 @@ REPOSITORY_STORY_PROMPT_SET = RegisteredPromptSet(
 			("repo_outline_json", "evidence_json", "candidate_stories_json", "replica_id"),
 			"repository-story-markdown.v1",
 		),
-		_resource(
-			"comparison",
-			"daily_blog_repository_story_comparison_v1.txt",
-			"1a164dd5dd29c3b34d803c5f77d962a6bfb62131b933ed4ee8c1ee10d722383c",
-			(
-				"rubric_identity", "rubric", "repo_outline_json", "evidence_json", "candidate_a",
-				"candidate_b",
-			),
-			"repository-story-verdict-json.v1",
-		),
 	),
 )
 STORY_RANKING_RESOURCES: tuple[RegisteredPromptResource, ...] = (
@@ -434,16 +417,6 @@ STORY_RANKING_RESOURCES: tuple[RegisteredPromptResource, ...] = (
 			"d96186dcd4bf0d3382e92be577a7106eabbb9fc9038522502fbbf7ad25e0ab2b",
 			(), "rubric-markdown.v1",
 		),
-		_resource(
-			"review",
-			"daily_blog_story_ranking_review_v1.txt",
-			"cf7f28f2d6af7089ee4f22c118805ebc688365e3e1d9ca47def84f57b5275d99",
-			(
-				"rubric", "candidate_ranking_json", "stories_json", "repository_outlines_json",
-				"evidence_json", "replica_id",
-			),
-			"story-ranking-review-verdict-json.v1",
-		),
 )
 DAILY_OUTLINE_PROMPT_SET = RegisteredPromptSet(
 	"stage5.daily-outline", "daily-outline-v1", STORY_RANKING_RESOURCES + (
@@ -459,16 +432,6 @@ DAILY_OUTLINE_PROMPT_SET = RegisteredPromptSet(
 			"daily_blog_daily_outline_rubric_v1.md",
 			"dfca56e4309b3761ad6c9d55b9beecccdb66cedf954e2e14129687af52070c24",
 			(), "rubric-markdown.v1",
-		),
-		_resource(
-			"comparison",
-			"daily_blog_daily_outline_comparison_v1.txt",
-			"47eb85d8d3855501d1a4e9e3b14f624b841333893d332a4ac15435efb0a486ef",
-			(
-				"rubric", "stories_json", "repository_outlines_json", "evidence_json", "candidate_a",
-				"candidate_b",
-			),
-			"daily-outline-verdict-json.v1",
 		),
 	),
 )
@@ -532,6 +495,39 @@ FINAL_SYNTHESIS_PROMPT_SET = RegisteredPromptSet(
 		),
 	),
 )
+CANDIDATE_SET_REVIEW_PROMPT_SET = RegisteredPromptSet(
+	"shared.candidate-set-review", "candidate-set-review-v1", (
+		_resource(
+			"reviewer",
+			"daily_blog_candidate_set_reviewer_v1.txt",
+			"7409709c15a2b1dd4a4d6260b457c98eb6b01fb85688d73e88932d10b83324d0",
+			("rubric", "context", "candidates"),
+			"candidate-set-verdict-json.v1",
+		),
+	),
+)
+CONTEXT_REDUCTION_PROMPT_SET = RegisteredPromptSet(
+	"shared.context-reduction", "context-reduction-v1", (
+		_resource(
+			"repository_summarizer",
+			"daily_blog_repository_context_summarizer_v1.txt",
+			"5a16b2908ad173d1048fbec4bdb387a6808fbe5b0d2b7d5c1cafa5fcc81ec2b0",
+			("repository", "material"),
+			"repository-context-summary-text.v1",
+		),
+	),
+)
+IMAGE_DECORATION_PROMPT_SET = RegisteredPromptSet(
+	"stage7.image-decoration", "image-decoration-v1", (
+		_resource(
+			"decorator",
+			"daily_blog_image_decorator_v1.txt",
+			"0411ae5116862735074bd519c553a93e833fd2b20f61aa9a5941b3b1f7d1b30a",
+			("post", "catalog"),
+			"image-decoration-json.v1",
+		),
+	),
+)
 REGISTERED_PROMPT_SETS = types.MappingProxyType({
 	prompt_set.stage_key: prompt_set
 	for prompt_set in (
@@ -541,22 +537,21 @@ REGISTERED_PROMPT_SETS = types.MappingProxyType({
 		COMPLETE_POST_EDITOR_PROMPT_SET,
 		V4_MAKER_PROMPT_SET,
 		FINAL_SYNTHESIS_PROMPT_SET,
+		CANDIDATE_SET_REVIEW_PROMPT_SET,
+		CONTEXT_REDUCTION_PROMPT_SET,
+		IMAGE_DECORATION_PROMPT_SET,
 	)
 })
 
 REPOSITORY_OUTLINE_GENERATOR_RESOURCE = REPOSITORY_OUTLINE_PROMPT_SET.resource_by_key("generator")
 REPOSITORY_OUTLINE_MERGER_RESOURCE = REPOSITORY_OUTLINE_PROMPT_SET.resource_by_key("merger")
 REPOSITORY_OUTLINE_RUBRIC_RESOURCE = REPOSITORY_OUTLINE_PROMPT_SET.resource_by_key("rubric")
-REPOSITORY_OUTLINE_COMPARISON_RESOURCE = REPOSITORY_OUTLINE_PROMPT_SET.resource_by_key("comparison")
 REPOSITORY_STORY_WRITER_RESOURCE = REPOSITORY_STORY_PROMPT_SET.resource_by_key("writer")
 REPOSITORY_STORY_EDITOR_RESOURCE = REPOSITORY_STORY_PROMPT_SET.resource_by_key("editor")
-REPOSITORY_STORY_COMPARISON_RESOURCE = REPOSITORY_STORY_PROMPT_SET.resource_by_key("comparison")
 STORY_RANKING_RESOURCE = DAILY_OUTLINE_PROMPT_SET.resource_by_key("ranking")
 STORY_RANKING_RUBRIC_RESOURCE = DAILY_OUTLINE_PROMPT_SET.resource_by_key("ranking_rubric")
-STORY_RANKING_REVIEW_RESOURCE = DAILY_OUTLINE_PROMPT_SET.resource_by_key("review")
 DAILY_OUTLINE_WRITER_RESOURCE = DAILY_OUTLINE_PROMPT_SET.resource_by_key("writer")
 DAILY_OUTLINE_RUBRIC_RESOURCE = DAILY_OUTLINE_PROMPT_SET.resource_by_key("outline_rubric")
-DAILY_OUTLINE_COMPARISON_RESOURCE = DAILY_OUTLINE_PROMPT_SET.resource_by_key("comparison")
 COMPLETE_POST_EDITOR_RESOURCE = COMPLETE_POST_EDITOR_PROMPT_SET.resource_by_key("editor")
 V4_AUTHOR_RESOURCE = V4_MAKER_PROMPT_SET.resource_by_key("author")
 V4_REFEREE_RESOURCE = V4_MAKER_PROMPT_SET.resource_by_key("referee")
@@ -564,6 +559,9 @@ V4_REFEREE_REPAIR_RESOURCE = V4_MAKER_PROMPT_SET.resource_by_key("referee_repair
 V4_RUBRIC_RESOURCE = V4_MAKER_PROMPT_SET.resource_by_key("rubric")
 V4_VOICE_EXAMPLES_RESOURCE = V4_MAKER_PROMPT_SET.resource_by_key("voice_examples")
 FINAL_SYNTHESIS_RESOURCE = FINAL_SYNTHESIS_PROMPT_SET.resource_by_key("synthesis")
+CANDIDATE_SET_REVIEW_RESOURCE = CANDIDATE_SET_REVIEW_PROMPT_SET.resource_by_key("reviewer")
+CONTEXT_REDUCTION_RESOURCE = CONTEXT_REDUCTION_PROMPT_SET.resource_by_key("repository_summarizer")
+IMAGE_DECORATION_RESOURCE = IMAGE_DECORATION_PROMPT_SET.resource_by_key("decorator")
 
 
 #============================================

@@ -71,17 +71,6 @@ def render_repository_outline_merger(evidence_json: str, candidate_outlines_json
 	}, MAX_EVIDENCE_CONTEXT_CHARS + MAX_CANDIDATE_OUTLINES_CHARS + 5000)
 
 
-def render_repository_outline_comparison(evidence_json: str, candidate_a: str, candidate_b: str,
-	loaded: daily_blog.prompt_registry.loader.LoadedPromptSet | None = None) -> str:
-	value = _loaded(loaded)
-	return _render(value, daily_blog.prompt_registry.definitions.REPOSITORY_OUTLINE_COMPARISON_RESOURCE, {
-		"rubric": value.text(daily_blog.prompt_registry.definitions.REPOSITORY_OUTLINE_RUBRIC_RESOURCE),
-		"evidence_json": _bounded_text(evidence_json, "evidence context", MAX_EVIDENCE_CONTEXT_CHARS),
-		"candidate_a": _bounded_text(candidate_a, "candidate A", MAX_CANDIDATE_OUTLINES_CHARS),
-		"candidate_b": _bounded_text(candidate_b, "candidate B", MAX_CANDIDATE_OUTLINES_CHARS),
-	}, MAX_COMPARISON_PROMPT_CHARS)
-
-
 def parse_repository_outline_verdict(response: str,
 	allowed_labels: frozenset[str] = frozenset({"A", "B"})) -> dict[str, object]:
 	"""Parse one exact generic anonymous comparison verdict."""

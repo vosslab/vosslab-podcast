@@ -79,19 +79,6 @@ def render_repository_story_editor(repo_outline_json: str, evidence_json: str, c
 	}, MAX_OUTLINE_CONTEXT_CHARS + MAX_EVIDENCE_CONTEXT_CHARS + MAX_CANDIDATE_STORIES_CHARS + 5000)
 
 
-def render_repository_story_comparison(repo_outline_json: str, evidence_json: str, candidate_a: str,
-	candidate_b: str, rubric: str, rubric_identity: str,
-	loaded: daily_blog.prompt_registry.loader.LoadedPromptSet | None = None) -> str:
-	return _render(loaded, daily_blog.prompt_registry.definitions.REPOSITORY_STORY_COMPARISON_RESOURCE, {
-		"repo_outline_json": _bounded_text(repo_outline_json, "outline context", MAX_OUTLINE_CONTEXT_CHARS),
-		"evidence_json": _bounded_text(evidence_json, "evidence context", MAX_EVIDENCE_CONTEXT_CHARS),
-		"candidate_a": _bounded_text(candidate_a, "candidate A", MAX_CANDIDATE_STORIES_CHARS),
-		"candidate_b": _bounded_text(candidate_b, "candidate B", MAX_CANDIDATE_STORIES_CHARS),
-		"rubric": _bounded_text(rubric, "rubric", MAX_RUBRIC_CHARS),
-		"rubric_identity": _rubric_identity(rubric_identity),
-	}, MAX_COMPARISON_PROMPT_CHARS)
-
-
 def parse_repository_story_verdict(response: str,
 	allowed_labels: frozenset[str] = frozenset({"A", "B"})) -> dict[str, object]:
 	"""Parse one exact anonymous comparison verdict without a candidate identity."""

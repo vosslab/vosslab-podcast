@@ -75,7 +75,7 @@ def _config(root: pathlib.Path) -> daily_blog.config.DailyBlogConfig:
 	return daily_blog.config.DailyBlogConfig(
 		"settings.yaml", str(root), "owner", "America/Chicago", str(root),
 		str(root / "mirrors"), (route,), route, {}, {}, {},
-		daily_blog.config.EditorialReliabilityConfig(2, 1, 1, 32),
+		daily_blog.config.EditorialReliabilityConfig(2, 1, 1),
 	)
 
 
@@ -96,7 +96,7 @@ def test_stage6_exhaustion_records_real_writer_failure_provenance(
 
 	result = daily_blog.stage6.run_stage6(
 		value, "primary-outage", _config(tmp_path),
-		daily_blog.agents.RouteBudget(32, 1), Runner(),
+		daily_blog.agents.RouteBudget(1), Runner(),
 	)
 
 	assert result.artifact is None and result.promotion.reason == "route_unavailable"

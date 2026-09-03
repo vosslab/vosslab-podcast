@@ -71,11 +71,10 @@ class _Runner:
 def _run(
 	value: daily_blog.repository_outline_workflow.RepositoryOutlineInput,
 	runner: _Runner,
-	maximum_calls: int,
 ) -> daily_blog.repository_outline_workflow.RepositoryOutlineResult:
-	"""Invoke the public Stage 3 boundary with a run-owned bounded budget."""
+	"""Invoke the public Stage 3 boundary with run-owned concurrency tracking."""
 	return daily_blog.repository_outline_workflow.run_repository_outline(
-		value, _config(), daily_blog.agents.RouteBudget(maximum_calls, 2), runner,
+		value, _config(), daily_blog.agents.RouteBudget(2), runner,
 	)
 
 
@@ -97,7 +96,7 @@ def test_generator_route_failure_keeps_independent_merger_recovery(tmp_path: pat
 		"repository_outline_merger": [_outline(value, "merger one"), _outline(value, "merger two")],
 		"repository_outline_reviewer": [_verdict("A"), _verdict("B")],
 	})
-	result = _run(value, runner, 6)
+	result = _run(value, runner)
 
 	_assert_whole_artifact(result)
 	assert result.artifact.content in {_outline(value, "merger one"), _outline(value, "merger two")}
@@ -112,7 +111,7 @@ def test_merger_route_failure_promotes_a_whole_surviving_merger(tmp_path: pathli
 		"repository_outline_merger": [daily_blog.routes.EditorialRouteProcessError("x"), _outline(value, "surviving merger")],
 		"repository_outline_reviewer": [],
 	})
-	result = _run(value, runner, 4)
+	result = _run(value, runner)
 
 	_assert_whole_artifact(result)
 	assert result.artifact.content == _outline(value, "surviving merger")
@@ -127,7 +126,7 @@ def test_reviewer_route_failure_uses_typed_whole_peer_promotion(tmp_path: pathli
 		"repository_outline_merger": [_outline(value, "merger one"), _outline(value, "merger two")],
 		"repository_outline_reviewer": [daily_blog.routes.EditorialRouteProcessError("x")] * 2,
 	})
-	result = _run(value, runner, 6)
+	result = _run(value, runner)
 
 	_assert_whole_artifact(result)
 	assert isinstance(result.promotion, daily_blog.artifacts.DegradedPromotion)
@@ -144,7 +143,7 @@ def test_all_generator_routes_unavailable_retain_typed_recovery_evidence(
 		"repository_outline_generator": [daily_blog.routes.EditorialRouteProcessError("x")] * 2,
 		"repository_outline_merger": [], "repository_outline_reviewer": [],
 	})
-	result = _run(value, runner, 2)
+	result = _run(value, runner)
 
 	assert isinstance(result.promotion, daily_blog.artifacts.NoArtifact)
 	assert result.artifact is None

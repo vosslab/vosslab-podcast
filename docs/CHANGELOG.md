@@ -27,6 +27,31 @@
   delivery while the canonical run log and terminal summary remain.
 - Reduced the renderer handoff to a transient routing manifest, final Markdown, and referenced image
   bytes. Evidence, rosters, projections, and publication-surface JSON remain producer-side.
+- Added the stage-neutral complete-candidate-set review contract. It constructs exactly one request
+  per independent reviewer, gives each request the entire canonical peer set in one deterministic
+  ordering, and records one winner from that set. Five candidates and three reviewers now schedule
+  three calls through this contract, not 60 pair/order calls.
+- Extended promotion to consume complete-candidate-set votes directly. One strict plurality winner
+  may be promoted without reconstructing candidate pairs; tied, failed, or otherwise inconclusive
+  optional review preserves an existing publishable incumbent.
+- Migrated repository-outline, repository-story, daily-outline, complete-post, recovery, and final-
+  synthesis review to that complete-set contract. Ranking candidates are selected mechanically
+  without a second judging wave, and the pair/order coordinates were removed from Stage 6 planning
+  and cache identity.
+- Removed the global route-call cap and all configured `max_route_calls` values. The shared executor
+  now limits concurrency and records actual calls for diagnostics; it cannot abort publication
+  because a separately maintained call counter was exhausted.
+- Added a machine-authored repository-context summarizer prompt. When the cross-repository story and
+  outline corpus would otherwise be excerpted, Stage D runs one summarizer per repository and feeds
+  compact results forward. Missing or unusable summaries fall back to existing bounded excerpts and
+  cannot remove repository identity or stop publication.
+- Added the bounded image-decoration response contract and deterministic inserter. An editorial
+  decorator may select up to three machine-catalog image IDs and prose-block positions; unknown IDs,
+  malformed output, empty selection, or decorator failure preserve the publishable incumbent. The
+  producer alone assigns date-owned paths and resolves the selected bytes.
+- Wired a machine-authored image decorator prompt after final prose selection. It runs once when
+  the machine catalog has images, targets one to three useful placements, and degrades to the exact
+  undecorated post on transport failure, malformed advice, or an empty selection.
 
 - Classified every `PUBLICATION_FLOW.md` artifact as machine-owned, LLM-derived and machine-wrapped,
   or the LLM-authored publication. Renamed editorial observation files away from `reliability`:
@@ -62,6 +87,8 @@
 - Removed gate-like flow vocabulary including editorial `eligible`, `stable`, `admit`, and recovery
   topology wording. Daily-outline comparison context overflow now makes optional review unavailable
   instead of failing the usable outline incumbent.
+- Removed the obsolete ranking-review wave, pair-specific daily-outline context builder, pairwise
+  prompt resources, pairwise replication API, and the permanent route-budget exhaustion expectation.
 - Audited the gate cleanup with six independent review passes. Removed the evidence-budget and
   projection vetoes that required one citable item for every active repository, and deleted the two
   permanent tests that enforced that obsolete all-repository gate.

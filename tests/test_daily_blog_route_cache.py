@@ -140,8 +140,8 @@ def _materialized_attempt(
 			first, second = second, first
 		materialization = plan.materialize(
 			"primary", batch_index, (), (
-				daily_blog.stage6_attempt_plan.Stage6CandidatePairBinding(
-					"primary", batch_index, template.pair_index, first, second,
+			daily_blog.stage6_attempt_plan.Stage6CandidateSetBinding(
+					"primary", batch_index, (first, second),
 				),
 			),
 		)
@@ -247,6 +247,7 @@ def test_model_cache_packet_identity_tracks_editorial_evidence_not_mirror_invent
 
 def _stage5_alias_input(
 	root: pathlib.Path,
+	*, oversized: bool = False,
 ) -> tuple[daily_blog.daily_outline_workflow.DailyOutlineInput, daily_blog.artifacts.RepoStory]:
 	"""Return one portable Stage 5 story plus its current runtime artifact."""
 	root.mkdir()
@@ -274,7 +275,8 @@ def _stage5_alias_input(
 	)
 	story = daily_blog.artifacts.RepoStory.create(
 		packet.report_date, (packet,), item.repository,
-		"Story <!-- evidence: " + item.evidence_id + " -->", (item.evidence_id,),
+		(("Detailed repository work. " * 6000) if oversized else "Story ")
+		+ "<!-- evidence: " + item.evidence_id + " -->", (item.evidence_id,),
 	)
 	context_limits = {"context_chars": 5000, "excerpt_chars": 600, "commit_subject_chars": 120}
 	context = daily_blog.projection.build_bounded_evidence_context(
@@ -291,13 +293,17 @@ class _Stage5AliasRunner:
 	def __init__(self, ranking: str, outline: str) -> None:
 		self.ranking = ranking
 		self.outline = outline
+		self.context_reductions = 0
 
 	def run(
 		self,
 		route: daily_blog.editorial_stage_config.RoleRoute,
-		_prompt: str,
+		prompt: str,
 		_working_directory: str,
 	) -> str:
+		if prompt.startswith("# Repository context reduction"):
+			self.context_reductions += 1
+			return "A compact summary of the grounded repository work."
 		if "ranking" in route.name:
 			return self.ranking
 		if "writer" in route.name:
@@ -444,7 +450,7 @@ def _real_stage_requests(
 	stage6_result = daily_blog.stage6.Stage6Result(
 		promotion=daily_blog.artifacts.SelectedPeer(incumbent, daily_blog.artifacts.CompletePost),
 		generation=daily_blog.replication.ReplicationResult(daily_blog.artifacts.CompletePost, (candidate,)),
-		review=daily_blog.replication.ReviewResult((), ()),
+		review=daily_blog.replication.CandidateSetReviewResult((), ()),
 		reliability=daily_blog.replication.StepReliability(
 			"stage6", "succeeded", 0, 0, 0, 0, 0, 0, incumbent.artifact_id, ()),
 		editing=daily_blog.replication.ReplicationResult(daily_blog.artifacts.CompletePost, ()),
@@ -545,21 +551,23 @@ def test_stage6_identity_requires_membership_in_its_active_plan() -> None:
 
 
 #============================================
-def test_stage6_review_identity_derives_its_pair_from_materialization() -> None:
-	"""A review cache witness accepts only the materialization's displayed pair."""
+def test_stage6_review_identity_binds_complete_set_from_materialization() -> None:
+	"""A review cache witness accepts only its materialized complete candidate set."""
 	materialization, attempt = _materialized_attempt("reviewer")
-	with pytest.raises(daily_blog.route_cache.RouteCacheIntegrityError, match="materialized"):
+	with pytest.raises(daily_blog.route_cache.RouteCacheIntegrityError, match="materialized contract"):
 		daily_blog.route_cache.build_stage6_cache_identity(
 			materialization, attempt, prompt="grounded prompt", candidate_identities=("a" * 64, "b" * 64),
 			route_name="safe_route", route_contract_sha256="a" * 64,
 		)
+	candidates = materialization.candidate_set_bindings[0].canonical_key
 	identity = daily_blog.route_cache.build_stage6_cache_identity(
-		materialization, attempt, prompt="grounded prompt", route_name="safe_route",
+		materialization, attempt, prompt="grounded prompt", candidate_identities=candidates,
+		route_name="safe_route",
 		route_contract_sha256="a" * 64,
 	)
 
 	assert identity.actual_candidate_input_sha256 == identity.candidate_input_sha256(
-		materialization.candidate_pair_bindings[0].canonical_key
+		candidates
 	)
 
 
@@ -594,11 +602,34 @@ def test_stage5_portable_rank_alias_selects_the_current_runtime_story(tmp_path: 
 		"Grounded work. <!-- evidence: " + story.evidence_ids[0] + " -->\n"
 	)
 	result = daily_blog.daily_outline_workflow.run_daily_outline(
-		value, daily_blog.editorial_stage_config.DailyOutlineConfig(), daily_blog.agents.RouteBudget(32, 2),
+		value, daily_blog.editorial_stage_config.DailyOutlineConfig(), daily_blog.agents.RouteBudget(2),
 		_Stage5AliasRunner(ranking, outline),
 	)
 
 	assert result.promoted_ranking.artifact_ids == (story.content_hash,)
+	assert result.selected_stories == (story,)
+
+
+def test_stage5_oversized_repository_context_invokes_linear_summarizer_and_continues(
+	tmp_path: pathlib.Path,
+) -> None:
+	"""An oversized editorial corpus adds reduction work rather than a context gate."""
+	value, story = _stage5_alias_input(tmp_path / "stage5-large", oversized=True)
+	alias = value.story_ranking_aliases.alias_for(story.content_hash)
+	ranking = json.dumps({
+		"artifact_ids": [alias], "scores": {alias: 90}, "rationale": "grounded",
+	})
+	outline = (
+		'<!-- daily-outline-scope: ["owner/repository"] -->\n# Daily outline\n\n'
+		"Grounded work. <!-- evidence: " + story.evidence_ids[0] + " -->\n"
+	)
+	runner = _Stage5AliasRunner(ranking, outline)
+	result = daily_blog.daily_outline_workflow.run_daily_outline(
+		value, daily_blog.editorial_stage_config.DailyOutlineConfig(),
+		daily_blog.agents.RouteBudget(2), runner,
+	)
+
+	assert runner.context_reductions == 1
 	assert result.selected_stories == (story,)
 
 

@@ -8,6 +8,7 @@ import json
 # local repo modules
 import daily_blog.agents
 import daily_blog.artifacts
+import daily_blog.candidate_set_prompts
 import daily_blog.config
 import daily_blog.editorial_stage_config
 import daily_blog.final_synthesis_config
@@ -123,7 +124,7 @@ class Stage7Result:
 	promotion: (daily_blog.artifacts.SelectedPeer | daily_blog.artifacts.PreservedArtifact
 		| daily_blog.artifacts.DegradedPromotion | daily_blog.artifacts.NoArtifact)
 	synthesis: daily_blog.replication.ReplicationResult
-	review: daily_blog.replication.ReviewResult
+	review: daily_blog.replication.CandidateSetReviewResult
 	step_reliability: tuple[daily_blog.replication.StepReliability, ...]
 	incumbent: daily_blog.artifacts.CompletePost
 	reviewer_count: int
@@ -133,7 +134,7 @@ class Stage7Result:
 			raise RuntimeError("Stage 7 must preserve its Stage 6 incumbent, never return NoArtifact.")
 		if type(self.synthesis) is not daily_blog.replication.ReplicationResult:
 			raise RuntimeError("Stage 7 synthesis observation is invalid.")
-		if type(self.review) is not daily_blog.replication.ReviewResult:
+		if type(self.review) is not daily_blog.replication.CandidateSetReviewResult:
 			raise RuntimeError("Stage 7 review observation is invalid.")
 		if type(self.incumbent) is not daily_blog.artifacts.CompletePost:
 			raise RuntimeError("Stage 7 requires the exact Stage 6 CompletePost incumbent.")
@@ -178,34 +179,32 @@ class Stage7Result:
 		if len(work_by_assignment) != len(self.review.work) or set(work_by_assignment) != set(expected):
 			raise RuntimeError("Stage 7 review work does not attest the complete balanced schedule.")
 		for assignment, item in work_by_assignment.items():
-			first, second = expected[assignment]
-			if (item.first_artifact_id, item.second_artifact_id) != (first, second):
-				raise RuntimeError("Stage 7 review work orientation conflicts with its assignment.")
+			if item.assignment.candidate_artifact_ids != expected[assignment]:
+				raise RuntimeError("Stage 7 review work ordering conflicts with its assignment.")
 		work_by_id = {item.request.request_id: item for item in self.review.work}
 		if len(work_by_id) != len(self.review.work):
 			raise RuntimeError("Stage 7 review work identities are not unique.")
 		votes_by_id = {item.review_id: item for item in self.review.votes}
 		if len(votes_by_id) != len(self.review.votes) or set(votes_by_id) != set(work_by_id):
 			raise RuntimeError("Stage 7 review votes do not exactly attest review work.")
-		direct_work = [item for item in self.review.work if {
-			item.first_artifact_id, item.second_artifact_id,
-		} == {challenger.artifact_id, self.incumbent.artifact_id}]
-		if not direct_work:
-			raise RuntimeError("Stage 7 selected synthesis lacks direct incumbent work.")
-		direct_votes = [votes_by_id[item.request.request_id] for item in direct_work]
+		if any(
+			{challenger.artifact_id, self.incumbent.artifact_id}
+			- set(item.assignment.candidate_artifact_ids)
+			for item in self.review.work
+		):
+			raise RuntimeError("Stage 7 selected synthesis lacks complete incumbent review.")
+		direct_votes = tuple(votes_by_id[item.request.request_id] for item in self.review.work)
 		if any(
 			vote.status != "succeeded"
-			or (vote.first_artifact_id, vote.second_artifact_id) != (
-				work_by_id[vote.review_id].first_artifact_id,
-				work_by_id[vote.review_id].second_artifact_id,
-			)
+			or vote.candidate_artifact_ids
+			!= work_by_id[vote.review_id].assignment.candidate_artifact_ids
 			for vote in direct_votes
 		):
-			raise RuntimeError("Stage 7 direct incumbent votes are incomplete or invalid.")
+			raise RuntimeError("Stage 7 complete-set votes are incomplete or invalid.")
 		if sum(vote.winner_artifact_id == challenger.artifact_id for vote in direct_votes) <= sum(
 			vote.winner_artifact_id == self.incumbent.artifact_id for vote in direct_votes
 		):
-			raise RuntimeError("Stage 7 selected synthesis lacks a direct incumbent majority.")
+			raise RuntimeError("Stage 7 selected synthesis lacks an incumbent-beating plurality.")
 
 
 #============================================
@@ -304,18 +303,18 @@ def _stage7_peers(incumbent: daily_blog.artifacts.CompletePost,
 #============================================
 def _expected_review_schedule(peers: tuple[daily_blog.artifacts.CompletePost, ...],
 	reviewer_count: int,
-) -> dict[daily_blog.replication.ReviewAssignment, tuple[str, str]]:
-	"""Build the generic complete balanced work matrix without trusting observed work."""
+) -> dict[daily_blog.replication.CandidateSetReviewAssignment, tuple[str, ...]]:
+	"""Build one complete-set assignment per reviewer without trusting observed work."""
 	expected = {}
-	pair_index = 0
-	for first_index, first in enumerate(peers):
-		for second in peers[first_index + 1:]:
-			for reviewer_index in range(reviewer_count):
-				for display_order in range(2):
-					assignment = daily_blog.replication.ReviewAssignment(pair_index, reviewer_index, display_order)
-					expected[assignment] = ((first.artifact_id, second.artifact_id)
-						if display_order == 0 else (second.artifact_id, first.artifact_id))
-			pair_index += 1
+	for reviewer_index in range(reviewer_count):
+		offset = reviewer_index % len(peers)
+		ordered = peers[offset:] + peers[:offset]
+		if reviewer_index % 2:
+			ordered = tuple(reversed(ordered))
+		assignment = daily_blog.replication.CandidateSetReviewAssignment(
+			reviewer_index, tuple(item.artifact_id for item in ordered),
+		)
+		expected[assignment] = assignment.candidate_artifact_ids
 	return expected
 
 
@@ -336,8 +335,8 @@ def _review_facts(value: Stage7Input, maximum: int) -> str:
 		for item in stream.candidates if item.artifact is not None
 	)
 	aliases = {item.artifact_id: item.content_hash for item in artifacts}
-	votes = [{"review_id": vote.review_id, "first_artifact_id": aliases.get(vote.first_artifact_id, ""),
-		"second_artifact_id": aliases.get(vote.second_artifact_id, ""), "status": vote.status,
+	votes = [{"review_id": vote.review_id,
+		"candidate_artifact_ids": [aliases.get(item, "") for item in vote.candidate_artifact_ids], "status": vote.status,
 		"winner_artifact_id": aliases.get(vote.winner_artifact_id, ""), "failure": vote.failure,
 		"resumed": vote.resumed} for vote in value.stage6_result.review.votes]
 	reliability = []
@@ -345,7 +344,7 @@ def _review_facts(value: Stage7Input, maximum: int) -> str:
 		projected = item.to_dict()
 		projected["best_artifact_id"] = aliases.get(projected["best_artifact_id"], "")
 		reliability.append(projected)
-	votes.sort(key=lambda item: (item["first_artifact_id"], item["second_artifact_id"], item["review_id"]))
+	votes.sort(key=lambda item: (item["candidate_artifact_ids"], item["review_id"]))
 	return _canonical({"votes": votes, "reliability": reliability}, maximum, "review facts")
 
 
@@ -395,7 +394,7 @@ def _prompt_data(value: Stage7Input, alternatives: tuple[daily_blog.artifacts.Co
 def _request(value: Stage7Input, run_id: str, step: str, role: str, ordinal: str,
 	route: daily_blog.editorial_stage_config.RoleRoute, prompt: str, config: daily_blog.final_synthesis_config.FinalSynthesisConfig,
 	working_directory: str, contract_version: str, synthesis_identity: dict[str, object],
-	input_ids: tuple[str, ...] = (), assignment: daily_blog.replication.ReviewAssignment | None = None,
+	input_ids: tuple[str, ...] = (), assignment: daily_blog.replication.CandidateSetReviewAssignment | None = None,
 ) -> daily_blog.agents.RouteRequest:
 	"""Bind each independent route/cache identity to exact Stage 6 and V4 facts."""
 	assignment_data = {} if assignment is None else dataclasses.asdict(assignment)
@@ -449,18 +448,16 @@ def _generation_reliability(result: daily_blog.replication.ReplicationResult) ->
 
 
 #============================================
-def _disagreements(votes: collections.abc.Iterable[daily_blog.replication.ReviewVote]) -> int:
-	"""Count only contradictory successful peer verdicts."""
-	pairs: dict[tuple[str, str], set[str]] = {}
-	for vote in votes:
-		if vote.status == "succeeded":
-			pairs.setdefault(tuple(sorted((vote.first_artifact_id, vote.second_artifact_id))), set()).add(vote.winner_artifact_id)
-	return sum(len(winners) > 1 for winners in pairs.values())
+def _disagreements(
+	votes: collections.abc.Iterable[daily_blog.replication.CandidateSetReviewVote],
+) -> int:
+	"""Count only contradictory successful complete-set verdicts."""
+	return daily_blog.replication.review_disagreements(votes)
 
 
 #============================================
 def _result(value: Stage7Input, synthesis: daily_blog.replication.ReplicationResult,
-	review: daily_blog.replication.ReviewResult, promotion: object, reviewer_count: int) -> Stage7Result:
+	review: daily_blog.replication.CandidateSetReviewResult, promotion: object, reviewer_count: int) -> Stage7Result:
 	"""Build exact 7.x facts while preserving the original incumbent object."""
 	seven_one = _generation_reliability(synthesis)
 	disagreements = _disagreements(review.votes)
@@ -521,7 +518,7 @@ def run_stage7(value: Stage7Input, run_id: str, config: daily_blog.config.DailyB
 		return _result(
 			value,
 			daily_blog.replication.ReplicationResult(daily_blog.artifacts.CompletePost, ()),
-			daily_blog.replication.ReviewResult((), ()),
+			daily_blog.replication.CandidateSetReviewResult((), ()),
 			daily_blog.artifacts.PreservedArtifact(
 				value.incumbent, daily_blog.artifacts.CompletePost,
 			),
@@ -536,33 +533,41 @@ def run_stage7(value: Stage7Input, run_id: str, config: daily_blog.config.DailyB
 		lambda result: _parse_synthesis_candidate(result, value), lambda item: _eligible(value, item), cache_load, cache_accept)
 	challengers = _unique(item for item in synthesis.eligible if item.artifact_id != value.incumbent.artifact_id)
 	if not challengers:
-		return _result(value, synthesis, daily_blog.replication.ReviewResult((), ()),
+		return _result(value, synthesis, daily_blog.replication.CandidateSetReviewResult((), ()),
 			daily_blog.artifacts.PreservedArtifact(value.incumbent, daily_blog.artifacts.CompletePost), stage.reviewer_count)
 	peers = _unique((value.incumbent,) + challengers)
 
-	def build(left: daily_blog.artifacts.EditorialArtifact, right: daily_blog.artifacts.EditorialArtifact,
-		assignment: daily_blog.replication.ReviewAssignment) -> daily_blog.replication.ReviewWork:
-		prompt = templates["referee"].format(rubric=templates["rubric"], evidence_json=value.render_context(),
-			candidate_a=left.content, candidate_b=right.content)
+	review_prompts = daily_blog.candidate_set_prompts.load_prompt_set()
+	review_synthesis_identity = {
+		**synthesis_identity, "candidate_set_review": review_prompts.identity_dict(),
+	}
+
+	def build(ordered: tuple[daily_blog.artifacts.EditorialArtifact, ...],
+		assignment: daily_blog.replication.CandidateSetReviewAssignment,
+	) -> daily_blog.replication.CandidateSetReviewWork:
+		prompt, _labels = daily_blog.candidate_set_prompts.render_candidate_set_review(
+			templates["rubric"], value.render_context(), ordered, review_prompts,
+		)
 		request = _request(value, run_id, "7_2", "reviewer",
-			f"{assignment.pair_index}_{assignment.reviewer_index}_{assignment.display_order}", stage.reviewer_route,
-			prompt, stage, config.daily_blog_repository, resolved.contract.prompt_version, synthesis_identity,
-			(left.content_hash, right.content_hash), assignment)
-		return daily_blog.replication.ReviewWork(request, left.artifact_id, right.artifact_id, assignment)
+			str(assignment.reviewer_index), stage.reviewer_route,
+			prompt, stage, config.daily_blog_repository, resolved.contract.prompt_version, review_synthesis_identity,
+			tuple(item.content_hash for item in ordered), assignment)
+		return daily_blog.replication.CandidateSetReviewWork(request, assignment)
 
-	def parse(text: str, work: daily_blog.replication.ReviewWork) -> str:
+	def parse(text: str, work: daily_blog.replication.CandidateSetReviewWork) -> str:
+		labels = dict(zip(
+			daily_blog.candidate_set_prompts.candidate_labels(len(work.assignment.candidate_artifact_ids)),
+			work.assignment.candidate_artifact_ids, strict=True,
+		))
 		try:
-			verdict = daily_blog.editorial.parse_referee_verdict(text, {"A", "B"})
-		except daily_blog.editorial.RefereeVerdictParseError as error:
+			return daily_blog.candidate_set_prompts.parse_candidate_set_verdict(text, labels)
+		except daily_blog.candidate_set_prompts.CandidateSetVerdictParseError as error:
 			raise daily_blog.agents.RepairableStructuredOutput(str(error)) from error
-		return {"A": work.first_artifact_id, "B": work.second_artifact_id}.get(verdict["winner"], "")
 
-	def salvage(text: str, work: daily_blog.replication.ReviewWork) -> str | None:
-		label = daily_blog.replication.salvage_allowed_identifier(text, ("A", "B"))
-		return {"A": work.first_artifact_id, "B": work.second_artifact_id}.get(label)
-
-	review = daily_blog.replication.review(peers, daily_blog.artifacts.CompletePost, stage.reviewer_count,
-		build, parse, route_runner, budget, salvage, cache_load, cache_accept)
+	review = daily_blog.replication.review_candidate_set(
+		peers, daily_blog.artifacts.CompletePost, stage.reviewer_count,
+		build, parse, route_runner, budget, cache_load, cache_accept,
+	)
 	promotion = daily_blog.replication.promote(peers, daily_blog.artifacts.CompletePost,
 		lambda item: _eligible(value, item), review.votes, value.incumbent)
 	if not isinstance(promotion, daily_blog.artifacts.SelectedPeer):

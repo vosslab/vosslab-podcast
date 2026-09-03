@@ -64,7 +64,7 @@ def _config(tmp_path: Path) -> daily_blog.config.DailyBlogConfig:
 		str(tmp_path / "mirrors"), (route,), route, {},
 		{"context_chars": 8000, "excerpt_chars": 1000, "commit_subject_chars": 120},
 		{"author_chars": 8000, "referee_chars": 8000},
-		daily_blog.config.EditorialReliabilityConfig(2, 1, 1, 8),
+		daily_blog.config.EditorialReliabilityConfig(2, 1, 1),
 		repository_outline=daily_blog.editorial_stage_config.RepositoryOutlineConfig(
 			generator_count=2, merger_count=2, reviewer_count=1, maximum_parallel_calls=2,
 			route_retry_attempts=0,

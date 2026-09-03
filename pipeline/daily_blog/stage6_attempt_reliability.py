@@ -10,20 +10,15 @@ import daily_blog.replication
 
 #============================================
 def _review_disagreements(
-	votes: collections.abc.Iterable[daily_blog.replication.ReviewVote],
+	votes: collections.abc.Iterable[daily_blog.replication.CandidateSetReviewVote],
 ) -> int:
-	"""Count candidate-pair conflicts without retaining reviewer prose."""
-	pairs: dict[tuple[str, str], set[str]] = {}
-	for vote in votes:
-		if vote.status == "succeeded":
-			pair = tuple(sorted((vote.first_artifact_id, vote.second_artifact_id)))
-			pairs.setdefault(pair, set()).add(vote.winner_artifact_id)
-	return sum(len(winners) > 1 for winners in pairs.values())
+	"""Count complete-set conflicts without retaining reviewer prose."""
+	return daily_blog.replication.review_disagreements(votes)
 
 
 #============================================
 def review_reliability(
-	review: daily_blog.replication.ReviewResult,
+	review: daily_blog.replication.CandidateSetReviewResult,
 	promotion: object,
 	reasons: collections.abc.Iterable[str] = (),
 ) -> daily_blog.replication.StepReliability:
@@ -49,7 +44,7 @@ def review_reliability(
 #============================================
 def promotion_reliability(
 	promotion: object,
-	votes: collections.abc.Iterable[daily_blog.replication.ReviewVote],
+	votes: collections.abc.Iterable[daily_blog.replication.CandidateSetReviewVote],
 ) -> daily_blog.replication.StepReliability:
 	"""Record deterministic selection separately from route observations."""
 	if isinstance(promotion, daily_blog.artifacts.NoArtifact):

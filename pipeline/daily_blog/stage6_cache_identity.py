@@ -15,7 +15,7 @@ SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 SAFE_ROUTE_NAME_RE = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
 STAGE6_CACHE_IDENTITY_KEYS = (
 	"route_cache_schema", "attempt_plan_schema", "slot_id", "stage", "rung",
-	"batch_index", "work_kind", "role", "replica_index", "pair_index", "display_order",
+	"batch_index", "work_kind", "role", "replica_index",
 	"prompt_sha256", "planner_semantic_input_sha256", "actual_candidate_input_sha256",
 	"route_name", "route_contract_sha256",
 )
@@ -38,8 +38,6 @@ class Stage6CacheIdentity:
 	work_kind: str
 	role: str
 	replica_index: int
-	pair_index: int
-	display_order: int
 	planner_semantic_input_sha256: str
 	prompt_sha256: str
 	actual_candidate_input_sha256: str
@@ -88,9 +86,10 @@ class Stage6CacheIdentity:
 			if not candidate_identities:
 				raise Stage6CacheIdentityError("Stage 6 editor identity requires candidates.")
 		elif canonical.role == "reviewer":
-			if candidate_identities:
-				raise Stage6CacheIdentityError("Stage 6 review identity derives its displayed candidate pair.")
-			candidate_identities = self._displayed_pair(materialization, canonical)
+			if not candidate_identities:
+				raise Stage6CacheIdentityError("Stage 6 reviewer identity requires its displayed candidate set.")
+			if set(candidate_identities) != set(self._candidate_set(materialization, canonical)):
+				raise Stage6CacheIdentityError("Stage 6 reviewer candidates conflict with its materialization.")
 			candidate_digest = self.candidate_input_sha256(candidate_identities)
 		else:
 			raise Stage6CacheIdentityError("Stage 6 identity role is invalid.")
@@ -100,7 +99,6 @@ class Stage6CacheIdentity:
 			"slot_id": canonical.semantic_identity, "stage": canonical.stage, "rung": canonical.rung,
 			"batch_index": canonical.batch_index, "work_kind": canonical.work_kind,
 			"role": canonical.role, "replica_index": canonical.replica_index,
-			"pair_index": canonical.pair_index, "display_order": canonical.display_order,
 			"prompt_sha256": daily_blog.io_utils.sha256_text(prompt),
 			"planner_semantic_input_sha256": canonical.semantic_input_identity,
 			"actual_candidate_input_sha256": candidate_digest,
@@ -111,24 +109,20 @@ class Stage6CacheIdentity:
 
 	#============================================
 	@staticmethod
-	def _displayed_pair(materialization: object, attempt: object) -> tuple[str, str]:
-		"""Derive one review's ordered pair from its materialization binding."""
+	def _candidate_set(materialization: object, attempt: object) -> tuple[str, ...]:
+		"""Derive one review's complete set from its materialization binding."""
 		limits = daily_blog.stage6_attempt_plan
 		if (
 			type(materialization) is not limits.MaterializedStage6AttemptPlan
 			or type(attempt) is not limits.PlannedStage6Attempt
 		):
 			raise Stage6CacheIdentityError("Stage 6 review requires exact materialized values.")
-		matches = tuple(binding for binding in materialization.candidate_pair_bindings if (
+		matches = tuple(binding for binding in materialization.candidate_set_bindings if (
 			binding.rung == attempt.rung and binding.batch_index == attempt.batch_index
-			and binding.pair_index == attempt.pair_index
 		))
 		if len(matches) != 1:
-			raise Stage6CacheIdentityError("Stage 6 review requires its materialized candidate pair.")
-		binding = matches[0]
-		if attempt.display_order == 1:
-			return (binding.first_candidate_identity, binding.second_candidate_identity)
-		return (binding.second_candidate_identity, binding.first_candidate_identity)
+			raise Stage6CacheIdentityError("Stage 6 review requires its materialized candidate set.")
+		return matches[0].candidate_identities
 
 	#============================================
 	@staticmethod

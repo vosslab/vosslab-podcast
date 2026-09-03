@@ -53,8 +53,9 @@ def outline(value: daily_blog.repository_outline_workflow.RepositoryOutlineInput
 
 #============================================
 def verdict(winner: str) -> str:
-	"""Return one strict anonymous comparison verdict."""
-	return '{"winner":"' + winner + '","reason":"grounded","evidence_quality":"high","confidence":1}'
+	"""Return one strict anonymous complete-set verdict."""
+	label = {"A": "C01", "B": "C02"}.get(winner, winner)
+	return '{"winner":"' + label + '","reason":"grounded","evidence_quality":"high","confidence":1}'
 
 
 class Runner:
@@ -84,7 +85,7 @@ def test_workflow_promotes_whole_eligible_merger(tmp_path: pathlib.Path) -> None
 		"repository_outline_reviewer": [verdict("A"), verdict("B")],
 	})
 	result = daily_blog.repository_outline_workflow.run_repository_outline(
-		value, config(), daily_blog.agents.RouteBudget(6, 8), runner,
+		value, config(), daily_blog.agents.RouteBudget(8), runner,
 	)
 
 	assert type(result.artifact) is daily_blog.artifacts.RepoOutline
@@ -102,7 +103,7 @@ def test_wrong_repository_generator_is_filtered_while_peer_survives(tmp_path: pa
 		"repository_outline_reviewer": [verdict("A"), verdict("B")],
 	})
 	result = daily_blog.repository_outline_workflow.run_repository_outline(
-		value, config(), daily_blog.agents.RouteBudget(6, 8), runner,
+		value, config(), daily_blog.agents.RouteBudget(8), runner,
 	)
 
 	assert type(result.artifact) is daily_blog.artifacts.RepoOutline
@@ -150,7 +151,7 @@ def test_merger_loss_promotes_whole_generator_as_typed_degradation(tmp_path: pat
 		"repository_outline_reviewer": [verdict("A"), verdict("B")],
 	})
 	result = daily_blog.repository_outline_workflow.run_repository_outline(
-		value, config(), daily_blog.agents.RouteBudget(6, 8), runner,
+		value, config(), daily_blog.agents.RouteBudget(8), runner,
 	)
 
 	assert result.artifact is not None
@@ -172,7 +173,7 @@ def test_eligible_incumbent_survives_unavailable_review(tmp_path: pathlib.Path) 
 		"repository_outline_reviewer": [daily_blog.routes.EditorialRouteProcessError("x")] * 6,
 	})
 	result = daily_blog.repository_outline_workflow.run_repository_outline(
-		value, config(), daily_blog.agents.RouteBudget(12, 8), runner, incumbent=incumbent,
+		value, config(), daily_blog.agents.RouteBudget(8), runner, incumbent=incumbent,
 	)
 
 	assert isinstance(result.promotion, daily_blog.artifacts.PreservedArtifact)
@@ -189,5 +190,5 @@ def test_unsupported_runner_response_escapes_as_pipeline_defect(tmp_path: pathli
 	})
 	with pytest.raises(RuntimeError, match="unsupported response type"):
 		daily_blog.repository_outline_workflow.run_repository_outline(
-			value, config(), daily_blog.agents.RouteBudget(2, 8), defective,
+			value, config(), daily_blog.agents.RouteBudget(8), defective,
 		)

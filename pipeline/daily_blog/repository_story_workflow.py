@@ -11,6 +11,7 @@ import re
 # local repo modules
 import daily_blog.agents
 import daily_blog.artifacts
+import daily_blog.candidate_set_prompts
 import daily_blog.config
 import daily_blog.editorial_stage_config
 import daily_blog.io_utils
@@ -112,7 +113,7 @@ class RepositoryStoryResult:
 		| daily_blog.artifacts.DegradedPromotion | daily_blog.artifacts.NoArtifact)
 	writing: daily_blog.replication.ReplicationResult
 	editing: daily_blog.replication.ReplicationResult
-	review: daily_blog.replication.ReviewResult
+	review: daily_blog.replication.CandidateSetReviewResult
 	reliability: tuple[daily_blog.replication.StepReliability, ...]
 
 	#============================================
@@ -122,7 +123,7 @@ class RepositoryStoryResult:
 			raise RuntimeError("Repository-story writing observation is invalid.")
 		if type(self.editing) is not daily_blog.replication.ReplicationResult:
 			raise RuntimeError("Repository-story editing observation is invalid.")
-		if type(self.review) is not daily_blog.replication.ReviewResult:
+		if type(self.review) is not daily_blog.replication.CandidateSetReviewResult:
 			raise RuntimeError("Repository-story review observation is invalid.")
 		if type(self.reliability) is not tuple or tuple(item.step for item in self.reliability) != (
 			"4.1", "4.2", "4.3", "4.4",
@@ -145,13 +146,10 @@ def _request(
 	value: RepositoryStoryInput, step: str, role: str, ordinal: str,
 	route: daily_blog.editorial_stage_config.RoleRoute, prompt: str, config: daily_blog.editorial_stage_config.RepositoryStoryConfig,
 	contract_identity: dict[str, object], rubric_identity: str, input_artifact_ids: tuple[str, ...] = (),
-	assignment: daily_blog.replication.ReviewAssignment | None = None,
+	assignment: daily_blog.replication.CandidateSetReviewAssignment | None = None,
 ) -> daily_blog.agents.RouteRequest:
 	"""Build one cache-safe request attesting to all Stage 4 inputs."""
-	assignment_value: dict[str, int] = {}
-	if assignment is not None:
-		assignment_value = {"pair_index": assignment.pair_index, "reviewer_index": assignment.reviewer_index,
-			"display_order": assignment.display_order}
+	assignment_value = {} if assignment is None else dataclasses.asdict(assignment)
 	logical_identity = {
 		"report_date": value.report_date, "repository": value.repository,
 		"outline_id": value.outline.content_hash,
@@ -233,18 +231,15 @@ def _generation_reliability(step: str, generation: daily_blog.replication.Replic
 
 
 #============================================
-def _disagreements(votes: collections.abc.Iterable[daily_blog.replication.ReviewVote]) -> int:
-	"""Count pair-level winner conflicts without retaining reviewer prose."""
-	by_pair: dict[tuple[str, str], set[str]] = {}
-	for vote in votes:
-		if vote.status == "succeeded":
-			pair = tuple(sorted((vote.first_artifact_id, vote.second_artifact_id)))
-			by_pair.setdefault(pair, set()).add(vote.winner_artifact_id)
-	return sum(len(winners) > 1 for winners in by_pair.values())
+def _disagreements(
+	votes: collections.abc.Iterable[daily_blog.replication.CandidateSetReviewVote],
+) -> int:
+	"""Count complete-set winner conflicts without retaining reviewer prose."""
+	return daily_blog.replication.review_disagreements(votes)
 
 
 #============================================
-def _review_reliability(review: daily_blog.replication.ReviewResult, promotion: object,
+def _review_reliability(review: daily_blog.replication.CandidateSetReviewResult, promotion: object,
 	additional_reasons: collections.abc.Iterable[str] = ()) -> daily_blog.replication.StepReliability:
 	"""Summarize actual review routes and final reviewed identity only."""
 	votes = review.votes
@@ -260,7 +255,7 @@ def _review_reliability(review: daily_blog.replication.ReviewResult, promotion: 
 
 #============================================
 def _promotion_reliability(
-	promotion: object, votes: collections.abc.Iterable[daily_blog.replication.ReviewVote],
+	promotion: object, votes: collections.abc.Iterable[daily_blog.replication.CandidateSetReviewVote],
 ) -> daily_blog.replication.StepReliability:
 	"""Record one deterministic promotion, independent from reviewer-call counts."""
 	reasons: tuple[str, ...] = ()
@@ -346,39 +341,50 @@ def run_repository_story(
 		peers = _unique(peers + (incumbent,))
 	if not peers:
 		promotion = daily_blog.artifacts.NoArtifact(daily_blog.artifacts.RepoStory, "no_eligible_generation")
-		empty = daily_blog.replication.ReviewResult((), ())
+		empty = daily_blog.replication.CandidateSetReviewResult((), ())
 		return RepositoryStoryResult(promotion, writing, editing, empty, (
 			_generation_reliability("4.1", writing), _generation_reliability("4.2", editing, ("upstream_unavailable",)),
 			_review_reliability(empty, promotion, ("upstream_unavailable",)), _promotion_reliability(promotion, ()),
 		))
 
-	def build_work(left: daily_blog.artifacts.EditorialArtifact, right: daily_blog.artifacts.EditorialArtifact,
-		assignment: daily_blog.replication.ReviewAssignment) -> daily_blog.replication.ReviewWork:
-		prompt = daily_blog.repository_story_prompts.render_repository_story_comparison(outline_json, evidence_json,
-			left.content, right.content, rubric_text, rubric_identity, loaded_value)
+	review_prompts = daily_blog.candidate_set_prompts.load_prompt_set()
+	review_identity = {**contract_identity, "candidate_set_review": review_prompts.identity_dict()}
+	review_identity["integrity_sha256"] = daily_blog.io_utils.hash_value(review_identity)
+	context = json.dumps({
+		"repository_outline": json.loads(outline_json),
+		"evidence": json.loads(evidence_json),
+		"rubric_identity": rubric_identity,
+	}, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+
+	def build_work(ordered: tuple[daily_blog.artifacts.EditorialArtifact, ...],
+		assignment: daily_blog.replication.CandidateSetReviewAssignment,
+	) -> daily_blog.replication.CandidateSetReviewWork:
+		prompt, _labels = daily_blog.candidate_set_prompts.render_candidate_set_review(
+			rubric_text, context, ordered, review_prompts,
+		)
 		if len(prompt) > config.prompt_limits["reviewer_chars"]:
 			raise daily_blog.replication.ReviewUnavailable(
-				"Repository-story comparison prompt exceeds its configured limit."
+				"Repository-story candidate-set prompt exceeds its configured limit."
 			)
 		request = _request(value, "4_3", "reviewer",
-			f"{assignment.pair_index}_{assignment.reviewer_index}_{assignment.display_order}",
-			config.reviewer_route, prompt, config, contract_identity, rubric_identity,
-			(left.content_hash, right.content_hash), assignment)
-		return daily_blog.replication.ReviewWork(request, left.artifact_id, right.artifact_id, assignment)
+			str(assignment.reviewer_index), config.reviewer_route, prompt, config,
+			review_identity, rubric_identity, tuple(item.content_hash for item in ordered), assignment)
+		return daily_blog.replication.CandidateSetReviewWork(request, assignment)
 
-	def parse_winner(text: str, work: daily_blog.replication.ReviewWork) -> str:
+	def parse_winner(text: str, work: daily_blog.replication.CandidateSetReviewWork) -> str:
+		labels = dict(zip(
+			daily_blog.candidate_set_prompts.candidate_labels(len(work.assignment.candidate_artifact_ids)),
+			work.assignment.candidate_artifact_ids, strict=True,
+		))
 		try:
-			verdict = daily_blog.repository_story_prompts.parse_repository_story_verdict(text)
-		except daily_blog.repository_story_prompts.RepositoryStoryVerdictParseError as error:
+			return daily_blog.candidate_set_prompts.parse_candidate_set_verdict(text, labels)
+		except daily_blog.candidate_set_prompts.CandidateSetVerdictParseError as error:
 			raise daily_blog.agents.RepairableStructuredOutput(str(error)) from error
-		return {"A": work.first_artifact_id, "B": work.second_artifact_id}.get(verdict["winner"], "")
 
-	def salvage(text: str, work: daily_blog.replication.ReviewWork) -> str | None:
-		label = daily_blog.replication.salvage_allowed_identifier(text, ("A", "B"))
-		return {"A": work.first_artifact_id, "B": work.second_artifact_id}.get(label)
-
-	review = daily_blog.replication.review(peers, daily_blog.artifacts.RepoStory, config.reviewer_count, build_work,
-		parse_winner, route_runner, budget, salvage, cache_load, cache_accept)
+	review = daily_blog.replication.review_candidate_set(
+		peers, daily_blog.artifacts.RepoStory, config.reviewer_count, build_work,
+		parse_winner, route_runner, budget, cache_load, cache_accept,
+	)
 	promotion = daily_blog.replication.promote(peers, daily_blog.artifacts.RepoStory,
 		lambda item: _eligible(value, item), review.votes, incumbent)
 	if not editor_peers and writer_peers and isinstance(

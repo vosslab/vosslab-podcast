@@ -59,7 +59,7 @@ def _config(tmp_path: pathlib.Path) -> daily_blog.config.DailyBlogConfig:
 	return daily_blog.config.DailyBlogConfig(
 		"settings.yaml", str(tmp_path), "owner", "America/Chicago", str(tmp_path), str(tmp_path / "mirrors"),
 		(route,), route, {}, {"context_chars": 8000, "excerpt_chars": 1000, "commit_subject_chars": 120},
-		{"author_chars": 8000, "referee_chars": 8000}, daily_blog.config.EditorialReliabilityConfig(2, 1, 1, 8),
+		{"author_chars": 8000, "referee_chars": 8000}, daily_blog.config.EditorialReliabilityConfig(2, 1, 1),
 		repository_outline=daily_blog.editorial_stage_config.RepositoryOutlineConfig(
 			generator_count=2, merger_count=2, reviewer_count=1, maximum_parallel_calls=2, route_retry_attempts=0,
 		),
@@ -129,11 +129,11 @@ def _run(
 def test_surviving_repository_promotes_a_paired_local_artifact_within_shared_budget(tmp_path: pathlib.Path) -> None:
 	"""One repository's route loss leaves another repository's eligible pair available."""
 	packet = _packet()
-	budget = daily_blog.agents.RouteBudget(80, 2)
+	budget = daily_blog.agents.RouteBudget(2)
 	joined = _run(packet, _config(tmp_path), budget, _Runner(packet), _cache(tmp_path), tmp_path)
 
 	assert tuple(item.repositories for item in joined.repo_stories) == (("owner/survivor",),)
-	assert budget.used_calls <= budget.maximum_calls
+	assert budget.used_calls > 0
 
 
 def test_validated_cache_reuses_equivalent_work_but_rubric_change_requires_fresh_routes(tmp_path: pathlib.Path) -> None:
@@ -142,12 +142,12 @@ def test_validated_cache_reuses_equivalent_work_but_rubric_change_requires_fresh
 	configuration = _config(tmp_path)
 	cache = _cache(tmp_path)
 	first_runner = _Runner(packet)
-	first = _run(packet, configuration, daily_blog.agents.RouteBudget(80, 2), first_runner, cache, tmp_path)
+	first = _run(packet, configuration, daily_blog.agents.RouteBudget(2), first_runner, cache, tmp_path)
 	cache.commit(first.cache_effects)
 	second_runner = _Runner(packet)
-	_run(packet, configuration, daily_blog.agents.RouteBudget(80, 2), second_runner, cache, tmp_path)
+	_run(packet, configuration, daily_blog.agents.RouteBudget(2), second_runner, cache, tmp_path)
 	changed_runner = _Runner(packet)
-	_run(packet, configuration, daily_blog.agents.RouteBudget(80, 2), changed_runner, cache, tmp_path,
+	_run(packet, configuration, daily_blog.agents.RouteBudget(2), changed_runner, cache, tmp_path,
 		rubric="Prefer independently grounded maker work.")
 
 	assert second_runner.calls < first_runner.calls
@@ -159,7 +159,7 @@ def test_malformed_worker_result_becomes_a_terminal_join_without_cache_effects(t
 	packet = _packet()
 	monkeypatch.setattr(daily_blog.multi_repository_coordinator, "_run_job", lambda _value: object())
 
-	joined = _run(packet, _config(tmp_path), daily_blog.agents.RouteBudget(80, 2), _Runner(packet), _cache(tmp_path), tmp_path)
+	joined = _run(packet, _config(tmp_path), daily_blog.agents.RouteBudget(2), _Runner(packet), _cache(tmp_path), tmp_path)
 
 	assert joined.terminal_fault is not None
 	assert not joined.cache_effects
@@ -178,7 +178,7 @@ def test_projection_rejects_duplicate_evidence_before_editorial_dispatch(tmp_pat
 
 	with pytest.raises(daily_blog.multi_repository_coordinator.RepositoryProjectionFault) as raised:
 		daily_blog.multi_repository_coordinator.run_repository_editorial(
-			packet, invalid_projection, _config(tmp_path), daily_blog.agents.RouteBudget(80, 2), object(),
+			packet, invalid_projection, _config(tmp_path), daily_blog.agents.RouteBudget(2), object(),
 			"Prefer grounded work.", daily_blog.io_utils.sha256_text("Prefer grounded work."),
 			_cache(tmp_path), str(tmp_path),
 		)
@@ -202,7 +202,7 @@ def test_failed_worker_does_not_leak_buffered_effects_while_a_healthy_sibling_su
 		return original(value)
 
 	monkeypatch.setattr(daily_blog.multi_repository_coordinator, "_run_job", interrupted)
-	joined = _run(packet, _config(tmp_path), daily_blog.agents.RouteBudget(80, 2), _Runner(packet), _cache(tmp_path), tmp_path)
+	joined = _run(packet, _config(tmp_path), daily_blog.agents.RouteBudget(2), _Runner(packet), _cache(tmp_path), tmp_path)
 
 	assert joined.terminal_fault is daily_blog.recovery.TerminalFaultCategory.IMPLEMENTATION_DEFECT
 	assert tuple((item.repository, item.terminal_fault) for item in joined.results) == (
@@ -234,7 +234,7 @@ def test_worker_pipeline_fault_category_is_preserved_for_a_surviving_join(
 		return original(value)
 
 	monkeypatch.setattr(daily_blog.multi_repository_coordinator, "_run_job", fail_with_route_fault)
-	joined = _run(packet, _config(tmp_path), daily_blog.agents.RouteBudget(80, 2),
+	joined = _run(packet, _config(tmp_path), daily_blog.agents.RouteBudget(2),
 		_Runner(packet), _cache(tmp_path), tmp_path)
 
 	assert (
@@ -262,11 +262,11 @@ def test_resume_reuses_healthy_sibling_effects_and_retries_only_failed_repositor
 
 	monkeypatch.setattr(daily_blog.multi_repository_coordinator, "_run_job", fail_lost)
 	first_runner = _Runner(packet, lose_repository=False)
-	first = _run(packet, configuration, daily_blog.agents.RouteBudget(80, 2), first_runner, cache, tmp_path)
+	first = _run(packet, configuration, daily_blog.agents.RouteBudget(2), first_runner, cache, tmp_path)
 	cache.commit(first.cache_effects)
 	monkeypatch.setattr(daily_blog.multi_repository_coordinator, "_run_job", original)
 	second_runner = _Runner(packet, lose_repository=False)
-	_run(packet, configuration, daily_blog.agents.RouteBudget(80, 2), second_runner, cache, tmp_path)
+	_run(packet, configuration, daily_blog.agents.RouteBudget(2), second_runner, cache, tmp_path)
 
 	assert (
 		first.terminal_fault is daily_blog.recovery.TerminalFaultCategory.IMPLEMENTATION_DEFECT
@@ -315,7 +315,7 @@ def test_malformed_pair_becomes_typed_failure_while_healthy_sibling_effects_surv
 		return result
 
 	monkeypatch.setattr(daily_blog.multi_repository_coordinator, "_run_job", malformed_pair)
-	joined = _run(packet, _config(tmp_path), daily_blog.agents.RouteBudget(80, 2),
+	joined = _run(packet, _config(tmp_path), daily_blog.agents.RouteBudget(2),
 		_Runner(packet, lose_repository=False), _cache(tmp_path), tmp_path)
 
 	assert joined.terminal_fault is daily_blog.recovery.TerminalFaultCategory.IMPLEMENTATION_DEFECT
@@ -354,7 +354,7 @@ def test_worker_cannot_substitute_a_changed_packet_for_its_frozen_repository_inp
 		return result
 
 	monkeypatch.setattr(daily_blog.multi_repository_coordinator, "_run_job", substituted)
-	joined = _run(packet, _config(tmp_path), daily_blog.agents.RouteBudget(80, 2), _Runner(packet), _cache(tmp_path), tmp_path)
+	joined = _run(packet, _config(tmp_path), daily_blog.agents.RouteBudget(2), _Runner(packet), _cache(tmp_path), tmp_path)
 
 	assert joined.terminal_fault is daily_blog.recovery.TerminalFaultCategory.IMPLEMENTATION_DEFECT
 	assert tuple((result.repository, result.terminal_fault) for result in joined.results) == (

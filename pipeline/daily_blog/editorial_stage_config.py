@@ -58,7 +58,6 @@ DEFAULT_DAILY_OUTLINE_RELIABILITY = {
 	"outline_writer_count": 3,
 	"reviewer_count": 2,
 	"maximum_parallel_calls": 6,
-	"max_route_calls": 90,
 	"route_retry_attempts": 1,
 }
 DEFAULT_DAILY_OUTLINE_PROMPT_LIMITS = {
@@ -92,7 +91,6 @@ MAX_DAILY_OUTLINE_REPLICAS = 16
 MAX_DAILY_OUTLINE_REVIEWERS = 16
 MAX_DAILY_OUTLINE_PARALLEL_CALLS = 16
 MAX_DAILY_OUTLINE_RETRY_ATTEMPTS = 3
-MAX_DAILY_OUTLINE_ROUTE_CALLS = 4096
 MAX_DAILY_OUTLINE_PROMPT_CHARS = 300000
 # ASVS 1.2.5 and 16.5.1: fixed argv plus quiet stdout separates payloads from diagnostics.
 HERMES_EDITORIAL_ROUTE = (
@@ -191,14 +189,6 @@ class RepositoryOutlineConfig:
 			0,
 			MAX_REPOSITORY_OUTLINE_RETRY_ATTEMPTS,
 		)
-		if self.maximum_parallel_calls > max(
-			self.generator_count,
-			self.merger_count,
-			self.review_source_count,
-		):
-			raise RuntimeError(
-				"Repository-outline maximum_parallel_calls cannot exceed one stage work pool."
-			)
 		routes = (self.generator_route, self.merger_route, self.reviewer_route)
 		if any(not isinstance(route, RoleRoute) for route in routes):
 			raise RuntimeError("Repository-outline routes must be RoleRoute values.")
@@ -233,39 +223,15 @@ class RepositoryOutlineConfig:
 
 	#============================================
 	@property
-	def review_peer_count(self) -> int:
-		"""Reserve the largest promotion pool: generators or mergers plus incumbent."""
-		return max(self.generator_count, self.merger_count) + 1
-
-	#============================================
-	@property
-	def reviewer_pair_count(self) -> int:
-		"""Return every unordered pair in the largest eligible promotion pool."""
-		return self.review_peer_count * (self.review_peer_count - 1) // 2
-
-	#============================================
-	@property
 	def review_source_count(self) -> int:
-		"""Return balanced reviewer responses across every eligible promotion pair."""
-		return self.reviewer_pair_count * self.reviewer_count * 2
+		"""Return one complete-set response per independent reviewer."""
+		return self.reviewer_count
 
 	#============================================
 	@property
 	def structured_source_count(self) -> int:
 		"""Return every primary source including the largest review-promotion pool."""
 		return self.generator_count + self.merger_count + self.review_source_count
-
-	#============================================
-	@property
-	def maximum_route_calls(self) -> int:
-		"""Return the exact worst case: retries plus one repair per structured source."""
-		return self.structured_source_count * 2 * (self.route_retry_attempts + 1)
-
-	#============================================
-	@property
-	def max_route_calls(self) -> int:
-		"""Provide the RouteBudget-compatible name for the derived stage budget."""
-		return self.maximum_route_calls
 
 	#============================================
 	@property
@@ -320,12 +286,6 @@ class RepositoryStoryConfig:
 			self.route_retry_attempts, "route_retry_attempts", 0,
 			MAX_REPOSITORY_STORY_RETRY_ATTEMPTS,
 		)
-		if self.maximum_parallel_calls > max(
-			self.writer_count, self.editor_count, self.review_source_count,
-		):
-			raise RuntimeError(
-				"Repository-story maximum_parallel_calls cannot exceed one stage work pool."
-			)
 		routes = (self.writer_route, self.editor_route, self.reviewer_route)
 		if any(not isinstance(route, RoleRoute) for route in routes):
 			raise RuntimeError("Repository-story routes must be RoleRoute values.")
@@ -362,37 +322,9 @@ class RepositoryStoryConfig:
 
 	#============================================
 	@property
-	def review_peer_count(self) -> int:
-		"""Reserve the largest edited peer pool and one eligible incumbent."""
-		return max(self.writer_count, self.editor_count) + 1
-
-	#============================================
-	@property
-	def reviewer_pair_count(self) -> int:
-		"""Return all unordered comparisons in the largest possible promotion pool."""
-		return self.review_peer_count * (self.review_peer_count - 1) // 2
-
-	#============================================
-	@property
 	def review_source_count(self) -> int:
-		"""Return balanced A/B verdict sources for every reviewer replica."""
-		return self.reviewer_pair_count * self.reviewer_count * 2
-
-	#============================================
-	@property
-	def maximum_route_calls(self) -> int:
-		"""Return writers/editors plus every verdict and its one retry-bounded repair."""
-		primary_sources = self.writer_count + self.editor_count
-		structured_sources = self.review_source_count
-		return (primary_sources + (structured_sources * 2)) * (
-			self.route_retry_attempts + 1
-		)
-
-	#============================================
-	@property
-	def max_route_calls(self) -> int:
-		"""Provide the RouteBudget-compatible name for the derived stage budget."""
-		return self.maximum_route_calls
+		"""Return one complete-set response per independent reviewer."""
+		return self.reviewer_count
 
 	#============================================
 	@property
@@ -409,7 +341,6 @@ class DailyOutlineConfig:
 	outline_writer_count: int = DEFAULT_DAILY_OUTLINE_RELIABILITY["outline_writer_count"]
 	reviewer_count: int = DEFAULT_DAILY_OUTLINE_RELIABILITY["reviewer_count"]
 	maximum_parallel_calls: int = DEFAULT_DAILY_OUTLINE_RELIABILITY["maximum_parallel_calls"]
-	max_route_calls: int = DEFAULT_DAILY_OUTLINE_RELIABILITY["max_route_calls"]
 	route_retry_attempts: int = DEFAULT_DAILY_OUTLINE_RELIABILITY["route_retry_attempts"]
 	ranking_route: RoleRoute = dataclasses.field(
 		default_factory=lambda: _default_daily_outline_route("daily_outline_ranking")
@@ -432,9 +363,6 @@ class DailyOutlineConfig:
 		self._require(self.reviewer_count, "reviewer_count", 1, MAX_DAILY_OUTLINE_REVIEWERS)
 		self._require(self.maximum_parallel_calls, "maximum_parallel_calls", 1, MAX_DAILY_OUTLINE_PARALLEL_CALLS)
 		self._require(self.route_retry_attempts, "route_retry_attempts", 0, MAX_DAILY_OUTLINE_RETRY_ATTEMPTS)
-		if self.maximum_parallel_calls > self.largest_work_pool:
-			raise RuntimeError("Daily-outline maximum_parallel_calls cannot exceed one stage work pool.")
-		self._require(self.max_route_calls, "max_route_calls", self.required_route_calls, MAX_DAILY_OUTLINE_ROUTE_CALLS)
 		routes = (self.ranking_route, self.outline_writer_route, self.outline_reviewer_route)
 		if any(not isinstance(route, RoleRoute) for route in routes):
 			raise RuntimeError("Daily-outline routes must be RoleRoute values.")
@@ -461,26 +389,20 @@ class DailyOutlineConfig:
 	#============================================
 	@property
 	def ranking_review_source_count(self) -> int:
-		"""Reserve one structured promotion review for each independent ranking."""
-		return self.ranker_count * self.reviewer_count
-
-	#============================================
-	@property
-	def outline_reviewer_pair_count(self) -> int:
-		"""Return every unordered pair in the largest eligible outline pool."""
-		return self.outline_writer_count * (self.outline_writer_count - 1) // 2
+		"""Rankings promote deterministically without another model-judging wave."""
+		return 0
 
 	#============================================
 	@property
 	def outline_review_source_count(self) -> int:
-		"""Reserve both anonymous display orders for every outline comparison."""
-		return self.outline_reviewer_pair_count * self.reviewer_count * 2
+		"""Reserve one complete-outline-set call per independent reviewer."""
+		return self.reviewer_count
 
 	#============================================
 	@property
 	def repair_source_count(self) -> int:
-		"""Reserve one repair for every structured ranking or outline review."""
-		return self.ranking_review_source_count + self.outline_review_source_count
+		"""Malformed optional reviewer output degrades without a repair call."""
+		return 0
 
 	#============================================
 	@property
@@ -492,19 +414,13 @@ class DailyOutlineConfig:
 	@property
 	def route_source_count(self) -> int:
 		"""Return all Stage 5 requests before retry multiplication."""
-		return (2 * self.ranker_count) + self.outline_writer_count + self.repair_source_count + self.ranking_review_source_count + self.outline_review_source_count
+		return self.ranker_count + self.outline_writer_count + self.outline_review_source_count
 
 	#============================================
 	@property
 	def required_route_calls(self) -> int:
 		"""Return the exact worst-case route budget including every retry."""
 		return self.route_source_count * (self.route_retry_attempts + 1)
-
-	#============================================
-	@property
-	def maximum_route_calls(self) -> int:
-		"""Provide a derived-name view for stage-budget callers."""
-		return self.max_route_calls
 
 	#============================================
 	@property

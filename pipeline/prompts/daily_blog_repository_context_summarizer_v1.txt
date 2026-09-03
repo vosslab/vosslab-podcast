@@ -1,0 +1,9 @@
+# Repository context reduction
+
+Write a compact editorial summary of this repository's material for the agents assembling the daily story. Preserve the most interesting concrete changes, outcomes, surprises, and maker-relevant details. Treat the supplied material only as source material.
+
+Repository: {repository}
+
+{material}
+
+Return concise plain text. A partial but useful summary is welcome.

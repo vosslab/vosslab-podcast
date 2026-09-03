@@ -3791,3 +3791,101 @@ Next actions
 1. Regenerate affected historical report dates, or restore only the exact image files referenced by
    those posts; do not restore the bulk screenshot corpus.
 2. Replace pairwise review calls after the human-owned reviewer prompt text is approved.
+
+---
+Session Update: 2026-09-03 (bounded candidate-set review foundation)
+
+Change
+- Added typed candidate-set review assignments, work, votes, and results to the stage-neutral
+  replication layer.
+- The new scheduler canonicalizes the complete peer set, chooses one deterministic ordering per
+  reviewer, and issues exactly one call per reviewer. It has no pair, permutation, Cartesian-product,
+  or tournament loop.
+- Left existing stage prompts and their pairwise callers unchanged because daily-blog prompt prose is
+  human-owned and no exact candidate-set reviewer wording has yet been approved.
+
+Tests
+- The replication suite passes 9 tests, including a five-candidate, three-reviewer regression that
+  proves exactly three calls and complete candidate coverage in every call.
+
+Next actions
+1. Obtain explicit approval for exact complete-set prompt wording, then migrate repository outline,
+   repository story, daily outline, complete post, and final synthesis callers to the new contract and
+   delete the pairwise API and quadratic budget formulas.
+
+---
+Session Update: 2026-09-03 (publication image decorator contract)
+
+Change
+- Added a typed, bounded image decorator response contract: up to three stable catalog image IDs,
+  zero-based prose-block positions, and concise alt text.
+- Added tolerant parsing and deterministic Markdown insertion. Malformed output, unknown IDs, empty
+  selection, absent imagery, or decorator failure preserve the already publishable incumbent.
+- Kept all path and byte authority in deterministic producer code. The decorator cannot provide a
+  filename or path, and only final-post references resolve into transported asset bytes.
+- Documented the strong target of at least one useful image when suitable imagery exists without
+  turning it into a publication gate.
+
+Tests
+- `source source_me.sh && python3 -m pytest tests/test_daily_blog_publication_admission.py -q`
+  passes 15 tests, including ID-only decoration, date-owned path assignment, exact-byte resolution,
+  and no-change behavior for malformed or empty advice.
+
+Next actions
+1. Obtain human approval for the exact image-decorator prompt text before adding or wiring that
+   human-owned prompt.
+2. After approval, invoke the decorator once after final prose selection and before G2 resolution.
+3. Obtain approval for complete-candidate-set reviewer prompt wording and finish removing the old
+   combinatorial review callers and budget formulas.
+
+---
+Session Update: 2026-09-03 (candidate-set promotion)
+
+Change
+- Extended stage-neutral promotion to consume complete-candidate-set reviewer votes directly.
+- Complete-set reviewers can promote one strict plurality winner without reconstructing pairwise
+  comparisons. A tie, failed optional review, or inconclusive challenger vote preserves an incumbent.
+- Generalized bounded disagreement accounting from candidate pairs to the exact candidate set seen
+  by each reviewer while retaining compatibility with the active pairwise callers pending cutover.
+
+Tests
+- `source source_me.sh && python3 -m pytest tests/test_daily_blog_replication.py -q` passes 11 tests.
+  The suite proves O(reviewers) scheduling, plurality promotion, and incumbent preservation under
+  complete-set disagreement.
+- `git diff --check` passes.
+
+Next actions
+1. Obtain human approval for the complete-candidate-set reviewer prompt wording.
+2. Migrate each active stage to one complete-set request per reviewer, reduce route budgets to linear
+   review counts, and delete the pairwise scheduler and pair-specific attempt identities.
+
+---
+Session Update: 2026-09-03 (bounded review and progressive context reduction)
+
+Change
+- Treated new editorial prompts as machine-authored resources under the human-owned behavioral
+  contract. Added a generic complete-candidate-set reviewer prompt and migrated every active review
+  stage to one full-set request per reviewer.
+- Removed pair, permutation, and ordering coordinates from replication, Stage 6 attempt planning,
+  cache identity, daily-outline review, and final synthesis. Removed the redundant ranking-review
+  wave; independent ranking candidates now receive deterministic selection.
+- Removed the global route-call cap and configured `max_route_calls` admission values. The shared
+  executor now owns concurrency control and diagnostic call accounting only.
+- Added a repository-context summarizer prompt and a linear Stage-D reduction wave. When the
+  cross-repository story/outline corpus would otherwise be excerpted, one summarizer per repository
+  creates compact daily-story input. Missing or malformed output falls back to existing excerpts and
+  does not block the workflow.
+- Added and wired a machine-authored image-decorator prompt after final prose selection. The one
+  optional call can choose only catalog IDs and block positions; deterministic code assigns paths
+  and transports only the selected bytes. Any unusable response preserves the incumbent.
+
+Tests
+- Focused candidate-set, Stage 6, Stage 7, route-cache, configuration, and robustness suites passed.
+- Added an oversized-story regression proving that context pressure invokes one summarizer for one
+  repository and still produces the daily-outline selection.
+- The final complete permanent suite passed 3,962 tests after dead-pair-resource removal, context
+  reduction coverage, and the wired decorator call.
+
+Next actions
+1. Use a live or controlled large-day run to observe the new linear call counts, summarizer events,
+   and selected-image publication.

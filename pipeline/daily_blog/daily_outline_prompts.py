@@ -164,64 +164,6 @@ def render_daily_outline_writer(
 
 
 #============================================
-def render_story_ranking_review(
-	candidate_ranking_json: str, stories_json: str, repository_outlines_json: str, evidence_json: str,
-	replica_id: str, prompts: daily_blog.prompt_registry.loader.LoadedPromptSet | None = None,
-) -> str:
-	"""Render one independent review of a complete anonymous ranking candidate."""
-	value = _loaded_prompts(prompts)
-	return _render(value, daily_blog.prompt_registry.definitions.STORY_RANKING_REVIEW_RESOURCE, {
-		"rubric": _bounded_text(
-			value.text(daily_blog.prompt_registry.definitions.STORY_RANKING_RUBRIC_RESOURCE),
-			"ranking rubric", MAX_RUBRIC_CHARS,
-		),
-		"candidate_ranking_json": _untrusted_data_block(
-			"STORY_RANKING_REVIEW", candidate_ranking_json, "ranking review candidate",
-			MAX_RANKING_CONTEXT_CHARS,
-		),
-		"stories_json": _untrusted_data_block(
-			"REPOSITORY_STORIES", stories_json, "stories context", MAX_STORIES_CONTEXT_CHARS,
-		),
-		"repository_outlines_json": _untrusted_data_block(
-			"REPOSITORY_OUTLINES", repository_outlines_json, "repository outlines context",
-			MAX_REPOSITORY_OUTLINES_CONTEXT_CHARS,
-		),
-		"evidence_json": _untrusted_data_block(
-			"EVIDENCE_PACKETS", evidence_json, "evidence context", MAX_EVIDENCE_CONTEXT_CHARS,
-		),
-		"replica_id": _replica_id(replica_id),
-	}, MAX_STORIES_CONTEXT_CHARS + MAX_REPOSITORY_OUTLINES_CONTEXT_CHARS + MAX_EVIDENCE_CONTEXT_CHARS + MAX_RANKING_CONTEXT_CHARS + MAX_RUBRIC_CHARS + 6000)
-
-
-#============================================
-def render_daily_outline_comparison(
-	stories_json: str, repository_outlines_json: str, evidence_json: str, candidate_a: str, candidate_b: str,
-	prompts: daily_blog.prompt_registry.loader.LoadedPromptSet | None = None,
-) -> str:
-	"""Render a rubric-first anonymous outline comparison in supplied order."""
-	value = _loaded_prompts(prompts)
-	return _render(value, daily_blog.prompt_registry.definitions.DAILY_OUTLINE_COMPARISON_RESOURCE, {
-		"rubric": value.text(daily_blog.prompt_registry.definitions.DAILY_OUTLINE_RUBRIC_RESOURCE),
-		"stories_json": _untrusted_data_block(
-			"REPOSITORY_STORIES", stories_json, "stories context", MAX_STORIES_CONTEXT_CHARS,
-		),
-		"repository_outlines_json": _untrusted_data_block(
-			"REPOSITORY_OUTLINES", repository_outlines_json, "repository outlines context",
-			MAX_REPOSITORY_OUTLINES_CONTEXT_CHARS,
-		),
-		"evidence_json": _untrusted_data_block(
-			"EVIDENCE_PACKETS", evidence_json, "evidence context", MAX_EVIDENCE_CONTEXT_CHARS,
-		),
-		"candidate_a": _untrusted_data_block(
-			"CANDIDATE_A", candidate_a, "candidate A", MAX_CANDIDATE_OUTLINE_CHARS,
-		),
-		"candidate_b": _untrusted_data_block(
-			"CANDIDATE_B", candidate_b, "candidate B", MAX_CANDIDATE_OUTLINE_CHARS,
-		),
-	}, MAX_COMPARISON_PROMPT_CHARS)
-
-
-#============================================
 def _expected_artifact_ids(value: object) -> tuple[str, ...]:
 	"""Require a canonical complete Stage 5 candidate identity set."""
 	if type(value) is not tuple or not value or any(type(item) is not str for item in value):

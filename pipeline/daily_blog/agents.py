@@ -39,10 +39,6 @@ class EditorialIdentityError(EditorialTerminalError):
 	"""A request or cache result does not attest to the same immutable identity."""
 
 
-class RouteBudgetExhausted(RuntimeError):
-	"""The run-owned external-call budget has no remaining actual-call slots."""
-
-
 @dataclasses.dataclass(frozen=True)
 class RouteRequest:
 	"""One isolated editorial request with a cache-safe execution identity."""
@@ -234,29 +230,23 @@ class AgentResult:
 
 
 class RouteBudget:
-	"""One run-owned, thread-safe global call and concurrency boundary."""
+	"""One run-owned concurrency tracker with diagnostic call accounting."""
 
 	#============================================
-	def __init__(self, maximum_calls: int, maximum_parallel_calls: int | None = None) -> None:
-		"""Create the one budget shared by every editorial stage in a run."""
-		if type(maximum_calls) is not int or maximum_calls <= 0:
-			raise RuntimeError("Editorial route-call budget must be a positive integer.")
-		parallel = maximum_calls if maximum_parallel_calls is None else maximum_parallel_calls
-		if type(parallel) is not int or parallel <= 0:
+	def __init__(self, maximum_parallel_calls: int = 1) -> None:
+		"""Create the shared tracker without a publication-killing call cap."""
+		if type(maximum_parallel_calls) is not int or maximum_parallel_calls <= 0:
 			raise RuntimeError("Editorial route concurrency must be a positive integer.")
-		self.maximum_calls = maximum_calls
-		self.maximum_parallel_calls = parallel
+		self.maximum_parallel_calls = maximum_parallel_calls
 		self.used_calls = 0
 		self._lock = threading.Lock()
-		self._semaphore = threading.BoundedSemaphore(parallel)
+		self._semaphore = threading.BoundedSemaphore(maximum_parallel_calls)
 
 	#============================================
 	@contextlib.contextmanager
 	def call_slot(self) -> collections.abc.Iterator[None]:
-		"""Account one actual external call and hold the run-wide semaphore."""
+		"""Account one external call and hold the run-wide concurrency slot."""
 		with self._lock:
-			if self.used_calls >= self.maximum_calls:
-				raise RouteBudgetExhausted("Editorial route-call budget is exhausted.")
 			self.used_calls += 1
 		self._semaphore.acquire()
 		try:

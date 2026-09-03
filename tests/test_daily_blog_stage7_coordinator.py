@@ -129,21 +129,21 @@ def _source(tmp_path: pathlib.Path) -> tuple[
 		promotion=daily_blog.artifacts.SelectedPeer(incumbent, daily_blog.artifacts.CompletePost),
 		generation=daily_blog.replication.ReplicationResult(
 			daily_blog.artifacts.CompletePost, (candidate, incumbent_candidate)),
-		review=daily_blog.replication.ReviewResult((), ()),
+		review=daily_blog.replication.CandidateSetReviewResult((), ()),
 		reliability=daily_blog.replication.StepReliability(
 			"stage6", "succeeded", 0, 0, 0, 0, 0, 0, incumbent.artifact_id, ()),
 		editing=daily_blog.replication.ReplicationResult(daily_blog.artifacts.CompletePost, ()),
 		step_reliability=(daily_blog.replication.StepReliability(
 			"stage6", "succeeded", 0, 0, 0, 0, 0, 0, incumbent.artifact_id, ()),),
 	)
-	stage = daily_blog.final_synthesis_config.FinalSynthesisConfig(2, 1, 2, 14, 0,
+	stage = daily_blog.final_synthesis_config.FinalSynthesisConfig(2, 1, 2, 0,
 		daily_blog.editorial_stage_config.RoleRoute(
 			"synthesis", daily_blog.editorial_stage_config.HERMES_EDITORIAL_ROUTE),
 		daily_blog.editorial_stage_config.RoleRoute(
 			"reviewer", daily_blog.editorial_stage_config.HERMES_EDITORIAL_ROUTE))
 	config = daily_blog.config.DailyBlogConfig("settings.yaml", str(tmp_path), "owner", "America/Chicago", str(tmp_path),
 		str(tmp_path / "mirrors"), (route,), route, {}, {}, {},
-		daily_blog.config.EditorialReliabilityConfig(2, 1, 1, 8), final_synthesis=stage)
+		daily_blog.config.EditorialReliabilityConfig(2, 1, 1), final_synthesis=stage)
 	coordinator = daily_blog.orchestrator.DailyPublicationOrchestrator(config, packet.report_date)
 	for phase in coordinator.record.phases:
 		if phase == "stage7_final_synthesis":
@@ -171,7 +171,7 @@ def _result(
 	if challenger is None:
 		return daily_blog.stage7.Stage7Result(promotion,
 			daily_blog.replication.ReplicationResult(daily_blog.artifacts.CompletePost, ()),
-			daily_blog.replication.ReviewResult((), ()), steps, incumbent, 1)
+			daily_blog.replication.CandidateSetReviewResult((), ()), steps, incumbent, 1)
 	return None
 
 
@@ -213,8 +213,10 @@ def test_stage7_win_attests_and_advances_only_final_promotion_step(tmp_path: pat
 		def run(self, route: daily_blog.editorial_stage_config.RoleRoute, prompt: str, _working: str) -> str:
 			if route.name == "synthesis":
 				return challenger.content
-			left = prompt.index("# CHALLENGER") < prompt.index("# INCUMBENT")
-			return json.dumps({"winner": "A" if left else "B", "reason": "better",
+			candidate_json = prompt.split("## Candidates\n\n", 1)[1].split("\n\n## Output contract", 1)[0]
+			winner = next(item["label"] for item in json.loads(candidate_json)
+				if "# CHALLENGER" in item["content"])
+			return json.dumps({"winner": winner, "reason": "better",
 				"evidence_quality": "high", "confidence": 1})
 
 	coordinator.route_runner = Runner()

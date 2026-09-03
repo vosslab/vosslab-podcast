@@ -118,7 +118,7 @@ def _stage7_input(
 		promotion=promotion,
 		generation=daily_blog.replication.ReplicationResult(
 			daily_blog.artifacts.CompletePost, (candidate, incumbent_candidate)),
-		review=daily_blog.replication.ReviewResult((), ()),
+		review=daily_blog.replication.CandidateSetReviewResult((), ()),
 		reliability=daily_blog.replication.StepReliability(
 			"stage6", "succeeded", 0, 0, 0, 0, 0, 0, incumbent.artifact_id, ()),
 		editing=daily_blog.replication.ReplicationResult(daily_blog.artifacts.CompletePost, ()),
@@ -146,7 +146,7 @@ def test_stage7_retains_the_frozen_stage6_surface_but_uses_portable_model_identi
 
 def _config(tmp_path: Path) -> daily_blog.config.DailyBlogConfig:
 	stage = daily_blog.final_synthesis_config.FinalSynthesisConfig(synthesizer_count=2, reviewer_count=1,
-		maximum_parallel_calls=2, max_route_calls=14, route_retry_attempts=0,
+		maximum_parallel_calls=2, route_retry_attempts=0,
 		synthesis_route=daily_blog.editorial_stage_config.RoleRoute(
 			"synthesis", daily_blog.editorial_stage_config.HERMES_EDITORIAL_ROUTE),
 		reviewer_route=daily_blog.editorial_stage_config.RoleRoute(
@@ -154,7 +154,7 @@ def _config(tmp_path: Path) -> daily_blog.config.DailyBlogConfig:
 	return daily_blog.config.DailyBlogConfig("settings", str(tmp_path), "owner", "America/Chicago", str(tmp_path),
 		str(tmp_path / "mirrors"), (daily_blog.editorial_stage_config.RoleRoute("author", ("fixture",)),),
 		daily_blog.editorial_stage_config.RoleRoute("referee", ("fixture",)), {}, {}, {"author_chars": 72000, "referee_chars": 88000},
-		daily_blog.config.EditorialReliabilityConfig(2, 1, 1, 8), final_synthesis=stage)
+		daily_blog.config.EditorialReliabilityConfig(2, 1, 1), final_synthesis=stage)
 
 
 class _Runner:
@@ -185,7 +185,7 @@ class _Runner:
 def test_stage7_total_synthesis_loss_preserves_exact_incumbent_object_and_hash(tmp_path: Path) -> None:
 	"""Route loss is editorial degradation, not permission to reconstruct an incumbent."""
 	value, incumbent = _stage7_input(tmp_path)
-	result = daily_blog.stage7.run_stage7(value, "stage7", _config(tmp_path), daily_blog.agents.RouteBudget(14, 2),
+	result = daily_blog.stage7.run_stage7(value, "stage7", _config(tmp_path), daily_blog.agents.RouteBudget(2),
 		_Runner(value, fail_synthesis=True))
 	assert result.artifact is incumbent and not result.synthesis_won
 
@@ -210,7 +210,7 @@ def test_stage7_ineligible_synthesis_is_degradation_and_preserves_exact_incumben
 ) -> None:
 	"""Malformed or ungrounded model output is a failed replica, not a pipeline fault."""
 	value, incumbent = _stage7_input(tmp_path)
-	result = daily_blog.stage7.run_stage7(value, "stage7", _config(tmp_path), daily_blog.agents.RouteBudget(14, 2),
+	result = daily_blog.stage7.run_stage7(value, "stage7", _config(tmp_path), daily_blog.agents.RouteBudget(2),
 		_Runner(value, synthesis_text=response))
 	assert result.artifact is incumbent and not result.synthesis_won
 
@@ -227,5 +227,5 @@ def test_stage7_trusted_scope_rejection_preserves_incumbent(
 		"parse_final_synthesis_complete_post", lambda *_args: candidate)
 	runner = _Runner(value)
 	result = daily_blog.stage7.run_stage7(value, "stage7", _config(tmp_path),
-		daily_blog.agents.RouteBudget(14, 2), runner)
+		daily_blog.agents.RouteBudget(2), runner)
 	assert result.artifact is incumbent

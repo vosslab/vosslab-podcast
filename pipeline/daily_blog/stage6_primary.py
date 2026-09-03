@@ -7,6 +7,7 @@ import dataclasses
 # local repo modules
 import daily_blog.agents
 import daily_blog.artifacts
+import daily_blog.candidate_set_prompts
 import daily_blog.complete_post_editor_prompts
 import daily_blog.config
 import daily_blog.editorial
@@ -105,7 +106,7 @@ def run_primary_batches(
 	)
 	writer_parts: list[daily_blog.replication.ReplicationResult] = []
 	editor_parts: list[daily_blog.replication.ReplicationResult] = []
-	reviews: list[daily_blog.replication.ReviewResult] = []
+	reviews: list[daily_blog.replication.CandidateSetReviewResult] = []
 	observations: list[daily_blog.stage6.Stage6BatchObservation] = []
 	last_promotion: PrimaryPromotion | None = None
 	for batch_index in range(plan.policy.fresh_batch_count):
@@ -254,13 +255,13 @@ def _review_primary_batch(
 	editing: daily_blog.replication.ReplicationResult,
 	peers: tuple[daily_blog.artifacts.CompletePost, ...],
 ) -> tuple[
-	daily_blog.replication.ReviewResult,
+	daily_blog.replication.CandidateSetReviewResult,
 	daily_blog.stage6.Stage6BatchObservation,
 	PrimaryPromotion,
 ]:
 	"""Review one exact peer set and close its observed materialization."""
 	stage = context.config.complete_post
-	bindings = daily_blog.stage6_execution.candidate_pair_bindings(
+	bindings = daily_blog.stage6_execution.candidate_set_bindings(
 		peers, "primary", batch_index,
 	)
 	generation_ids = tuple(item.semantic_identity for item in writer_slots) + tuple(
@@ -270,21 +271,19 @@ def _review_primary_batch(
 		"primary", batch_index, generation_ids, bindings,
 	)
 
+	review_prompts = daily_blog.candidate_set_prompts.load_prompt_set()
+
 	def build_work(
-		left: daily_blog.artifacts.CompletePost,
-		right: daily_blog.artifacts.CompletePost,
-		assignment: daily_blog.replication.ReviewAssignment,
-	) -> daily_blog.replication.ReviewWork:
-		"""Bind one anonymous candidate pair to its exact reviewer slot."""
+		ordered: tuple[daily_blog.artifacts.EditorialArtifact, ...],
+		assignment: daily_blog.replication.CandidateSetReviewAssignment,
+	) -> daily_blog.replication.CandidateSetReviewWork:
+		"""Bind one complete anonymous candidate set to one reviewer slot."""
 		attempt = daily_blog.stage6_execution.planned_attempt(
 			context.plan, "primary", batch_index, "reviewer",
-			assignment.reviewer_index + 1, assignment.pair_index + 1,
-			assignment.display_order + 1,
+			assignment.reviewer_index + 1,
 		)
-		prompt = context.templates["referee"].format(
-			rubric=context.templates["rubric"],
-			evidence_json=context.value.render_context(),
-			candidate_a=left.content, candidate_b=right.content,
+		prompt, _labels = daily_blog.candidate_set_prompts.render_candidate_set_review(
+			context.templates["rubric"], context.value.render_context(), ordered, review_prompts,
 		)
 		if len(prompt) > stage.prompt_limits["reviewer_chars"]:
 			raise daily_blog.replication.ReviewUnavailable(
@@ -294,29 +293,21 @@ def _review_primary_batch(
 			context.value, context.run_id, attempt, review_view,
 			stage.reviewer_route, prompt, stage,
 			context.resolved.contract.prompt_version,
+			candidate_identities=tuple(item.content_hash for item in ordered),
 			working_directory=context.config.daily_blog_repository,
 		)
-		work = daily_blog.replication.ReviewWork(
-			request, left.artifact_id, right.artifact_id, assignment,
-		)
-		return work
+		return daily_blog.replication.CandidateSetReviewWork(request, assignment)
 
-	def parse_winner(text: str, work: daily_blog.replication.ReviewWork) -> str:
-		"""Resolve one bounded referee label to its anonymous artifact."""
+	def parse_winner(text: str, work: daily_blog.replication.CandidateSetReviewWork) -> str:
+		"""Resolve one bounded complete-set label to its anonymous artifact."""
+		labels = dict(zip(
+			daily_blog.candidate_set_prompts.candidate_labels(len(work.assignment.candidate_artifact_ids)),
+			work.assignment.candidate_artifact_ids, strict=True,
+		))
 		try:
-			verdict = daily_blog.editorial.parse_referee_verdict(text, {"A", "B"})
-		except daily_blog.editorial.RefereeVerdictParseError as error:
+			return daily_blog.candidate_set_prompts.parse_candidate_set_verdict(text, labels)
+		except daily_blog.candidate_set_prompts.CandidateSetVerdictParseError as error:
 			raise daily_blog.agents.RepairableStructuredOutput(str(error)) from error
-		winner = {"A": work.first_artifact_id, "B": work.second_artifact_id}.get(
-			verdict["winner"], "",
-		)
-		return winner
-
-	def salvage(text: str, work: daily_blog.replication.ReviewWork) -> str | None:
-		"""Map an allowed standalone label to its anonymous artifact."""
-		label = daily_blog.replication.salvage_allowed_identifier(text, ("A", "B"))
-		winner = {"A": work.first_artifact_id, "B": work.second_artifact_id}.get(label)
-		return winner
 
 	review_results: dict[str, daily_blog.agents.AgentResult] = {}
 
@@ -327,9 +318,9 @@ def _review_primary_batch(
 		"""Retain reviewer results for the batch observation."""
 		review_results[request.request_id] = result
 
-	review = daily_blog.replication.review(
+	review = daily_blog.replication.review_candidate_set(
 		peers, daily_blog.artifacts.CompletePost, stage.reviewer_count,
-		build_work, parse_winner, context.route_runner, context.budget, salvage,
+		build_work, parse_winner, context.route_runner, context.budget,
 		context.cache_load, context.cache_accept, observe_review,
 	)
 	all_results = {item.request.request_id: item.result for item in writing.candidates}
@@ -354,14 +345,14 @@ def _finish_primary(
 	context: _PrimaryContext,
 	writer_parts: list[daily_blog.replication.ReplicationResult],
 	editor_parts: list[daily_blog.replication.ReplicationResult],
-	reviews: list[daily_blog.replication.ReviewResult],
+	reviews: list[daily_blog.replication.CandidateSetReviewResult],
 	observations: list[daily_blog.stage6.Stage6BatchObservation],
 	last_promotion: PrimaryPromotion | None,
 ) -> daily_blog.stage6.Stage6Result:
 	"""Aggregate and close one primary execution after its batch loop."""
 	all_writing = daily_blog.stage6_execution.merge_generation(tuple(writer_parts))
 	all_editing = daily_blog.stage6_execution.merge_generation(tuple(editor_parts))
-	all_review = daily_blog.replication.ReviewResult(
+	all_review = daily_blog.replication.CandidateSetReviewResult(
 		tuple(work for review in reviews for work in review.work),
 		tuple(vote for review in reviews for vote in review.votes),
 	)

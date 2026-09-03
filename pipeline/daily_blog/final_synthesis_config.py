@@ -16,7 +16,6 @@ DEFAULT_FINAL_SYNTHESIS_RELIABILITY = {
 	"synthesizer_count": 2,
 	"reviewer_count": 1,
 	"maximum_parallel_calls": 2,
-	"max_route_calls": 28,
 	"route_retry_attempts": 1,
 }
 DEFAULT_FINAL_SYNTHESIS_PROMPT_LIMITS = {
@@ -32,7 +31,6 @@ MAX_FINAL_SYNTHESIS_REPLICAS = 16
 MAX_FINAL_SYNTHESIS_REVIEWERS = 16
 MAX_FINAL_SYNTHESIS_PARALLEL_CALLS = 16
 MAX_FINAL_SYNTHESIS_RETRY_ATTEMPTS = 3
-MAX_FINAL_SYNTHESIS_ROUTE_CALLS = 4096
 MAX_FINAL_SYNTHESIS_PROMPT_CHARS = 470000
 
 
@@ -44,12 +42,11 @@ def _default_final_synthesis_route(name: str) -> RoleRoute:
 
 @dataclasses.dataclass(frozen=True)
 class FinalSynthesisConfig:
-	"""Frozen Stage 7 synthesis, comparison, and route-admission policy."""
+	"""Frozen Stage 7 synthesis, complete-set review, and route-budget policy."""
 
 	synthesizer_count: int = DEFAULT_FINAL_SYNTHESIS_RELIABILITY["synthesizer_count"]
 	reviewer_count: int = DEFAULT_FINAL_SYNTHESIS_RELIABILITY["reviewer_count"]
 	maximum_parallel_calls: int = DEFAULT_FINAL_SYNTHESIS_RELIABILITY["maximum_parallel_calls"]
-	max_route_calls: int = DEFAULT_FINAL_SYNTHESIS_RELIABILITY["max_route_calls"]
 	route_retry_attempts: int = DEFAULT_FINAL_SYNTHESIS_RELIABILITY["route_retry_attempts"]
 	synthesis_route: RoleRoute = dataclasses.field(
 		default_factory=lambda: _default_final_synthesis_route("final_synthesis_writer")
@@ -70,7 +67,6 @@ class FinalSynthesisConfig:
 		self._require(self.route_retry_attempts, "route_retry_attempts", 0, MAX_FINAL_SYNTHESIS_RETRY_ATTEMPTS)
 		if self.maximum_parallel_calls > max(self.synthesizer_count, self.review_source_count):
 			raise RuntimeError("Final-synthesis maximum_parallel_calls cannot exceed one stage work pool.")
-		self._require(self.max_route_calls, "max_route_calls", self.required_route_calls, MAX_FINAL_SYNTHESIS_ROUTE_CALLS)
 		routes = (self.synthesis_route, self.reviewer_route)
 		if any(not isinstance(route, RoleRoute) for route in routes):
 			raise RuntimeError("Final-synthesis routes must be RoleRoute values.")
@@ -98,27 +94,15 @@ class FinalSynthesisConfig:
 
 	#============================================
 	@property
-	def review_peer_count(self) -> int:
-		"""Return synthesis challengers plus the immutable Stage 6 incumbent."""
-		return self.synthesizer_count + 1
-
-	#============================================
-	@property
-	def reviewer_pair_count(self) -> int:
-		"""Return every unordered challenger/incumbent or challenger/challenger pair."""
-		return self.review_peer_count * (self.review_peer_count - 1) // 2
-
-	#============================================
-	@property
 	def review_source_count(self) -> int:
-		"""Return both display orders for every reviewer and comparison pair."""
-		return self.reviewer_pair_count * self.reviewer_count * 2
+		"""Return one complete-set call per independent reviewer."""
+		return self.reviewer_count
 
 	#============================================
 	@property
 	def repair_source_count(self) -> int:
-		"""Reserve one repair for every logical balanced review presentation."""
-		return self.review_source_count
+		"""Candidate-set verdict failure preserves the incumbent without repair."""
+		return 0
 
 	#============================================
 	@property
@@ -129,7 +113,7 @@ class FinalSynthesisConfig:
 	#============================================
 	@property
 	def required_route_calls(self) -> int:
-		"""Return ``(S + 4*C(S+1, 2)*V) * (retry + 1)`` exactly."""
+		"""Return ``(synthesizers + reviewers) * (retry + 1)`` exactly."""
 		return self.route_source_count * (self.route_retry_attempts + 1)
 
 	#============================================

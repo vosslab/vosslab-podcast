@@ -203,23 +203,19 @@ class BufferedRouteEffects:
 
 @dataclasses.dataclass(frozen=True)
 class RunCapacityPlan:
-	"""Frozen run admission derived from configured work and repository scope."""
+	"""Frozen run-wide concurrency plan."""
 
-	maximum_calls: int
 	maximum_parallel_calls: int
 
 	def __post_init__(self) -> None:
-		if (
-			type(self.maximum_calls) is not int or self.maximum_calls <= 0
-			or type(self.maximum_parallel_calls) is not int or self.maximum_parallel_calls <= 0
-		):
-			raise daily_blog.agents.EditorialTerminalError("Run capacity must be positive.")
+		if type(self.maximum_parallel_calls) is not int or self.maximum_parallel_calls <= 0:
+			raise daily_blog.agents.EditorialTerminalError("Run concurrency must be positive.")
 
 	@classmethod
 	def for_run(
 		cls, config: daily_blog.config.DailyBlogConfig, repository_count: int,
 	) -> "RunCapacityPlan":
-		"""Admit all configured stage envelopes before any editorial dispatch."""
+		"""Derive the shared concurrency boundary before editorial dispatch."""
 		if type(config) is not daily_blog.config.DailyBlogConfig:
 			raise daily_blog.agents.EditorialTerminalError("Run capacity requires DailyBlogConfig.")
 		if type(repository_count) is not int or repository_count < 0:
@@ -229,26 +225,13 @@ class RunCapacityPlan:
 			config.complete_post, config.final_synthesis,
 		)
 		try:
-			stage6_plan = daily_blog.stage6_attempt_plan.build_stage6_attempt_plan(
-				config.complete_post.stage6_attempt_policy
-			)
-			calls = (
-				repository_count * (
-					config.repository_outline.max_route_calls
-					+ config.repository_story.max_route_calls
-				)
-				+ config.daily_outline.max_route_calls + stage6_plan.maximum_route_calls
-				+ config.final_synthesis.max_route_calls
-			)
 			parallel = max(item.max_parallel_calls for item in stages)
 		except (AttributeError, TypeError, ValueError) as error:
 			raise daily_blog.agents.EditorialTerminalError(
-				"Configured editorial capacity is invalid."
+				"Configured editorial concurrency is invalid."
 			) from error
-		if calls <= 0:
-			raise daily_blog.agents.EditorialTerminalError("Configured editorial capacity admits no work.")
-		return cls(calls, parallel)
+		return cls(parallel)
 
 	def new_budget(self) -> daily_blog.agents.RouteBudget:
-		"""Create the one run-owned budget after admission succeeds."""
-		return daily_blog.agents.RouteBudget(self.maximum_calls, self.maximum_parallel_calls)
+		"""Create the run-owned concurrency tracker."""
+		return daily_blog.agents.RouteBudget(self.maximum_parallel_calls)

@@ -382,7 +382,7 @@ class Stage6Result:
 	promotion: (daily_blog.artifacts.SelectedPeer | daily_blog.artifacts.PreservedArtifact
 		| daily_blog.artifacts.DegradedPromotion | daily_blog.artifacts.NoArtifact)
 	generation: daily_blog.replication.ReplicationResult
-	review: daily_blog.replication.ReviewResult
+	review: daily_blog.replication.CandidateSetReviewResult
 	reliability: daily_blog.replication.StepReliability
 	editing: daily_blog.replication.ReplicationResult
 	step_reliability: tuple[daily_blog.replication.StepReliability, ...]

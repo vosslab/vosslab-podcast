@@ -88,6 +88,7 @@ A  Acquire deterministic evidence
 | A3 | Fetch active repositories and record their revisions | MOA | `mirror_manifest.json` |
 | A4 | Resolve exact commits and revision ranges | MOA | `activity.json` |
 | A5 | Assemble bounded commit, changelog, diff, and supporting-file evidence | MOA | `evidence.json` |
+| A6 | Catalog candidate images with stable evidence identities and no embedded bytes | MOA | `image_catalog.json` |
 
 ## B: Repository outlines
 
@@ -109,11 +110,17 @@ A  Acquire deterministic evidence
 
 | Step | Work | Ownership | Working output |
 | --- | --- | --- | --- |
+| D0 | Compact oversized repository-story context with one summarizer per repository | LDMW | `daily_outline_editorial.json` |
 | D1 | Receive story rankings when available | LDMW | `daily_outline_editorial.json` |
-| D2 | Review rankings when review is available | LDMW | `daily_outline_editorial.json` |
+| D2 | Select among available independent rankings deterministically | LDMW | `daily_outline_editorial.json` |
 | D3 | Receive daily outline candidates | LDMW | `daily_outline.json` |
 | D4 | Review usable daily outlines when review is available | LDMW | `daily_outline_editorial.json` |
 | D5 | Preserve a usable daily outline | LDMW | `daily_outline.json` |
+
+D0 runs only when the complete repository editorial corpus would otherwise be excerpted for the daily stage. Its work
+scales linearly with repositories. Summarizer output is advisory: any non-empty response can be normalized into the
+bounded daily context, while an unavailable response falls back to the existing repository artifact excerpt. Context
+size and summarizer compliance never become publication gates.
 
 ## E: Complete post
 
@@ -138,13 +145,22 @@ pipeline owns a publishable incumbent. Later editorial work cannot take that ava
 | F1 | Attempt optional final syntheses | LDMW | `final_synthesis_editorial.json` |
 | F2 | Compare usable syntheses with the incumbent when available | LDMW | `final_synthesis_editorial.json` |
 | F3 | Promote a preferred challenger or preserve the incumbent | LDMW | `final_synthesis_editorial.json` |
+| F4 | Select useful images from the bounded machine catalog when available | LDMW | `image_decoration_editorial.json` |
+| F5 | Place selected image identities and captions into the incumbent prose | LDMW | `image_decoration_editorial.json` |
+
+F4-F5 target at least one useful image whenever the catalog contains suitable imagery. They are
+editorial improvement steps, never publication gates: no catalog, no suitable selection, malformed
+decorator output, or decorator failure preserves the existing publishable incumbent. The decorator
+may name only stable image identities supplied by A6. It cannot choose filenames or destination paths.
+Its bounded response contains at most three `{image_id, after_block, alt_text}` placements. The machine
+validates those identities and positions against the exact post and catalog before changing Markdown.
 
 ## G: Publication
 
 | Step | Work | Ownership | Working output |
 | --- | --- | --- | --- |
 | G1 | Normalize machine metadata for the selected post | MOA | `publication_validation.json` |
-| G2 | Resolve final Markdown image references through stable evidence identities and seal only those selected asset bytes | MOA | `publication_image_selection.json`, transient `publication_bundle.json`, `publication/` |
+| G2 | Resolve decorator image identities into date-owned Markdown paths and seal only those selected asset bytes | MOA | `publication_image_selection.json`, transient `publication_bundle.json`, `publication/` |
 | G3 | Export the exact sealed bytes and verify their delivery | MOA | producer transport receipt in `run_state.json` |
 | G4 | Place the authoritative Markdown and assets, then invoke MkDocs and deployment | MOA | renderer receipt in `run_state.json` |
 | G5 | Verify the rendered reader page | MOA | terminal receipt in `summary.jsonl` |

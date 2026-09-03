@@ -17,12 +17,10 @@ import daily_blog.stage6_attempt_plan
 def planned_attempt(
 	plan: daily_blog.stage6_attempt_plan.Stage6AttemptPlan,
 	rung: str, batch_index: int, role: str, replica_index: int,
-	pair_index: int = 0, display_order: int = 0,
 ) -> daily_blog.stage6_attempt_plan.PlannedStage6Attempt:
 	"""Return the exact canonical slot for public execution coordinates."""
 	matches = tuple(item for item in plan.attempts_for(rung, batch_index) if (
 		item.role == role and item.replica_index == replica_index
-		and item.pair_index == pair_index and item.display_order == display_order
 	))
 	if len(matches) != 1:
 		raise RuntimeError("Stage 6 execution requires one canonical planned slot.")
@@ -56,20 +54,17 @@ def build_request(
 
 
 #============================================
-def candidate_pair_bindings(
+def candidate_set_bindings(
 	peers: tuple[daily_blog.artifacts.CompletePost, ...], rung: str, batch_index: int,
-) -> tuple[daily_blog.stage6_attempt_plan.Stage6CandidatePairBinding, ...]:
-	"""Bind distinct dynamic candidate pairs to canonical plan coordinates."""
+) -> tuple[daily_blog.stage6_attempt_plan.Stage6CandidateSetBinding, ...]:
+	"""Bind one availability witness for a complete candidate set."""
 	by_content = {item.content_hash: item for item in peers}
 	ordered = tuple(by_content[key] for key in sorted(by_content))
-	bindings = []
-	for first_index, first in enumerate(ordered):
-		for second in ordered[first_index + 1:]:
-			left, right = sorted((first.content_hash, second.content_hash))
-			bindings.append(daily_blog.stage6_attempt_plan.Stage6CandidatePairBinding(
-				rung, batch_index, len(bindings) + 1, left, right,
-			))
-	return tuple(bindings)
+	if len(ordered) < 2:
+		return ()
+	return (daily_blog.stage6_attempt_plan.Stage6CandidateSetBinding(
+		rung, batch_index, tuple(item.content_hash for item in ordered),
+	),)
 
 
 #============================================

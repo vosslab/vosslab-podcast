@@ -32,7 +32,6 @@ DEFAULT_EDITORIAL_RELIABILITY = {
 	"candidate_count": 2,
 	"reviewer_count": 1,
 	"max_parallel_calls": 1,
-	"max_route_calls": 16,
 	"route_retry_attempts": 1,
 }
 _GITHUB_OWNER_RE = re.compile(r"^[A-Za-z0-9-]+$")
@@ -60,7 +59,6 @@ class EditorialReliabilityConfig:
 	candidate_count: int = DEFAULT_EDITORIAL_RELIABILITY["candidate_count"]
 	reviewer_count: int = DEFAULT_EDITORIAL_RELIABILITY["reviewer_count"]
 	max_parallel_calls: int = DEFAULT_EDITORIAL_RELIABILITY["max_parallel_calls"]
-	max_route_calls: int = DEFAULT_EDITORIAL_RELIABILITY["max_route_calls"]
 	route_retry_attempts: int = DEFAULT_EDITORIAL_RELIABILITY["route_retry_attempts"]
 
 	#============================================
@@ -70,7 +68,6 @@ class EditorialReliabilityConfig:
 			self.candidate_count,
 			self.reviewer_count,
 			self.max_parallel_calls,
-			self.max_route_calls,
 		)
 		if any(type(value) is not int or value <= 0 for value in values):
 			raise RuntimeError("Editorial reliability settings must be positive integers.")
@@ -78,17 +75,6 @@ class EditorialReliabilityConfig:
 			raise RuntimeError("Editorial route retry attempts must be a nonnegative integer.")
 		if self.candidate_count < 2:
 			raise RuntimeError("Editorial generation requires at least two independent candidates.")
-		if self.max_route_calls < self.candidate_count:
-			raise RuntimeError("Editorial route budget cannot cover candidate generation.")
-		pair_count = self.candidate_count * (self.candidate_count - 1) // 2
-		full_review_calls = pair_count * self.reviewer_count * 2
-		maximum_attempts = self.route_retry_attempts + 1
-		required_calls = (self.candidate_count + full_review_calls) * maximum_attempts
-		if self.max_route_calls < required_calls:
-			raise RuntimeError(
-				"Editorial route budget cannot cover configured candidates, reviews, and retries."
-			)
-
 
 @dataclasses.dataclass(frozen=True)
 class DailyBlogLoggingConfig:
@@ -168,7 +154,7 @@ def _load_limits(
 
 #============================================
 def _load_editorial_reliability(settings: dict) -> EditorialReliabilityConfig:
-	"""Load the bounded replication and shared route-call budget."""
+	"""Load bounded replication, concurrency, and transport retry policy."""
 	configured = pipeline_settings.get_nested_value(
 		settings, ["daily_blog", "editorial_reliability"], {},
 	)

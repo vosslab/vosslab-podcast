@@ -179,86 +179,6 @@ def generation_reliability(
 
 
 @dataclasses.dataclass(frozen=True)
-class ReviewAssignment:
-	"""One independently attributable balanced comparison assignment."""
-
-	pair_index: int
-	reviewer_index: int
-	display_order: int
-
-	#============================================
-	def __post_init__(self) -> None:
-		"""Reject an assignment that cannot prove balanced reviewer coverage."""
-		if (
-			type(self.pair_index) is not int or self.pair_index < 0
-			or type(self.reviewer_index) is not int or self.reviewer_index < 0
-			or self.display_order not in {0, 1}
-		):
-			raise RuntimeError("Editorial review assignment is invalid.")
-
-
-@dataclasses.dataclass(frozen=True)
-class ReviewWork:
-	"""One caller-built comparison request with anonymous labels."""
-
-	request: daily_blog.agents.RouteRequest
-	first_artifact_id: str
-	second_artifact_id: str
-	assignment: ReviewAssignment
-
-	#============================================
-	def __post_init__(self) -> None:
-		"""Prevent positional or self-comparison ambiguity at the boundary."""
-		if self.first_artifact_id == self.second_artifact_id:
-			raise RuntimeError("Editorial review requires two distinct artifact identities.")
-		if type(self.assignment) is not ReviewAssignment:
-			raise RuntimeError("Editorial review work requires one typed assignment.")
-
-
-@dataclasses.dataclass(frozen=True)
-class ReviewVote:
-	"""One parsed or mechanically salvaged review observation."""
-
-	review_id: str
-	first_artifact_id: str
-	second_artifact_id: str
-	status: str
-	winner_artifact_id: str
-	failure: str = ""
-	resumed: bool = False
-
-	#============================================
-	def __post_init__(self) -> None:
-		"""Require one bounded vote shape before promotion consumes it."""
-		if self.status not in {"succeeded", "failed"}:
-			raise RuntimeError("Editorial review status is unsupported.")
-		if self.first_artifact_id == self.second_artifact_id:
-			raise RuntimeError("Editorial review requires two distinct artifact identities.")
-		if type(self.resumed) is not bool:
-			raise RuntimeError("Editorial review provenance flags are invalid.")
-		if self.status == "succeeded":
-			if self.winner_artifact_id not in {self.first_artifact_id, self.second_artifact_id}:
-				raise RuntimeError("Editorial review winner is outside its candidate pair.")
-			if self.failure:
-				raise RuntimeError("Successful editorial review cannot retain a failure.")
-		elif self.winner_artifact_id or self.failure not in REVIEW_FAILURES:
-			raise RuntimeError("Failed editorial review requires one bounded failure.")
-
-	#============================================
-	def validate(self) -> None:
-		"""Retain the explicit validation seam used by durable observations."""
-		self.__post_init__()
-
-
-@dataclasses.dataclass(frozen=True)
-class ReviewResult:
-	"""Separately inspectable reviewer work and resolved votes."""
-
-	work: tuple[ReviewWork, ...]
-	votes: tuple[ReviewVote, ...]
-
-
-@dataclasses.dataclass(frozen=True)
 class CandidateSetReviewAssignment:
 	"""One independent reviewer and its sole candidate ordering."""
 
@@ -406,87 +326,6 @@ def _canonical_artifacts(
 
 
 #============================================
-def review(
-	candidates: collections.abc.Iterable[daily_blog.artifacts.EditorialArtifact],
-	expected_type: type,
-	reviewer_count: int,
-	build_work: collections.abc.Callable[
-		[
-			daily_blog.artifacts.EditorialArtifact,
-			daily_blog.artifacts.EditorialArtifact,
-			ReviewAssignment,
-		],
-		ReviewWork,
-	],
-	parse_winner: collections.abc.Callable[[str, ReviewWork], str],
-	runner: object,
-	budget: daily_blog.agents.RouteBudget,
-	salvage_winner: collections.abc.Callable[[str, ReviewWork], str | None] | None = None,
-	cache_load: collections.abc.Callable[
-		[daily_blog.agents.RouteRequest], daily_blog.agents.AgentResult | None,
-	] | None = None,
-	cache_accept: collections.abc.Callable[
-		[daily_blog.agents.RouteRequest, daily_blog.agents.AgentResult], None,
-	] | None = None,
-	observe_result: collections.abc.Callable[
-		[daily_blog.agents.RouteRequest, daily_blog.agents.AgentResult], None,
-	] | None = None,
-) -> ReviewResult:
-	"""Review every peer pair in both orders for every independent reviewer.
-
-	``reviewer_count`` is the number of independent replicas, not the number of
-	requests.  Each replica receives both anonymous display orders so candidate
-	position cannot be a hidden promotion signal.
-	"""
-	if type(reviewer_count) is not int or reviewer_count <= 0:
-		raise RuntimeError("Review requires a positive reviewer count.")
-	ordered = _canonical_artifacts(candidates, expected_type)
-	work = []
-	pair_index = 0
-	for first_index, first in enumerate(ordered):
-		for second in ordered[first_index + 1:]:
-			for reviewer_index in range(reviewer_count):
-				for display_order in range(2):
-					assignment = ReviewAssignment(pair_index, reviewer_index, display_order)
-					left, right = (
-						(first, second) if display_order == 0 else (second, first)
-					)
-					try:
-						item = build_work(left, right, assignment)
-					except ReviewUnavailable:
-						return ReviewResult((), ())
-					if (
-						item.first_artifact_id != left.artifact_id
-						or item.second_artifact_id != right.artifact_id
-						or item.assignment != assignment
-					):
-						raise RuntimeError("Review work identity conflicts with its assignment.")
-					work.append(item)
-			pair_index += 1
-	if len({item.request.request_id for item in work}) != len(work):
-		raise RuntimeError("Editorial review work requires unique request identities.")
-	if len({item.request.identity_sha256 for item in work}) != len(work):
-		raise RuntimeError("Editorial review work requires unique work identities.")
-	if not work:
-		return ReviewResult((), ())
-	results = daily_blog.agents.execute_requests(
-		[item.request for item in work], runner, work[0].request.maximum_parallel_calls,
-		budget, cache_load,
-	)
-	votes = []
-	for item, result in zip(work, results):
-		if observe_result is not None:
-			observe_result(item.request, result)
-		vote = _parse_vote(item, result, parse_winner)
-		resolved = vote or _salvage_vote(item, result, salvage_winner)
-		resolved = resolved or _failed_vote(item, "invalid_verdict")
-		if resolved.status == "succeeded" and not result.resumed and cache_accept is not None:
-			cache_accept(item.request, result)
-		votes.append(resolved)
-	return ReviewResult(tuple(work), tuple(sorted(votes, key=lambda item: item.review_id)))
-
-
-#============================================
 def review_candidate_set(
 	candidates: collections.abc.Iterable[daily_blog.artifacts.EditorialArtifact],
 	expected_type: type,
@@ -574,116 +413,8 @@ def review_candidate_set(
 
 
 #============================================
-def _vote_id(work: ReviewWork) -> str:
-	"""Return the review request identity."""
-	return work.request.request_id
-
-
-#============================================
-def _failed_vote(work: ReviewWork, failure: str) -> ReviewVote:
-	"""Return one categorical failed vote without raw route details."""
-	return ReviewVote(
-		_vote_id(work), work.first_artifact_id, work.second_artifact_id,
-		"failed", "", failure, False,
-	)
-
-
-#============================================
-def _parse_vote(
-	work: ReviewWork, result: daily_blog.agents.AgentResult,
-	parse_winner: collections.abc.Callable[[str, ReviewWork], str],
-) -> ReviewVote | None:
-	"""Resolve only a strict structured reviewer verdict."""
-	if not result.ok:
-		return _failed_vote(work, result.failure)
-	try:
-		winner = parse_winner(result.text, work)
-	except daily_blog.agents.RepairableStructuredOutput:
-		winner = ""
-	if winner in {work.first_artifact_id, work.second_artifact_id}:
-		return ReviewVote(
-			_vote_id(work), work.first_artifact_id, work.second_artifact_id,
-			"succeeded", winner, "", result.resumed,
-		)
-	return None
-
-
-#============================================
-def _salvage_vote(
-	work: ReviewWork,
-	result: daily_blog.agents.AgentResult,
-	salvage_winner: collections.abc.Callable[[str, ReviewWork], str | None] | None,
-) -> ReviewVote | None:
-	"""Salvage only one mechanically proven identity from a usable response."""
-	if not result.ok or salvage_winner is None:
-		return None
-	winner = _validated_salvage(result.text, work, salvage_winner)
-	if winner is None:
-		return None
-	return ReviewVote(
-		_vote_id(work), work.first_artifact_id, work.second_artifact_id,
-		"succeeded", winner, "", result.resumed,
-	)
-
-
-#============================================
-def salvage_allowed_identifier(
-	text: str,
-	allowed_identifiers: collections.abc.Iterable[str],
-) -> str | None:
-	"""Return one mentioned allowed identifier, but never infer from position.
-
-	This narrow helper is safe for reviewer responses that omit the strict
-	structured envelope.  It deliberately rejects output naming zero or multiple
-	allowed identities, including repeated prose that argues for both peers.
-	"""
-	if type(text) is not str:
-		raise RuntimeError("Editorial salvage text must be a string.")
-	allowed = tuple(allowed_identifiers)
-	if not allowed or any(type(value) is not str or not value for value in allowed):
-		raise RuntimeError("Editorial salvage identifiers must be non-empty strings.")
-	if len(set(allowed)) != len(allowed):
-		raise RuntimeError("Editorial salvage identifiers must be unique.")
-	mentioned = [
-		value for value in allowed
-		if re.search(r"(?<![A-Za-z0-9_-])" + re.escape(value) + r"(?![A-Za-z0-9_-])", text)
-	]
-	return mentioned[0] if len(mentioned) == 1 else None
-
-
-#============================================
-def _validated_salvage(
-	text: str,
-	work: ReviewWork,
-	salvage_winner: collections.abc.Callable[[str, ReviewWork], str | None],
-) -> str | None:
-	"""Accept a callback only when response text proves its selected peer.
-
-	A Stage-specific callback may translate one anonymous ``A`` or ``B`` label
-	through this work item's fixed order.  The callback never gets authority to
-	select a peer on its own: this boundary independently extracts the sole
-	allowed artifact identity or label and requires the returned identity to
-	match that mechanically determined mapping.
-	"""
-	winner = salvage_winner(text, work)
-	if winner not in {work.first_artifact_id, work.second_artifact_id}:
-		return None
-	identified = salvage_allowed_identifier(
-		text, (work.first_artifact_id, work.second_artifact_id),
-	)
-	label = salvage_allowed_identifier(text, ("A", "B"))
-	label_winner = work.first_artifact_id if label == "A" else (
-		work.second_artifact_id if label == "B" else None
-	)
-	if identified is not None and label_winner is not None and identified != label_winner:
-		return None
-	proved = identified or label_winner
-	return winner if winner == proved else None
-
-
-#============================================
 def review_reasons(
-	votes: collections.abc.Iterable[ReviewVote],
+	votes: collections.abc.Iterable[CandidateSetReviewVote],
 	disagreements: int,
 ) -> tuple[str, ...]:
 	"""Return bounded categorical observations without reviewer response content."""
@@ -694,17 +425,19 @@ def review_reasons(
 
 
 #============================================
-def _disagreements(votes: collections.abc.Iterable[ReviewVote]) -> int:
-	"""Count pairs whose successful reviewers pick different candidates."""
-	by_pair: dict[tuple[str, str], set[str]] = collections.defaultdict(set)
+def review_disagreements(
+	votes: collections.abc.Iterable[CandidateSetReviewVote],
+) -> int:
+	"""Count reviewed sets whose successful reviewers select different candidates."""
+	by_set: dict[tuple[str, ...], set[str]] = collections.defaultdict(set)
 	for vote in votes:
-		pair = (
-			min(vote.first_artifact_id, vote.second_artifact_id),
-			max(vote.first_artifact_id, vote.second_artifact_id),
-		)
+		if type(vote) is CandidateSetReviewVote:
+			candidate_set = tuple(sorted(vote.candidate_artifact_ids))
+		else:
+			raise RuntimeError("Editorial review vote type is unsupported.")
 		if vote.status == "succeeded":
-			by_pair[pair].add(vote.winner_artifact_id)
-	return sum(len(winners) > 1 for winners in by_pair.values())
+			by_set[candidate_set].add(vote.winner_artifact_id)
+	return sum(len(winners) > 1 for winners in by_set.values())
 
 
 #============================================
@@ -714,7 +447,7 @@ def promote(
 	eligibility: collections.abc.Callable[
 		[daily_blog.artifacts.EditorialArtifact], daily_blog.artifacts.EligibilityResult,
 	],
-	votes: collections.abc.Iterable[ReviewVote],
+	votes: collections.abc.Iterable[CandidateSetReviewVote],
 	incumbent: daily_blog.artifacts.EditorialArtifact | None = None,
 	fallback: collections.abc.Callable[
 		[], daily_blog.artifacts.EditorialArtifact | None,
@@ -783,7 +516,7 @@ def promote(
 #============================================
 def _decide_artifact_promotion(
 	values: tuple[_PromotionCandidate, ...],
-	vote_values: tuple[ReviewVote, ...],
+	vote_values: tuple[CandidateSetReviewVote, ...],
 	incumbent_id: str,
 ) -> _PromotionDecision | None:
 	"""Resolve review votes and incumbency for mechanically eligible artifacts."""
@@ -796,9 +529,13 @@ def _decide_artifact_promotion(
 	if incumbent_id and incumbent_id not in by_id:
 		raise RuntimeError("Editorial incumbent must remain mechanically eligible.")
 	for vote in vote_values:
-		if {vote.first_artifact_id, vote.second_artifact_id} - set(by_id):
-			raise RuntimeError("Editorial review pair is outside eligible promotion candidates.")
-	disagreements = _disagreements(vote_values)
+		if type(vote) is CandidateSetReviewVote:
+			reviewed_ids = set(vote.candidate_artifact_ids)
+		else:
+			raise RuntimeError("Editorial review vote type is unsupported.")
+		if reviewed_ids - set(by_id):
+			raise RuntimeError("Editorial review set is outside eligible promotion candidates.")
+	disagreements = review_disagreements(vote_values)
 	reasons = review_reasons(vote_values, disagreements)
 	if len(eligible) > 1 and not any(vote.status == "succeeded" for vote in vote_values):
 		reasons = tuple(sorted(set(reasons) | {"review_unavailable"}))
@@ -807,36 +544,37 @@ def _decide_artifact_promotion(
 	def stable(items: collections.abc.Iterable[_PromotionCandidate]) -> _PromotionCandidate:
 		return sorted(items, key=lambda item: (item.content_hash, item.artifact_id))[0]
 	if incumbent_id:
-		challengers = []
-		for challenger in eligible:
-			if challenger.artifact_id == incumbent_id:
-				continue
-			direct = [
-				vote for vote in vote_values
-				if {vote.first_artifact_id, vote.second_artifact_id}
-				== {challenger.artifact_id, incumbent_id}
-			]
-			if direct and all(vote.status == "succeeded" for vote in direct):
-				wins = sum(vote.winner_artifact_id == challenger.artifact_id for vote in direct)
-				losses = sum(vote.winner_artifact_id == incumbent_id for vote in direct)
-				if wins > losses:
-					challengers.append(challenger)
-		if not challengers:
-			return _PromotionDecision(
-				incumbent_id,
-				"incumbent_preserved",
-				reasons or ("review_unavailable",),
-				disagreements,
-				True,
-			)
-		scores = collections.Counter(
-			vote.winner_artifact_id
-			for vote in vote_values
-			if vote.status == "succeeded"
+		set_votes = tuple(
+			vote for vote in vote_values if type(vote) is CandidateSetReviewVote
 		)
-		best = max(scores[item.artifact_id] for item in challengers)
-		leaders = [item for item in challengers if scores[item.artifact_id] == best]
-		return _PromotionDecision(stable(leaders).artifact_id, "review_votes", reasons, disagreements)
+		if set_votes:
+			# Every complete-set reviewer saw the incumbent. Optional review failure or
+			# a tie therefore preserves it; only one strict plurality challenger wins.
+			if any(vote.status != "succeeded" for vote in set_votes):
+				return _PromotionDecision(
+					incumbent_id, "incumbent_preserved", reasons, disagreements, True,
+				)
+			scores = collections.Counter(vote.winner_artifact_id for vote in set_votes)
+			best = max(scores.values())
+			incumbent_score = scores[incumbent_id]
+			challengers = [
+				item for item in eligible
+				if item.artifact_id != incumbent_id
+				and scores[item.artifact_id] == best
+				and scores[item.artifact_id] > incumbent_score
+			]
+			if len(challengers) != 1:
+				return _PromotionDecision(
+					incumbent_id, "incumbent_preserved",
+					reasons or ("review_disagreement",), disagreements, True,
+				)
+			return _PromotionDecision(
+				challengers[0].artifact_id, "review_votes", reasons, disagreements,
+			)
+		return _PromotionDecision(
+			incumbent_id, "incumbent_preserved",
+			reasons or ("review_unavailable",), disagreements, True,
+		)
 	scores = collections.Counter(
 		vote.winner_artifact_id
 		for vote in vote_values
