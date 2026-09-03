@@ -177,7 +177,8 @@ validates and seals that exact byte snapshot, sends it to the sibling's importin
 endpoint, and verifies the returned receipt against the report date and bundle digest. The sibling
 confines destinations, places the supplied Markdown and assets, invokes MkDocs and deployment, and
 verifies the rendered page. It does not validate the portable surface or admit post content. Its
-`import-receipt.v2` records the committed rendering result.
+`import-receipt.v3` binds the sealed transfer directly to the installed post, selected assets, and
+expected rendered page without requiring a renderer-side bundle archive or publication record.
 
 The subprocess boundary accepts only bounded canonical JSON results. Publisher failures use the
 text-free `vosslab.daily-blog.import-failure.v1` envelope with one allowlisted category

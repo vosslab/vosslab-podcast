@@ -2,6 +2,12 @@
 
 ### Behavior or Interface Changes
 
+- Replaced the retired publisher-record/archive receipt dependency with
+  `vosslab.daily-blog.import-receipt.v3`. The producer now verifies the installed Markdown and every
+  selected image directly against its sealed transfer, then binds the rendered page separately.
+- Kept selected images beside the date-owned Markdown under `docs/blog/posts/<report_date>/` with
+  short `<report_date>/<filename>` Markdown links. New deterministic filenames include the source
+  repository, a content-hash prefix, and the original image basename; multiple images remain supported.
 - Defined `vosslab-podcast` as the owner of publication correctness, bundle meaning, validation,
   export, and delivery verification. Defined `vosslab-daily-blog` as a mechanical receiver,
   MkDocs renderer, deployer, and rendered-page verifier with no editorial admission authority.
@@ -84,6 +90,11 @@
 
 ### Fixes and Maintenance
 
+- Fixed the August 17 `site_import` failure caused by the producer checking the renderer's removed
+  `data/publications/` tree after a successful import. Removed the obsolete archive/record validation
+  code and its tests rather than recreating renderer persistence that the current ownership boundary
+  intentionally removed.
+
 - Removed gate-like flow vocabulary including editorial `eligible`, `stable`, `admit`, and recovery
   topology wording. Daily-outline comparison context overflow now makes optional review unavailable
   instead of failing the usable outline incumbent.
@@ -112,6 +123,12 @@
   and fix contradictory producer identity without weakening genuine integrity checks.
 
 ### Developer Tests and Notes
+
+- Focused publisher, publication-state, and evidence tests passed 62 cases. The controlled
+  producer-to-renderer publication E2E passed initial import, same-date replacement, selected-image
+  transfer, rendered-page verification, and the expected post-import page failure. The Git evidence
+  E2E passed with repository-qualified image naming. The complete Python 3.12 suite passed all 3,983
+  tests.
 
 - Publication-flow ownership and editorial-filename changes passed 108 focused documentation,
   outline-review, Stage-7, and observability tests. The complete permanent suite passed all 3,947

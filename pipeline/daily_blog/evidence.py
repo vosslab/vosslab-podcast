@@ -79,6 +79,13 @@ def _safe_asset_name(path: str) -> str:
 	return name
 
 
+#============================================
+def _repository_asset_prefix(repository: str) -> str:
+	"""Return one deterministic readable prefix for a repository-owned image."""
+	prefix = re.sub(r"[^A-Za-z0-9_-]+", "-", repository).strip("-").lower()
+	return prefix[:80] or "repository"
+
+
 class GitSnapshot:
 	"""Read evidence solely from one repository's exact Git objects."""
 
@@ -360,7 +367,10 @@ class ScreenshotEvidenceProvider:
 					continue
 				contents = snapshot.read_bytes(revision.final_commit, path)
 				content_hash = daily_blog.io_utils.sha256_bytes(contents)
-				asset_name = content_hash[:12] + "-" + _safe_asset_name(path)
+				asset_name = (
+					_repository_asset_prefix(activity.repository) + "-"
+					+ content_hash[:12] + "-" + _safe_asset_name(path)
+				)
 				asset_path = "assets/" + asset_name
 				if asset_path in assets:
 					continue

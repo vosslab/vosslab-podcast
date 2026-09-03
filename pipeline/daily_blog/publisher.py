@@ -1,8 +1,6 @@
 """Invoke and independently verify a publisher-owned daily-blog import."""
 
 # Standard Library
-import contextlib
-import dataclasses
 import datetime
 import errno
 import html.parser
@@ -14,8 +12,6 @@ import re
 import stat
 import subprocess
 import urllib.parse
-import zoneinfo
-from collections.abc import Iterator
 
 # local repo modules
 import daily_blog.publication_contract
@@ -28,18 +24,11 @@ import daily_blog.schema
 import daily_blog.publication_surface_contract
 
 
-IMPORT_RECEIPT_SCHEMA_VERSION = "vosslab.daily-blog.import-receipt.v2"
-PUBLISHER_PUBLICATION_RECORD_SCHEMA_VERSION = "vosslab.daily-blog.publication.v6"
-PUBLISHER_PUBLICATION_RECORD_FIELDS = frozenset({
-	"article_body_sha256", "best_artifact_id", "bundle_sha256", "editorial_projection_manifest",
-	"evidence_manifest", "generator_revision", "generator_run", "imported_at",
-	"post_path", "publication_surface_id", "publication_surface_manifest",
-	"publication_surface_sha256", "report_date", "schema_version", "timezone",
-})
+IMPORT_RECEIPT_SCHEMA_VERSION = "vosslab.daily-blog.import-receipt.v3"
 IMPORT_STATUSES = frozenset({"idempotent", "imported", "replaced"})
 IMPORT_RECEIPT_FIELDS = frozenset({
-	"article_body_sha256", "best_artifact_id", "bundle_sha256", "post_path", "post_sha256",
-	"publication_record_path", "publication_record_sha256", "rendered_page_path",
+	"article_body_sha256", "assets", "best_artifact_id", "bundle_sha256", "post_path", "post_sha256",
+	"rendered_page_path",
 	"report_date", "schema_version", "status",
 })
 MAX_RECORD_BYTES = 128 * 1024
@@ -300,89 +289,6 @@ def _read_regular_at(directory_fd: int, name: str, maximum_bytes: int, label: st
 
 
 #============================================
-class PublicationArchiveReader:
-	"""Read one held publisher archive through its fixed public artifact surface."""
-
-	_JSON_ARTIFACTS = frozenset({
-		"bundle.json", "evidence.json", "repository_roster.json", "daily_active_roster.json",
-		"editorial_projection.json",
-		"publication_surface.json",
-	})
-
-	#============================================
-	def __init__(self, archive_fd: int) -> None:
-		self._archive_fd = archive_fd
-
-	#============================================
-	def read_json_artifact(self, name: str, label: str) -> bytes:
-		"""Return one fixed bounded JSON archive artifact."""
-		if name not in self._JSON_ARTIFACTS:
-			raise RuntimeError("Publisher archive JSON artifact is unsupported.")
-		maximum = (
-			daily_blog.publication_storage.MAX_EVIDENCE_BYTES
-			if name == "evidence.json" else MAX_RECORD_BYTES
-		)
-		return _read_regular_at(self._archive_fd, name, maximum, label)
-
-	#============================================
-	def read_post(self) -> bytes:
-		"""Return the fixed bounded archived post."""
-		return _read_regular_at(self._archive_fd, "post.md", MAX_POST_BYTES, "archived post")
-
-	#============================================
-	def read_asset(self, asset_path: str) -> bytes:
-		"""Return one direct bounded asset from the archive-owned assets directory."""
-		if not isinstance(asset_path, str) or not asset_path.startswith("assets/"):
-			raise RuntimeError("Publisher archive asset path is invalid.")
-		leaf = asset_path.removeprefix("assets/")
-		if leaf in {"", ".", ".."} or os.path.basename(leaf) != leaf:
-			raise RuntimeError("Publisher archive asset path is invalid.")
-		assets_fd = _open_directory_at(self._archive_fd, "assets", "archive asset")
-		try:
-			return _read_regular_at(assets_fd, leaf, MAX_ASSET_BYTES, "archive asset")
-		finally:
-			os.close(assets_fd)
-
-	#============================================
-	def entry_names(self) -> frozenset[str]:
-		"""Return the physical direct children held by this archive descriptor."""
-		return frozenset(os.listdir(self._archive_fd))
-
-	#============================================
-	def asset_names(self) -> frozenset[str]:
-		"""Return the physical direct children held by the archive assets directory."""
-		assets_fd = _open_directory_at(self._archive_fd, "assets", "archive asset")
-		try:
-			return frozenset(os.listdir(assets_fd))
-		finally:
-			os.close(assets_fd)
-
-
-#============================================
-@contextlib.contextmanager
-def open_publication_archive(repository: str, report_date: str) -> Iterator[PublicationArchiveReader]:
-	"""Hold one canonical publisher archive while reading its sealed artifacts."""
-	root = _trusted_root(repository)
-	date = _validate_report_date(report_date)
-	root_fd = _open_directory_at(None, root, "repository")
-	data_fd: int | None = None
-	bundles_fd: int | None = None
-	archive_fd: int | None = None
-	try:
-		data_fd = _open_directory_at(root_fd, "data", "archive")
-		bundles_fd = _open_directory_at(data_fd, "publication_bundles", "archive")
-		archive_fd = _open_directory_at(bundles_fd, date, "archive")
-		yield PublicationArchiveReader(archive_fd)
-	finally:
-		if archive_fd is not None:
-			os.close(archive_fd)
-		if bundles_fd is not None:
-			os.close(bundles_fd)
-		if data_fd is not None:
-			os.close(data_fd)
-		os.close(root_fd)
-
-
 #============================================
 def _confined_file(root: str, relative_path: str, maximum_bytes: int, label: str) -> bytes:
 	"""Read one bounded regular file below a physical root without symlink traversal."""
@@ -476,8 +382,8 @@ def _verify_rendered_article(page_text: str, title: str, report_date: str) -> No
 
 
 #============================================
-def _normalized_rendered_image_path(value: str) -> str:
-	"""Return one canonical site-root asset path from a rendered article image source."""
+def _normalized_rendered_image_path(value: str, page_path: str) -> str:
+	"""Resolve one rendered image source against its dated reader page."""
 	if type(value) is not str or not value:
 		raise RuntimeError("rendered article image source is invalid")
 	parsed = urllib.parse.urlsplit(value)
@@ -486,25 +392,26 @@ def _normalized_rendered_image_path(value: str) -> str:
 	path = urllib.parse.unquote(parsed.path)
 	if not path or "\x00" in path or "\\" in path:
 		raise RuntimeError("rendered article image source is invalid")
-	# ASVS 5.3.2: collapse MkDocs' deep relative links before comparing them
-	# with the sealed publication-surface allowlist at the file-serving boundary.
-	normalized = posixpath.normpath("/" + path.lstrip("/"))
-	if not normalized.startswith("/assets/"):
-		raise RuntimeError("rendered article image source is outside publication assets")
+	# ASVS 5.3.2: MkDocs may emit a deep relative URL for a source asset that is
+	# stored beside the dated Markdown. Resolve it before comparing authorities.
+	page_url = "/" + page_path.removeprefix("generated/releases/").split("/", 1)[1]
+	normalized = posixpath.normpath(urllib.parse.urljoin(page_url, path))
 	return normalized
 
 
 #============================================
-def _verify_rendered_article_images(page_text: str, allowed_image_paths: tuple[str, ...]) -> None:
+def _verify_rendered_article_images(
+	page_text: str, allowed_image_paths: tuple[str, ...], page_path: str,
+) -> None:
 	"""Require every reader-visible article image to remain surface-authorized."""
 	if type(allowed_image_paths) is not tuple or any(type(path) is not str for path in allowed_image_paths):
 		raise RuntimeError("publication surface image authority is invalid")
-	allowed = {_normalized_rendered_image_path(path) for path in allowed_image_paths}
+	allowed = {posixpath.normpath("/" + path) for path in allowed_image_paths}
 	parser = _RenderedArticleImageParser()
 	parser.feed(page_text)
 	parser.close()
 	for source in parser.article_images():
-		if _normalized_rendered_image_path(source) not in allowed:
+		if _normalized_rendered_image_path(source, page_path) not in allowed:
 			raise RuntimeError("rendered article image is outside the publication surface")
 
 
@@ -550,244 +457,124 @@ def validate_import_receipt(value: object, bundle_sha256: str, report_date: str)
 		raise RuntimeError("Daily-blog importer receipt bundle identity is inconsistent.")
 	if _validate_report_date(value["report_date"]) != report_date:
 		raise RuntimeError("Daily-blog importer receipt report date is inconsistent.")
-	for key in ("article_body_sha256", "publication_record_sha256", "post_sha256"):
+	for key in ("article_body_sha256", "post_sha256"):
 		if not isinstance(value[key], str) or SHA256_RE.fullmatch(value[key]) is None:
 			raise RuntimeError(f"Daily-blog importer receipt {key} is invalid.")
 	if not isinstance(value["best_artifact_id"], str) or not value["best_artifact_id"]:
 		raise RuntimeError("Daily-blog importer receipt selected artifact is invalid.")
-	record_path = _validate_relative_path(value["publication_record_path"], "record")
 	post_path = _validate_relative_path(value["post_path"], "post")
 	page_path = _validate_relative_path(value["rendered_page_path"], "rendered page")
-	if record_path != f"data/publications/{report_date}.json" or post_path != f"docs/blog/posts/{report_date}.md":
+	if post_path != f"docs/blog/posts/{report_date}.md":
 		raise RuntimeError("Daily-blog importer receipt publication paths are inconsistent.")
 	if not page_path.startswith(f"generated/releases/{report_date}/blog/") or not page_path.endswith("/index.html"):
 		raise RuntimeError("Daily-blog importer receipt rendered page path is inconsistent.")
+	assets = value["assets"]
+	if not isinstance(assets, list):
+		raise RuntimeError("Daily-blog importer receipt assets are invalid.")
+	validated_assets = []
+	for asset in assets:
+		if not isinstance(asset, dict) or set(asset) != {"path", "publish_path", "sha256"}:
+			raise RuntimeError("Daily-blog importer receipt assets are invalid.")
+		path = _validate_relative_path(asset["path"], "asset")
+		publish_path = asset["publish_path"]
+		if (
+			path != f"docs/blog/posts/{report_date}/{pathlib.PurePosixPath(path).name}"
+			or type(publish_path) is not str
+			or not publish_path.startswith(f"{report_date}/")
+			or pathlib.PurePosixPath(publish_path).name != pathlib.PurePosixPath(path).name
+			or not isinstance(asset["sha256"], str)
+			or SHA256_RE.fullmatch(asset["sha256"]) is None
+		):
+			raise RuntimeError("Daily-blog importer receipt assets are invalid.")
+		validated_assets.append(dict(asset))
+	if validated_assets != sorted(validated_assets, key=lambda item: item["path"]):
+		raise RuntimeError("Daily-blog importer receipt assets are invalid.")
 	receipt = dict(value)
+	receipt["assets"] = validated_assets
 	return receipt
 
 
 #============================================
-@dataclasses.dataclass(frozen=True)
-class CommittedPublication:
-	"""One publisher-owned, archive-pinned publication validated as a whole."""
-
-	report_date: str
-	bundle_sha256: str
-	article_body_sha256: str
-	best_artifact_id: str
-	publication_record_bytes: bytes
-	post_bytes: bytes
-	rendered_page_path: str
-	allowed_image_paths: tuple[str, ...]
+#============================================
+def _transfer_entry(transfer: daily_blog.publication_contract.SealedBundleTransfer, path: str) -> bytes:
+	"""Return one already-sealed transfer member without reopening producer storage."""
+	for entry in transfer.entries:
+		if entry.path == path:
+			return entry.contents
+	raise RuntimeError(f"Sealed publication transfer is missing {path}.")
 
 
 #============================================
-def _record_article_body_sha256(record: dict) -> str:
-	"""Return one exact lower-case article digest from the publisher record."""
-	value = record.get("article_body_sha256")
-	if not isinstance(value, str) or SHA256_RE.fullmatch(value) is None:
-		raise RuntimeError("Publisher publication record article body checksum is invalid.")
-	return value
-
-
-#============================================
-def _validate_publication_record(record: dict, report_date: str, bundle_sha256: str) -> None:
-	"""Require every current publisher record field to bind one date-owned archive."""
-	if record.get("schema_version") != PUBLISHER_PUBLICATION_RECORD_SCHEMA_VERSION or set(record) != PUBLISHER_PUBLICATION_RECORD_FIELDS:
-		raise RuntimeError("Publisher publication record schema is unsupported.")
-	if record.get("report_date") != report_date or record.get("bundle_sha256") != bundle_sha256:
-		raise RuntimeError("Publisher publication record does not bind the committed bundle.")
-	expected_paths = {
-		"evidence_manifest": f"data/publication_bundles/{report_date}/evidence.json",
-		"editorial_projection_manifest": f"data/publication_bundles/{report_date}/editorial_projection.json",
-		"post_path": f"docs/blog/posts/{report_date}.md",
-		"publication_surface_manifest": (
-			f"data/publication_bundles/{report_date}/publication_surface.json"
-		),
-	}
-	if any(record.get(field) != value for field, value in expected_paths.items()):
-		raise RuntimeError("Publisher publication record paths are inconsistent.")
-	# ASVS 1.5.2 and 2.2.1: constrain imported record identities before they
-	# participate in the archive-to-installed-publication integrity workflow.
-	for field in ("article_body_sha256", "publication_surface_id", "publication_surface_sha256"):
-		if not isinstance(record.get(field), str) or SHA256_RE.fullmatch(record[field]) is None:
-			raise RuntimeError(f"Publisher publication record {field} is invalid.")
-	if not isinstance(record.get("timezone"), str):
-		raise RuntimeError("Publisher publication record timezone is invalid.")
-	try:
-		zoneinfo.ZoneInfo(record["timezone"])
-	except zoneinfo.ZoneInfoNotFoundError as error:
-		raise RuntimeError("Publisher publication record timezone is invalid.") from error
-	if not isinstance(record.get("generator_run"), str) or not record["generator_run"] or (
-		not isinstance(record.get("generator_revision"), str)
-		or SHA256_RE.fullmatch(record["generator_revision"]) is None
+def _delivered_receipt(
+	repository: str, importer_result: dict,
+	transfer: daily_blog.publication_contract.SealedBundleTransfer,
+) -> dict:
+	"""Bind the importer result to exact installed bytes from the sealed transfer."""
+	root = _trusted_root(repository)
+	report_date = transfer.report_date
+	bundle = _json_object(_transfer_entry(transfer, "bundle.json"), "bundle manifest")
+	if (
+		importer_result["report_date"] != report_date
+		or importer_result["bundle_sha256"] != transfer.bundle_sha256
+		or bundle.get("report_date") != report_date
+		or bundle.get("bundle_sha256") != transfer.bundle_sha256
 	):
-		raise RuntimeError("Publisher publication record generator identity is invalid.")
-	if not isinstance(record.get("imported_at"), str) or not record["imported_at"].endswith("Z"):
-		raise RuntimeError("Publisher publication record import time is invalid.")
-	try:
-		moment = datetime.datetime.fromisoformat(record["imported_at"].replace("Z", "+00:00"))
-	except ValueError as error:
-		raise RuntimeError("Publisher publication record import time is invalid.") from error
-	if moment.microsecond or moment.astimezone(datetime.UTC).isoformat().replace("+00:00", "Z") != record["imported_at"]:
-		raise RuntimeError("Publisher publication record import time is invalid.")
-
-
-#============================================
-def _archive_artifacts(archive: PublicationArchiveReader) -> tuple[dict, dict[str, bytes]]:
-	"""Read and validate the complete archive snapshot under one descriptor."""
-	core_names = {
-		"bundle.json", "evidence.json", "repository_roster.json", "daily_active_roster.json",
-		"editorial_projection.json",
-		"publication_surface.json", "post.md",
-	}
-	bundle_bytes = archive.read_json_artifact("bundle.json", "bundle manifest")
-	bundle = _json_object(bundle_bytes, "bundle manifest")
-	json_artifacts = {"bundle.json": bundle_bytes}
-	for name, label in (
-		("evidence.json", "evidence"), ("repository_roster.json", "repository roster"),
-		("daily_active_roster.json", "daily active roster"),
-		("editorial_projection.json", "editorial projection"), ("publication_surface.json", "publication surface"),
-	):
-		contents = archive.read_json_artifact(name, label)
-		value = _json_object(contents, label)
-		if contents != daily_blog.io_utils.stable_json_text(value).encode("utf-8"):
-			raise RuntimeError(f"Publisher archive {label} JSON is not canonical.")
-		json_artifacts[name] = contents
-	if bundle_bytes != daily_blog.io_utils.stable_json_text(bundle).encode("utf-8"):
-		raise RuntimeError("Publisher archive bundle JSON is not canonical.")
-	assets = bundle.get("assets")
-	if not isinstance(assets, list):
+		raise RuntimeError("Publisher result does not bind the sealed publication transfer.")
+	post_path = f"docs/blog/posts/{report_date}.md"
+	# ASVS 5.3.2: code-owned date and asset identities select confined renderer
+	# destinations; exact byte comparison proves delivery without trusting paths.
+	post_bytes = _confined_file(root, post_path, MAX_POST_BYTES, "post")
+	expected_post = _transfer_entry(transfer, "post.md")
+	if post_bytes != expected_post:
+		raise RuntimeError("Publisher installed post does not match the sealed transfer.")
+	post_sha256 = daily_blog.io_utils.sha256_bytes(post_bytes)
+	best_artifact_id = _receipt_best_artifact(bundle, post_sha256)
+	assets_value = bundle.get("assets")
+	if not isinstance(assets_value, list):
 		raise RuntimeError("Publisher bundle assets manifest is invalid.")
-	asset_paths: set[str] = set()
-	for item in assets:
+	assets = []
+	for item in assets_value:
 		if not isinstance(item, dict):
 			raise RuntimeError("Publisher bundle assets manifest is invalid.")
-		path = daily_blog.schema.validate_bundle_asset_path(item.get("path"))
-		asset_paths.add(path)
-	expected_entries = core_names | ({"assets"} if asset_paths else set())
-	allowed_entries = {frozenset(expected_entries)}
-	if not asset_paths:
-		allowed_entries.add(frozenset(expected_entries | {"assets"}))
-	archive_entries = archive.entry_names()
-	if archive_entries not in allowed_entries:
-		raise RuntimeError("Publisher archive contains undeclared or missing artifacts.")
-	if "assets" in archive_entries and archive.asset_names() != {
-		path.removeprefix("assets/") for path in asset_paths
-	}:
-		raise RuntimeError("Publisher archive assets do not match the sealed manifest.")
-	artifacts = dict(json_artifacts)
-	artifacts["post.md"] = archive.read_post()
-	for path in asset_paths:
-		artifacts[path] = archive.read_asset(path)
+		bundle_path = daily_blog.schema.validate_bundle_asset_path(item.get("path"))
+		name = pathlib.PurePosixPath(bundle_path).name
+		installed_path = f"docs/blog/posts/{report_date}/{name}"
+		contents = _confined_file(root, installed_path, MAX_ASSET_BYTES, "publication asset")
+		expected = _transfer_entry(transfer, bundle_path)
+		if contents != expected or item.get("sha256") != daily_blog.io_utils.sha256_bytes(contents):
+			raise RuntimeError("Publisher installed asset does not match the sealed transfer.")
+		assets.append({
+			"path": installed_path, "publish_path": item.get("publish_path"),
+			"sha256": daily_blog.io_utils.sha256_bytes(contents),
+		})
 	try:
-		daily_blog.publication_contract.sealed_bundle_transfer(bundle, artifacts)
-	except RuntimeError as error:
-		raise RuntimeError("Publisher archive bundle coherence is invalid.") from error
-	return bundle, artifacts
-
-
-#============================================
-def validate_committed_publication(
-	repository: str,
-	report_date: str,
-	bundle_sha256: str,
-	*,
-	expected_timezone: str | None = None,
-) -> CommittedPublication:
-	"""Validate one immutable committed publication across archive, record, and post."""
-	root = _trusted_root(repository)
-	report_date = _validate_report_date(report_date)
-	if not isinstance(bundle_sha256, str) or SHA256_RE.fullmatch(bundle_sha256) is None:
-		raise RuntimeError("Publisher committed bundle identity is invalid.")
-	record_path = f"data/publications/{report_date}.json"
-	post_path = f"docs/blog/posts/{report_date}.md"
-	record_bytes = _confined_file(root, record_path, MAX_RECORD_BYTES, "publication record")
-	post_bytes = _confined_file(root, post_path, MAX_POST_BYTES, "post")
-	record = _json_object(record_bytes, "publication record")
-	_validate_publication_record(record, report_date, bundle_sha256)
-	if expected_timezone is not None and record.get("timezone") != expected_timezone:
-		raise RuntimeError("Publisher publication record timezone is inconsistent.")
-	with open_publication_archive(root, report_date) as archive:
-		bundle, artifacts = _archive_artifacts(archive)
-	packet_value = _json_object(artifacts["evidence.json"], "archive evidence")
-	projection_value = _json_object(artifacts["editorial_projection.json"], "archive editorial projection")
-	packet = daily_blog.schema.EvidencePacket.from_dict(packet_value)
-	projection = daily_blog.schema.EditorialProjection.from_dict(projection_value)
-	surface_value = _json_object(artifacts["publication_surface.json"], "archive publication surface")
-	# ASVS 1.5.2 and 2.2.3: carry image authority only after independently
-	# revalidating the portable surface against its archived packet and projection.
-	surface = daily_blog.publication_surface_contract.validate_publication_surface_value(
-		surface_value, packet, projection,
-	)
-	if bundle.get("bundle_sha256") != bundle_sha256 or bundle.get("report_date") != report_date:
-		raise RuntimeError("Publisher archive bundle does not bind the committed record.")
-	if expected_timezone is not None and bundle.get("timezone") != expected_timezone:
-		raise RuntimeError("Publisher archive bundle timezone is inconsistent.")
-	# ASVS 2.2.3 and 2.3.1: the publisher record, sealed bundle, and archived
-	# survivor surface must identify the same presentation authority.
-	surface_manifest = bundle.get("publication_surface")
-	if not isinstance(surface_manifest, dict) or surface_manifest != {
-		"path": "publication_surface.json",
-		"surface_id": record["publication_surface_id"],
-		"sha256": record["publication_surface_sha256"],
-	}:
-		raise RuntimeError("Publisher publication record surface authority is inconsistent.")
-	if artifacts["post.md"] != post_bytes:
-		raise RuntimeError("Publisher archived post does not match the installed post.")
-	post_sha256 = daily_blog.io_utils.sha256_bytes(post_bytes)
-	post_manifest = bundle.get("post")
-	if not isinstance(post_manifest, dict) or post_manifest.get("sha256") != post_sha256:
-		raise RuntimeError("Publisher bundle post checksum does not bind the installed post.")
-	best_artifact_id = _receipt_best_artifact(bundle, post_sha256)
-	if record.get("best_artifact_id") != best_artifact_id:
-		raise RuntimeError("Publisher publication record selected artifact is inconsistent.")
-	try:
-		mkdocs_config = _confined_file(root, "mkdocs.yml", MAX_RECORD_BYTES, "MkDocs configuration").decode("utf-8")
+		mkdocs_config = _confined_file(
+			root, "mkdocs.yml", MAX_RECORD_BYTES, "MkDocs configuration",
+		).decode("utf-8")
+		post_text = post_bytes.decode("utf-8")
 	except UnicodeDecodeError as error:
-		raise RuntimeError("Publisher MkDocs configuration is not UTF-8 text.") from error
+		raise RuntimeError("Publisher publication source is not UTF-8 text.") from error
 	article_projection = daily_blog.publication_article_projection.source_article_projection(
-		post_bytes.decode("utf-8"), mkdocs_config,
+		post_text, mkdocs_config,
 	)
-	article_digest = daily_blog.publication_article_projection.article_body_sha256(article_projection)
-	if article_digest != _record_article_body_sha256(record):
-		raise RuntimeError("Publisher publication record article body checksum is inconsistent.")
 	slug = _front_matter_value(post_bytes, "slug")
 	if SLUG_RE.fullmatch(slug) is None or _front_matter_value(post_bytes, "date") != report_date:
 		raise RuntimeError("Publisher post does not describe the requested dated page.")
 	year, month, day = report_date.split("-")
-	rendered_page_path = f"generated/releases/{report_date}/blog/{year}/{month}/{day}/{slug}/index.html"
-	return CommittedPublication(
-		report_date=report_date, bundle_sha256=bundle_sha256, article_body_sha256=article_digest,
-		best_artifact_id=best_artifact_id, publication_record_bytes=record_bytes, post_bytes=post_bytes,
-		rendered_page_path=rendered_page_path,
-		allowed_image_paths=tuple(
-			image["publish_path"] for image in surface["allowed_images"]
-			if isinstance(image, dict)
-		),
-	)
-
-
-#============================================
-def _committed_receipt(repository: str, importer_result: dict) -> dict:
-	"""Construct a receipt only from one validated publisher-owned publication."""
-	publication = validate_committed_publication(
-		repository, importer_result["report_date"], importer_result["bundle_sha256"],
-	)
 	receipt = {
 		"schema_version": IMPORT_RECEIPT_SCHEMA_VERSION,
-		"status": importer_result["status"], "bundle_sha256": publication.bundle_sha256,
-		"report_date": publication.report_date,
-		"publication_record_path": f"data/publications/{publication.report_date}.json",
-		"publication_record_sha256": daily_blog.io_utils.sha256_bytes(publication.publication_record_bytes),
-		"post_path": f"docs/blog/posts/{publication.report_date}.md",
-		"post_sha256": daily_blog.io_utils.sha256_bytes(publication.post_bytes),
-		"rendered_page_path": publication.rendered_page_path,
-		"best_artifact_id": publication.best_artifact_id,
-		"article_body_sha256": publication.article_body_sha256,
+		"status": importer_result["status"], "bundle_sha256": transfer.bundle_sha256,
+		"report_date": report_date, "post_path": post_path, "post_sha256": post_sha256,
+		"assets": sorted(assets, key=lambda item: item["path"]),
+		"rendered_page_path": (
+			f"generated/releases/{report_date}/blog/{year}/{month}/{day}/{slug}/index.html"
+		),
+		"best_artifact_id": best_artifact_id,
+		"article_body_sha256": daily_blog.publication_article_projection.article_body_sha256(
+			article_projection,
+		),
 	}
-	validated = validate_import_receipt(receipt, publication.bundle_sha256, publication.report_date)
-	return validated
+	return validate_import_receipt(receipt, transfer.bundle_sha256, report_date)
 
 
 #============================================
@@ -840,7 +627,7 @@ def import_bundle(
 	)
 	if importer_result["status"] == "replaced" and not replace_existing:
 		raise RuntimeError("Daily-blog bundle importer replaced an unapproved report date.")
-	receipt = _committed_receipt(repository, importer_result)
+	receipt = _delivered_receipt(repository, importer_result, transfer)
 	return receipt
 
 
@@ -852,15 +639,13 @@ def verify_published_page(daily_blog_repository: str, receipt: object) -> dict:
 	try:
 		validated = validate_import_receipt(receipt, receipt["bundle_sha256"], receipt["report_date"])
 		root = _trusted_root(daily_blog_repository)
-		publication = validate_committed_publication(
-			root, validated["report_date"], validated["bundle_sha256"],
-		)
-		record = _confined_file(root, validated["publication_record_path"], MAX_RECORD_BYTES, "publication record")
-		if daily_blog.io_utils.sha256_bytes(record) != validated["publication_record_sha256"]:
-			raise RuntimeError("publication record changed after import")
 		post = _confined_file(root, validated["post_path"], MAX_POST_BYTES, "post")
 		if daily_blog.io_utils.sha256_bytes(post) != validated["post_sha256"]:
 			raise RuntimeError("installed post changed after import")
+		for asset in validated["assets"]:
+			contents = _confined_file(root, asset["path"], MAX_ASSET_BYTES, "publication asset")
+			if daily_blog.io_utils.sha256_bytes(contents) != asset["sha256"]:
+				raise RuntimeError("installed publication asset changed after import")
 		mkdocs_config = _confined_file(root, "mkdocs.yml", MAX_RECORD_BYTES, "MkDocs configuration")
 		try:
 			expected_projection = daily_blog.publication_article_projection.source_article_projection(
@@ -880,7 +665,10 @@ def verify_published_page(daily_blog_repository: str, receipt: object) -> dict:
 		daily_blog.publication_article_projection.verify_rendered_article(
 			page_text, expected_projection,
 		)
-		_verify_rendered_article_images(page_text, publication.allowed_image_paths)
+		_verify_rendered_article_images(
+			page_text, tuple(asset["publish_path"] for asset in validated["assets"]),
+			validated["rendered_page_path"],
+		)
 	except RuntimeError as error:
 		raise RuntimeError(f"page_verification: {error}") from error
 	result = dict(validated)

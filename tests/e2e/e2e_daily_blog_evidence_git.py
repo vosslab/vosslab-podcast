@@ -169,6 +169,7 @@ def verify_binary_contract(
 	"""Verify a selected screenshot retains its exact bundle asset bytes."""
 	assert screenshots
 	assert assets[screenshots[0].asset_path].startswith(b"\x89PNG")
+	assert screenshots[0].publish_path.startswith("2026-08-23/vosslab-evidence-repository-")
 
 
 #============================================

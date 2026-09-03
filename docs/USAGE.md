@@ -80,8 +80,8 @@ corroboration, not a test prerequisite or a claim about synthetic prose quality.
 - Live input comes from the configured repository roster, exact Git activity, and bounded
   source projections. The model sees the deterministic evidence packet through an isolated route.
 - The producer writes date-owned artifacts below
-	`out/<owner>/daily_blog/<report_date>/`, including `run_state.json`,
-	`runlog-<report_date>.jsonl`, `summary.jsonl`, `post.md`, and `publication/bundle.json`.
+	`out/<owner>/daily_blog/<report_date>/`. Working state and the sealed bundle remain while a run is
+	incomplete; verified success retains `runlog-<report_date>.jsonl` and `summary.jsonl`.
 - The sealed bundle contains the validated selected post, its artifact identity, evidence,
   repository roster, editorial projection, prompt-contract binding, activation receipt, and source-
   safety policy identity. Its `publication_surface.json` is the survivor-scoped authority for the
@@ -90,11 +90,9 @@ corroboration, not a test prerequisite or a claim about synthetic prose quality.
 - After producer validation, the producer sends the immutable bundle snapshot to the sibling
   renderer on standard input and verifies delivery; the renderer does not consume a producer
   filesystem path or independently admit editorial content.
-- The local publisher records the imported date in
-  `data/publications/<report_date>.json` as `vosslab.daily-blog.publication.v6`, retains its sealed
-  bundle archive and publication surface, and records the canonical reader-body digest. The
-  producer's `import-receipt.v2` binds that record, installed post, survivor-surface identity, and
-  verified dated page.
+- The renderer keeps the installed Markdown at `docs/blog/posts/<report_date>.md`, selected images
+  in the adjacent `docs/blog/posts/<report_date>/` directory, and the built dated release. The
+  producer's `import-receipt.v3` binds those installed bytes and the verified dated page directly.
 
 The current handoff is `vosslab.daily-blog.bundle.v9`. Publication admission and source policy are
 producer responsibilities. The sibling repository places the supplied Markdown and assets at

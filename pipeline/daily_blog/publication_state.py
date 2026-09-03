@@ -1,19 +1,13 @@
-"""Classify one date-owned publisher publication through a shared integrity check."""
+"""Classify one date-owned publication from the renderer's durable outputs."""
 
 # Standard Library
 import dataclasses
 import datetime
-import json
 import os
 
 # local repo modules
 import daily_blog.config
-import daily_blog.io_utils
 import daily_blog.publisher
-
-
-PUBLICATION_SCHEMA_VERSION = daily_blog.publisher.PUBLISHER_PUBLICATION_RECORD_SCHEMA_VERSION
-PUBLICATION_RECORD_FIELDS = daily_blog.publisher.PUBLISHER_PUBLICATION_RECORD_FIELDS
 
 
 class PublicationStateIntegrityError(RuntimeError):
@@ -29,16 +23,10 @@ class PublicationInspection:
 
 
 #============================================
-def _archive_root(root: str, report_date: str) -> str:
-	"""Return the one publisher-owned archive directory for a report date."""
-	return os.path.join(root, "data", "publication_bundles", report_date)
-
-
-#============================================
-def publication_record_path(config: daily_blog.config.DailyBlogConfig, report_date: str) -> str:
-	"""Return the publisher-owned success record for one report date."""
+def publication_source_path(config: daily_blog.config.DailyBlogConfig, report_date: str) -> str:
+	"""Return the renderer-owned Markdown path for one report date."""
 	root = os.path.abspath(config.daily_blog_repository)
-	return os.path.join(root, "data", "publications", f"{report_date}.json")
+	return os.path.join(root, "docs", "blog", "posts", f"{report_date}.md")
 
 
 #============================================
@@ -52,24 +40,6 @@ def _parse_report_date(value: str, label: str) -> datetime.date:
 		raise RuntimeError(f"{label} must use YYYY-MM-DD format.")
 	return parsed
 
-
-#============================================
-def _validate_publication_state(
-	config: daily_blog.config.DailyBlogConfig, report_date: str, value: dict, path: str,
-) -> None:
-	"""Delegate archive, record, and installed-post integrity to the one primitive."""
-	if set(value) != PUBLICATION_RECORD_FIELDS:
-		raise PublicationStateIntegrityError(f"Publisher record fields are unsupported: {path}")
-	try:
-		daily_blog.publisher.validate_committed_publication(
-			config.daily_blog_repository, report_date, value["bundle_sha256"],
-			expected_timezone=config.report_timezone,
-		)
-	except RuntimeError as error:
-		raise PublicationStateIntegrityError(str(error)) from error
-
-
-#============================================
 
 #============================================
 def publication_exists(config: daily_blog.config.DailyBlogConfig, report_date: str) -> bool:
@@ -89,27 +59,21 @@ def inspect_publication(
 	"""Classify a date as missing, current, or occupied-invalid without trusting it."""
 	_parse_report_date(report_date, "Report date")
 	root = os.path.abspath(config.daily_blog_repository)
-	path = publication_record_path(config, report_date)
-	occupied_paths = (
-		path, _archive_root(root, report_date),
-		os.path.join(root, "docs", "blog", "posts", f"{report_date}.md"),
-		os.path.join(root, "generated", "releases", report_date),
-	)
+	path = publication_source_path(config, report_date)
+	release = os.path.join(root, "generated", "releases", report_date)
+	assets = os.path.join(root, "docs", "blog", "posts", report_date)
+	occupied_paths = (path, release, assets)
 	if not any(os.path.lexists(candidate) for candidate in occupied_paths):
 		return PublicationInspection("missing")
 	try:
+		# ASVS 5.3.2: report_date selects only code-owned post and release paths.
 		if not os.path.isfile(path) or os.path.islink(path):
-			raise PublicationStateIntegrityError(f"Publisher record must be one physical file: {path}")
-		value = daily_blog.io_utils.read_json(path)
-		if not isinstance(value, dict):
-			raise PublicationStateIntegrityError(f"Publisher record must be an object: {path}")
-		if value.get("schema_version") != PUBLICATION_SCHEMA_VERSION:
-			raise PublicationStateIntegrityError(f"Publisher record schema is unsupported: {path}")
-		if value.get("report_date") != report_date:
-			raise PublicationStateIntegrityError(f"Publisher record date does not match its path: {path}")
-		_validate_publication_state(config, report_date, value, path)
-	except (
-		OSError, UnicodeDecodeError, json.JSONDecodeError, PublicationStateIntegrityError,
-	) as error:
+			raise PublicationStateIntegrityError(f"Publisher post must be one physical file: {path}")
+		if not os.path.isdir(release) or os.path.islink(release):
+			raise PublicationStateIntegrityError(
+				f"Publisher release must be one physical directory: {release}"
+			)
+		daily_blog.publisher._confined_file(root, os.path.relpath(path, root), 2 * 1024 * 1024, "post")
+	except (OSError, RuntimeError, PublicationStateIntegrityError) as error:
 		return PublicationInspection("invalid", str(error))
 	return PublicationInspection("current")

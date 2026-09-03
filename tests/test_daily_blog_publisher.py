@@ -108,7 +108,7 @@ def _publisher_tree(
 		screenshot = daily_blog.schema.EvidenceItem.create(
 			"screenshot", "vosslab/project", "a" * 40, "selected.png", "c" * 40,
 			"Selected screenshot.", "fixture", asset_path="assets/selected.png",
-			publish_path="../../assets/publications/2026-08-26/selected.png",
+			publish_path="2026-08-26/selected.png",
 		)
 		items.append(screenshot)
 		assets[screenshot.asset_path] = b"selected image bytes"
@@ -169,30 +169,10 @@ def _publisher_tree(
 	))
 	archive.parent.mkdir(parents=True)
 	shutil.copytree(bundle_path, archive)
-	article_projection = daily_blog.publication_article_projection.source_article_projection(
-		post, (root / "mkdocs.yml").read_text(encoding="utf-8"),
-	)
-	_write_json(root / "data" / "publications" / f"{REPORT_DATE}.json", {
-		"schema_version": "vosslab.daily-blog.publication.v6",
-		"report_date": REPORT_DATE,
-		"bundle_sha256": bundle["bundle_sha256"],
-		"article_body_sha256": daily_blog.publication_article_projection.article_body_sha256(article_projection),
-		"best_artifact_id": bundle["best_artifact_id"],
-		"editorial_projection_manifest": (
-			f"data/publication_bundles/{REPORT_DATE}/editorial_projection.json"
-		),
-		"evidence_manifest": f"data/publication_bundles/{REPORT_DATE}/evidence.json",
-		"generator_revision": "b" * 64,
-		"generator_run": "run-one",
-		"imported_at": "2026-08-26T00:00:00Z",
-		"post_path": f"docs/blog/posts/{REPORT_DATE}.md",
-		"publication_surface_id": bundle["publication_surface"]["surface_id"],
-		"publication_surface_manifest": (
-			f"data/publication_bundles/{REPORT_DATE}/publication_surface.json"
-		),
-		"publication_surface_sha256": bundle["publication_surface"]["sha256"],
-		"timezone": "America/Chicago",
-	})
+	for asset_path, contents in assets.items():
+		destination = root / "docs" / "blog" / "posts" / REPORT_DATE / pathlib.PurePosixPath(asset_path).name
+		destination.parent.mkdir(parents=True, exist_ok=True)
+		destination.write_bytes(contents)
 	if include_page:
 		page = root / "generated" / "releases" / REPORT_DATE / "blog" / "2026" / "08" / "26" / "durable-boundaries" / "index.html"
 		page.parent.mkdir(parents=True)
@@ -232,16 +212,18 @@ def _transfer(root: pathlib.Path) -> daily_blog.publication_contract.SealedBundl
 		"publication_surface.json": (archive / "publication_surface.json").read_bytes(),
 		"post.md": (archive / "post.md").read_bytes(),
 	}
+	for asset in bundle["assets"]:
+		artifacts[asset["path"]] = (archive / asset["path"]).read_bytes()
 	transfer = daily_blog.publication_contract.sealed_bundle_transfer(bundle, artifacts)
 	return transfer
 
 
 #============================================
 def _receipt(root: pathlib.Path) -> dict:
-	"""Return the exact producer-side receipt derived from one committed tree."""
-	receipt = daily_blog.publisher._committed_receipt(str(root), {
+	"""Return the exact producer-side receipt derived from one delivered transfer."""
+	receipt = daily_blog.publisher._delivered_receipt(str(root), {
 		"status": "imported", "bundle_sha256": _bundle_sha256(root), "report_date": REPORT_DATE,
-	})
+	}, _transfer(root))
 	return receipt
 
 
@@ -435,7 +417,7 @@ def test_verify_published_page_accepts_a_surface_selected_article_image(
 		"<html><main><time datetime='2026-08-26T00:00:00Z'>August 26, 2026</time>"
 		"<article class='md-content__inner md-typeset'><h1>Durable Boundaries</h1>"
 		"<p>A grounded maker note.</p>"
-		"<img src='../../../../../assets/publications/2026-08-26/selected.png' alt='Selected'>"
+		"<img src='../../../../../2026-08-26/selected.png' alt='Selected'>"
 		"</article></main></html>",
 		encoding="utf-8",
 	)
@@ -456,84 +438,13 @@ def test_verify_published_page_rejects_an_unselected_article_image(
 		"<html><main><time datetime='2026-08-26T00:00:00Z'>August 26, 2026</time>"
 		"<article class='md-content__inner md-typeset'><h1>Durable Boundaries</h1>"
 		"<p>A grounded maker note.</p>"
-		"<img src='../../../../../assets/publications/2026-08-26/unselected.png' alt='Unselected'>"
+		"<img src='../../../../../2026-08-26/unselected.png' alt='Unselected'>"
 		"</article></main></html>",
 		encoding="utf-8",
 	)
 
 	with pytest.raises(RuntimeError, match="image is outside the publication surface"):
 		daily_blog.publisher.verify_published_page(str(root), _receipt(root))
-
-
-#============================================
-def test_publication_archive_reader_reads_fixed_direct_artifacts(
-	tmp_path: pathlib.Path,
-) -> None:
-	"""The fixed archive surface applies its evidence-specific bounded capacity."""
-	root = _publisher_tree(tmp_path)
-	evidence_path = root / "data" / "publication_bundles" / REPORT_DATE / "evidence.json"
-	payload = "x" * (daily_blog.publisher.MAX_RECORD_BYTES + 1)
-	evidence_path.write_text(
-		daily_blog.io_utils.stable_json_text({"payload": payload}),
-		encoding="utf-8",
-	)
-	with daily_blog.publisher.open_publication_archive(str(root), REPORT_DATE) as archive:
-		bundle = archive.read_json_artifact("bundle.json", "bundle")
-		evidence = archive.read_json_artifact("evidence.json", "evidence")
-		post = archive.read_post()
-
-	assert json.loads(bundle)["report_date"] == REPORT_DATE
-	assert json.loads(evidence)["payload"] == payload
-	assert post.startswith(POST.encode("utf-8"))
-
-
-#============================================
-def test_publication_archive_reader_rejects_a_symlinked_archive_intermediate(
-	tmp_path: pathlib.Path,
-) -> None:
-	"""Archive inspection cannot traverse a substituted publisher directory."""
-	root = _publisher_tree(tmp_path)
-	data = root / "data"
-	replacement = root / "replacement-data"
-	data.rename(replacement)
-	data.symlink_to(replacement, target_is_directory=True)
-
-	with pytest.raises(RuntimeError, match="archive"):
-		with daily_blog.publisher.open_publication_archive(str(root), REPORT_DATE):
-			pass
-
-
-#============================================
-def test_publication_archive_reader_rejects_a_nonregular_bundle(
-	tmp_path: pathlib.Path,
-) -> None:
-	"""A sealed archive artifact must remain a direct regular file."""
-	root = _publisher_tree(tmp_path)
-	bundle = root / "data" / "publication_bundles" / REPORT_DATE / "bundle.json"
-	bundle.unlink()
-	bundle.mkdir()
-
-	with daily_blog.publisher.open_publication_archive(str(root), REPORT_DATE) as archive:
-		with pytest.raises(RuntimeError, match="not regular"):
-			archive.read_json_artifact("bundle.json", "bundle")
-
-
-#============================================
-@pytest.mark.parametrize("path", ["notes.txt", "assets/undeclared.bin"])
-def test_committed_publication_rejects_undeclared_archive_provenance(
-	tmp_path: pathlib.Path, path: str,
-) -> None:
-	"""A v9 archive contains exactly its sealed manifests and declared assets."""
-	root = _publisher_tree(tmp_path)
-	archive = root / "data" / "publication_bundles" / REPORT_DATE
-	target = archive / path
-	target.parent.mkdir(exist_ok=True)
-	target.write_bytes(b"unsealed")
-
-	with pytest.raises(RuntimeError, match="archive"):
-		daily_blog.publisher._committed_receipt(str(root), {
-			"status": "imported", "bundle_sha256": _bundle_sha256(root), "report_date": REPORT_DATE,
-		})
 
 
 #============================================
@@ -553,7 +464,7 @@ def test_verify_published_page_rejects_same_date_wrong_article_body(tmp_path: pa
 
 
 #============================================
-@pytest.mark.parametrize("mutation", ["date", "record", "post", "page_path"])
+@pytest.mark.parametrize("mutation", ["date", "assets", "post", "page_path"])
 def test_verify_published_page_fails_closed_on_a_tampered_receipt(
 	tmp_path: pathlib.Path, mutation: str,
 ) -> None:
@@ -562,8 +473,8 @@ def test_verify_published_page_fails_closed_on_a_tampered_receipt(
 	receipt = _receipt(root)
 	if mutation == "date":
 		receipt["report_date"] = "2026-08-25"
-	elif mutation == "record":
-		receipt["publication_record_sha256"] = "b" * 64
+	elif mutation == "assets":
+		receipt["assets"] = [{"path": "elsewhere.png"}]
 	elif mutation == "post":
 		receipt["post_sha256"] = "b" * 64
 	else:
@@ -694,48 +605,6 @@ def test_verify_published_page_requires_the_served_pointer_for_its_date(
 
 
 #============================================
-def test_committed_receipt_rejects_a_self_reported_bundle_digest(
-	tmp_path: pathlib.Path,
-) -> None:
-	"""An archive manifest cannot substitute a false checksum for its own content."""
-	root = _publisher_tree(tmp_path)
-	bundle_path = root / "data" / "publication_bundles" / REPORT_DATE / "bundle.json"
-	bundle = json.loads(bundle_path.read_text(encoding="utf-8"))
-	bundle["post"]["artifact_id"] = "artifact-ffffffffffffffffffffffff"
-	bundle_path.write_text(json.dumps(bundle, sort_keys=True), encoding="utf-8")
-
-	with pytest.raises(RuntimeError, match="archive bundle"):
-		daily_blog.publisher._committed_receipt(str(root), {
-			"status": "imported", "bundle_sha256": _bundle_sha256(root), "report_date": REPORT_DATE,
-		})
-
-
-#============================================
-@pytest.mark.parametrize("mutation", ["missing", "mismatch", "surface_id", "surface_checksum"])
-def test_committed_receipt_requires_the_v6_record_artifact_binding(
-	tmp_path: pathlib.Path, mutation: str,
-) -> None:
-	"""The publisher record binds both selected work and its survivor surface."""
-	root = _publisher_tree(tmp_path)
-	record_path = root / "data" / "publications" / f"{REPORT_DATE}.json"
-	record = json.loads(record_path.read_text(encoding="utf-8"))
-	if mutation == "missing":
-		del record["best_artifact_id"]
-	elif mutation == "mismatch":
-		record["best_artifact_id"] = "artifact-ffffffffffffffffffffffff"
-	elif mutation == "surface_id":
-		record["publication_surface_id"] = "f" * 64
-	else:
-		record["publication_surface_sha256"] = "F" * 64
-	record_path.write_text(json.dumps(record, sort_keys=True), encoding="utf-8")
-
-	with pytest.raises(RuntimeError, match="publication record"):
-		daily_blog.publisher._committed_receipt(str(root), {
-			"status": "imported", "bundle_sha256": _bundle_sha256(root), "report_date": REPORT_DATE,
-		})
-
-
-#============================================
 def test_verify_published_page_rejects_a_symlinked_intermediate_directory(
 	tmp_path: pathlib.Path,
 ) -> None:
@@ -772,5 +641,4 @@ def test_publish_and_verify_preserves_imported_artifacts_on_page_failure(
 	with pytest.raises(RuntimeError, match="page_verification"):
 		daily_blog.publisher.publish_and_verify(str(root), str(tmp_path / "bundle"))
 
-	assert (root / "data" / "publication_bundles" / REPORT_DATE / "post.md").read_text(encoding="utf-8").startswith(POST)
-	assert (root / "data" / "publications" / f"{REPORT_DATE}.json").is_file()
+	assert (root / "docs" / "blog" / "posts" / f"{REPORT_DATE}.md").read_text(encoding="utf-8").startswith(POST)

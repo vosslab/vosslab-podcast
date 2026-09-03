@@ -212,16 +212,12 @@ were not cited or otherwise selected by the narrative artifacts are not transfer
 Candidate and referee topology remains producer-side diagnostic state; it is not publisher input.
 
 The producer sends that validated snapshot through one bounded hash-bound standard-input envelope;
-the renderer never reopens a producer bundle path. The producer validates the artifact before
-export and verifies the import receipt against the exact transfer identity after delivery. The
-renderer confines destination paths, places the supplied bytes, invokes MkDocs and deployment, and
-does not independently admit editorial content. Its per-date `vosslab.daily-blog.publication.v6` record binds
-the bundle, selected artifact, installed post, archive, release, canonical `article_body_sha256`, and
-the surface manifest, hash, and identity to the same report date. The producer returns
-`vosslab.daily-blog.import-receipt.v2` only after committed-publication verification confirms
-the archive, v6 record, surface, and installed post together. Separate page verification requires the
-complete ordered reader body in the dated article surface and checks that each article image is one
-of the surface's published image paths, while allowing normal site chrome.
+the renderer never reopens a producer bundle path. The renderer confines destination paths, places
+the supplied bytes, invokes MkDocs, and deploys the result without independently admitting editorial
+content. The producer returns `vosslab.daily-blog.import-receipt.v3` after verifying the installed
+post and every selected image directly against the sealed transfer. Separate page verification
+requires the complete ordered reader body in the dated article surface and checks each article image
+against the short date-owned image paths retained in that receipt, while allowing normal site chrome.
 
 The source-safety identity records the version and digest of the policy applied to the selected
 Markdown. The active `publication_source_safety.v1` policy has an executable 35-case corpus and

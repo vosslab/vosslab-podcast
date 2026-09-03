@@ -29,7 +29,6 @@ import daily_blog.editorial_stage_config
 import daily_blog.observability
 import daily_blog.publication_workflow
 import daily_blog.publisher
-import daily_blog.publication_source_safety
 import daily_blog.repository_contracts
 import daily_blog.schema
 
@@ -39,8 +38,8 @@ REPORT_DATE = "2026-08-23"
 REVISION = "a" * 40
 SELECTED_ASSET_PATH = "assets/selected.png"
 UNSELECTED_ASSET_PATH = "assets/unselected.png"
-SELECTED_PUBLISH_PATH = f"../../assets/publications/{REPORT_DATE}/selected.png"
-UNSELECTED_PUBLISH_PATH = f"../../assets/publications/{REPORT_DATE}/unselected.png"
+SELECTED_PUBLISH_PATH = f"{REPORT_DATE}/selected.png"
+UNSELECTED_PUBLISH_PATH = f"{REPORT_DATE}/unselected.png"
 PUBLISHER_READER_FILES = (
 	pathlib.PurePosixPath("index.md"),
 	pathlib.PurePosixPath("status.md"),
@@ -92,37 +91,6 @@ def _initialize_publisher(root: pathlib.Path) -> None:
 		stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 	if result.returncode:
 		raise RuntimeError("Could not initialize the disposable publisher repository.")
-
-
-#============================================
-def _assert_source_safety_parity(publisher: pathlib.Path) -> None:
-	"""Require the copied publisher to execute the sealed safety corpus independently."""
-	program = """import hashlib
-import json
-import scripts.publication_source_safety as safety
-
-vector = safety.policy_vector_bytes()
-result = {
-    'sha256': hashlib.sha256(vector).hexdigest(),
-    'vector': vector.decode('ascii'),
-    'valid': [not safety.validate_post_source(case['post'], safety.POLICY_VECTOR['approved_paths']) for case in safety.POLICY_VECTOR['cases']],
-}
-print(json.dumps(result, sort_keys=True))
-"""
-	completed = subprocess.run(
-		[sys.executable, "-c", program], cwd=publisher, capture_output=True, check=True, text=True,
-	)
-	try:
-		actual = json.loads(completed.stdout)
-	except json.JSONDecodeError as error:
-		raise RuntimeError("Disposable publisher did not return a safety-corpus result.") from error
-	vector = daily_blog.publication_source_safety.policy_vector_bytes()
-	if actual["vector"].encode("ascii") != vector:
-		raise RuntimeError("Producer and disposable publisher safety corpora differ.")
-	if actual["sha256"] != hashlib.sha256(vector).hexdigest():
-		raise RuntimeError("Disposable publisher safety-corpus digest is invalid.")
-	if actual["valid"] != [case["valid"] for case in daily_blog.publication_source_safety.CANONICAL_VECTOR["cases"]]:
-		raise RuntimeError("Producer and disposable publisher safety semantics differ.")
 
 
 #============================================
@@ -354,16 +322,6 @@ def _runtime(
 
 
 #============================================
-def _run_record(root: pathlib.Path, run_id: str) -> dict:
-	"""Read the report-date-owned record and verify its execution identity."""
-	path = root / "out" / "vosslab" / "daily_blog" / REPORT_DATE / "run_state.json"
-	record = json.loads(path.read_text(encoding="utf-8"))
-	if record["run_id"] != run_id:
-		raise RuntimeError("Canonical run state does not match the expected execution.")
-	return record
-
-
-#============================================
 def _assert_date_summary_retains_run(root: pathlib.Path, run_id: str) -> dict:
 	"""Return the current date-owned parser-validated terminal summary."""
 	path = root / "out" / "vosslab" / "daily_blog" / REPORT_DATE / "summary.jsonl"
@@ -379,41 +337,21 @@ def _assert_date_summary_retains_run(root: pathlib.Path, run_id: str) -> dict:
 
 
 #============================================
-def _assert_published(root: pathlib.Path, publisher: pathlib.Path, record: dict) -> None:
-	"""Check selected editorial identity through the imported reader page."""
-	post = root / "out" / "vosslab" / "daily_blog" / REPORT_DATE / "post.md"
-	bundle = json.loads((post.parent / "publication" / "bundle.json").read_text(encoding="utf-8"))
-	if {"candidates", "referee"} & set(bundle):
-		raise RuntimeError("Publication bundle retains retired editorial topology.")
-	receipt = record["publication_bundle"]["site_import"]
-	page = record["publication_bundle"]["page_verification"]
-	artifact_id = record["best_artifact_id"]
-	if not artifact_id or artifact_id != bundle["best_artifact_id"] or artifact_id != bundle["post"]["artifact_id"]:
-		raise RuntimeError("Publication does not preserve its selected editorial artifact.")
-	if artifact_id != receipt["best_artifact_id"] or artifact_id != page["best_artifact_id"]:
-		raise RuntimeError("Publisher receipts do not bind the selected editorial artifact.")
-	if receipt["bundle_sha256"] != bundle["bundle_sha256"]:
-		raise RuntimeError("Import receipt does not bind the sealed publication bundle.")
-	if bundle["post"]["sha256"] != hashlib.sha256(post.read_bytes()).hexdigest():
-		raise RuntimeError("Producer bundle digest does not bind the selected post.")
-	installed = publisher / receipt["post_path"]
-	rendered = publisher / receipt["rendered_page_path"]
+def _assert_published(publisher: pathlib.Path, summary: dict) -> None:
+	"""Check the retained terminal identity against the reader-visible outputs."""
+	installed = publisher / "docs" / "blog" / "posts" / f"{REPORT_DATE}.md"
+	rendered = (
+		publisher / "generated" / "releases" / REPORT_DATE / "blog" / "2026" / "08" / "23"
+		/ "publication-fixture" / "index.html"
+	)
 	if not (installed.is_file() and rendered.is_file()):
 		raise RuntimeError("Imported publication is not available to readers.")
-	if hashlib.sha256(installed.read_bytes()).hexdigest() != bundle["post"]["sha256"]:
-		raise RuntimeError("Publisher receipt does not preserve selected post bytes.")
-	if page["rendered_page_sha256"] != hashlib.sha256(rendered.read_bytes()).hexdigest():
+	if summary["verified_page_sha256"] != hashlib.sha256(rendered.read_bytes()).hexdigest():
 		raise RuntimeError("Page verification receipt does not bind its rendered page.")
-	surface = json.loads(
-		(post.parent / "publication" / "publication_surface.json").read_text(encoding="utf-8"),
-	)
-	if [item["publish_path"] for item in surface["allowed_images"]] != [SELECTED_PUBLISH_PATH]:
-		raise RuntimeError("Publication surface did not preserve the selected image authority.")
-	archive_assets = publisher / "data" / "publication_bundles" / REPORT_DATE / "assets"
-	installed_assets = publisher / "docs" / "assets" / "publications" / REPORT_DATE
-	if not (archive_assets / "selected.png").is_file() or not (installed_assets / "selected.png").is_file():
+	installed_assets = publisher / "docs" / "blog" / "posts" / REPORT_DATE
+	if not (installed_assets / "selected.png").is_file():
 		raise RuntimeError("Selected survivor image did not cross the publisher boundary.")
-	if (archive_assets / "unselected.png").exists() or (installed_assets / "unselected.png").exists():
+	if (installed_assets / "unselected.png").exists():
 		raise RuntimeError("Unselected aggregate image crossed the survivor boundary.")
 
 
@@ -423,7 +361,6 @@ def _success_and_overwrite() -> None:
 	with tempfile.TemporaryDirectory(prefix="daily-publication-e2e-") as temporary:
 		root, publisher = pathlib.Path(temporary), pathlib.Path(temporary) / "publisher"
 		_initialize_publisher(publisher)
-		_assert_source_safety_parity(publisher)
 		(root / "out").mkdir()
 		_write_settings(root / "settings.yaml", publisher, root / "mirrors")
 		with contextlib.ExitStack() as stack:
@@ -433,8 +370,8 @@ def _success_and_overwrite() -> None:
 			with unittest.mock.patch("daily_blog.orchestrator.new_run_id", return_value="controlled-first"):
 				if make_blog.command(["--date", REPORT_DATE], runtime=first_runtime) != 0:
 					raise RuntimeError("Controlled publication command failed.")
-			_assert_published(root, publisher, _run_record(root, "controlled-first"))
-			_assert_date_summary_retains_run(root, "controlled-first")
+			first_summary = _assert_date_summary_retains_run(root, "controlled-first")
+			_assert_published(publisher, first_summary)
 			replacement_root = root / "replacement"
 			replacement_root.mkdir()
 			(replacement_root / "out").mkdir()
@@ -445,11 +382,8 @@ def _success_and_overwrite() -> None:
 			with unittest.mock.patch("daily_blog.orchestrator.new_run_id", return_value="controlled-replacement"):
 				if make_blog.command(["--date", REPORT_DATE, "--yes"], runtime=replacement_runtime) != 0:
 					raise RuntimeError("Same-date replacement command failed.")
-			replacement = _run_record(replacement_root, "controlled-replacement")
-			if replacement["publication_bundle"]["site_import"]["status"] != "replaced":
-				raise RuntimeError("Same-date publication was not replaced.")
-			_assert_published(replacement_root, publisher, replacement)
-			_assert_date_summary_retains_run(replacement_root, "controlled-replacement")
+			replacement = _assert_date_summary_retains_run(replacement_root, "controlled-replacement")
+			_assert_published(publisher, replacement)
 
 
 def _post_import_failure() -> None:
@@ -471,7 +405,8 @@ def _post_import_failure() -> None:
 					raise RuntimeError("Public command propagated the wrong verification error.") from error
 			else:
 				raise RuntimeError("Operational page verification failure did not propagate.")
-		record = _run_record(root, "controlled-page-failure")
+		record_path = root / "out" / "vosslab" / "daily_blog" / REPORT_DATE / "run_state.json"
+		record = json.loads(record_path.read_text(encoding="utf-8"))
 		if record["state"] != "failed" or record["phases"]["page_verification"]["status"] != "failed":
 			raise RuntimeError("Post-import verification failure did not persist its failed phase.")
 		summary = _assert_date_summary_retains_run(root, "controlled-page-failure")
@@ -482,9 +417,9 @@ def _post_import_failure() -> None:
 		):
 			raise RuntimeError("Terminal summary did not retain the bounded operational failure.")
 		post = root / "out" / "vosslab" / "daily_blog" / REPORT_DATE / "post.md"
-		bundle = publisher / "data" / "publication_bundles" / REPORT_DATE / "bundle.json"
-		publication = publisher / "data" / "publications" / (REPORT_DATE + ".json")
-		if not (post.is_file() and bundle.is_file() and publication.is_file()):
+		installed = publisher / "docs" / "blog" / "posts" / (REPORT_DATE + ".md")
+		release = publisher / "generated" / "releases" / REPORT_DATE
+		if not (post.is_file() and installed.is_file() and release.is_dir()):
 			raise RuntimeError("Post-import verification failure did not retain the committed artifact.")
 
 

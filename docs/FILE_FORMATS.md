@@ -299,9 +299,9 @@ version and executable-vector SHA-256; the active identity is
 applied to the post verifiable without treating the prose as a prompt contract.
 
 The sealed transfer contains every core artifact above plus exactly the manifest-declared surface
-assets. The producer's no-write validation and the publisher's import both revalidate that held,
-no-follow byte snapshot. The archive, installed post, and rendered-page validator retain this same
-surface authority; article-local image sources must be among its `publish_path` values.
+assets. The producer's no-write validation seals that held, no-follow byte snapshot. Delivery
+verification compares the installed post and selected assets directly with the transfer;
+article-local rendered image sources must resolve to its short date-owned `publish_path` values.
 
 The bundle carries one validated selected post and its grounded inputs. It never carries candidate
 posts, referee results, anonymous rankings, or route-to-candidate mappings.
@@ -309,37 +309,21 @@ posts, referee results, anonymous rankings, or route-to-candidate mappings.
 Before a whole-post artifact is eligible, the producer applies that source-safety policy. Reader
 links may target only GitHub HTTPS URLs or exact declared screenshot paths; active raw HTML,
 unapproved comments, Markdown attribute lists, and ambiguous or disguised links are ineligible.
-Code examples remain inert source text. The publisher independently applies the same identified
-policy while importing, so an unsafe candidate cannot become publishable through bundle reuse or a
-cross-repository handoff.
+Code examples remain inert source text. The producer applies the same identified policy when
+validating bundle reuse, so an unsafe candidate cannot become publishable through stale state.
 
-### Publisher record v6 and import receipt v2
+### Import receipt v3
 
-The sibling `vosslab-daily-blog` repository owns the current date-keyed record at:
+The renderer owns the installed Markdown at `docs/blog/posts/YYYY-MM-DD.md`, its selected images in
+the adjacent `docs/blog/posts/YYYY-MM-DD/` directory, and the built dated release. It does not retain
+the producer bundle or create a separate publication record.
 
-```text
-data/publications/YYYY-MM-DD.json
-```
-
-It uses `vosslab.daily-blog.publication.v6`. The record is exact and date-keyed; it binds the
-report date, timezone, bundle digest, selected artifact identity, generator run and revision,
-verified evidence and projection archive paths, the public post path, import timestamp, and
-`article_body_sha256`. It also binds `publication_surface_id`,
-`publication_surface_sha256`, and the exact date-owned
-`publication_surface_manifest` archive path. The body digest is calculated from the canonical visible
-reader-body projection of the installed Markdown post using the publisher's configured MkDocs
-Markdown extensions.
-
-The producer returns `vosslab.daily-blog.import-receipt.v2` only after its one
-`CommittedPublication` validation reads the held archive snapshot, date-keyed record, and installed
-post together. The receipt repeats the bundle, post, selected-artifact, and reader-body digests and
-names the verified rendered page. Page verification requires the complete ordered source body to
-appear in the one Material article surface; matching title and date alone are insufficient.
-
-The publisher owns the sealed date archive at
-`data/publication_bundles/YYYY-MM-DD/` and the public post at
-`docs/blog/posts/YYYY-MM-DD.md`. Reimporting a matching bundle is idempotent; a confirmed replacement
-updates the same date-owned publication rather than creating a versioned variant.
+The producer creates `vosslab.daily-blog.import-receipt.v3` by comparing those installed files with
+the exact sealed transfer. The receipt binds the report date, bundle and selected-artifact identities,
+post and selected-image paths and hashes, canonical reader-body digest, and expected rendered page.
+Page verification requires the complete ordered source body to appear in the one Material article
+surface; matching title and date alone are insufficient. Reimporting matching bytes is idempotent;
+replacement updates the same date-owned Markdown, assets, and release.
 
 Automated publisher failures are one bounded, text-free canonical JSON envelope with schema
 `vosslab.daily-blog.import-failure.v1`, exactly `category` and `phase` alongside its schema version.

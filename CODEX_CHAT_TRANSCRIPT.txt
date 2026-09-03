@@ -3889,3 +3889,30 @@ Tests
 Next actions
 1. Use a live or controlled large-day run to observe the new linear call counts, summarizer events,
    and selected-image publication.
+
+---
+Session Update: 2026-09-03 (transient renderer receipt repair)
+
+Change
+- Fixed the August 17 post-import failure after confirming the sibling renderer had successfully
+  installed and built the post but intentionally no longer created `data/publications/` or retained
+  a bundle archive.
+- Replaced import receipt v2 with v3. The producer now verifies the installed Markdown and every
+  selected asset directly against the exact sealed transfer, then verifies the rendered page.
+- Removed the retired archive/record reader, validation machinery, and tests instead of restoring a
+  second durable publication model in the display repository.
+- Kept multiple images in the post's adjacent date-owned directory with short date-relative Markdown
+  links. New image names deterministically include source repository, content hash, and source basename.
+- Re-read and applied the pytest fixture policy: no committed fixture or custom pytest fixture was
+  added; file inputs remain inline beneath `tmp_path`, and the filename proof lives in the controlled E2E.
+
+Tests
+- Focused publisher, publication-state, and evidence tests passed 62 cases.
+- Controlled daily publication passed initial import, same-date replacement, selected-image transfer,
+  rendered-page verification, and expected post-import page failure.
+- Git evidence E2E passed with repository-qualified image naming.
+- Complete Python 3.12 suite passed all 3,983 tests in 29.97 seconds.
+
+Next actions
+1. Rerun `./make_blog.py -y -d 2026-08-17`; the preserved failed run can reuse its completed
+   editorial work and retry the repaired transient renderer boundary.

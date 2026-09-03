@@ -25,12 +25,16 @@ origin belongs there too. Rules: [REPO_STYLE.md](REPO_STYLE.md).
 - Keep gates only where failure represents a genuine correctness, safety, or artifact-validity boundary.
 - Judge success primarily by whether a valid blog entry is ultimately produced, not whether the LLM took the prescribed path to produce it.
 - Filenames are always deterministic and code-owned; never let an LLM choose or influence a filename.
+- A post may use multiple selected images. Store them with its date-owned Markdown and include the source
+  repository in each deterministic image name so different repositories remain recognizable.
 - I create repositories often, so neither the complete account roster nor a date's active repository
   set is fixed. Recompute both for each run and keep them immutable only within that run.
 - This is pre-production: improve foundational schemas, contracts, abstractions, and ownership
   boundaries directly instead of carrying legacy support.
 - Prioritize the long term and adaptability. Keep responsibilities explicit and components replaceable;
   fix the design that caused a problem rather than treating its symptom.
+- Prefer adaptable boundaries and stable domain concepts over speculative edge-case mechanisms. Address
+  concrete requirements and likely failures now; leave unexpected cases replaceable without redesign.
 - Dream big, build on the ambition already present, complete the required work, and finish the obvious.
   When one option is clearly best, take it, document the assumption, and continue.
 - Use Hermes for model selection and account routing because it is more robust than a quick local

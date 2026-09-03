@@ -81,27 +81,22 @@ The producer sends `vosslab.daily-blog.bundle.v9`, binding the date, selected ar
 roster, editorial projection, prompt and activation identities, source-safety policy, and digest.
 Its canonical `publication_surface.json` carries the one survivor-scoped publication authority:
 required repository coverage plus the exact evidence IDs and image paths available to the post.
-The bundle asset list, publisher archive, staged assets, and rendered-page image check all derive
-from that surface. The publisher checks the sealed snapshot before making the date visible; unsafe
-reader-visible Markdown is rejected before handoff and independently checked again by the publisher.
+The bundle asset list, transient renderer stage, installed assets, and rendered-page image check all
+derive from that surface. The producer validates the sealed snapshot before handoff; the renderer
+confines placement and lets MkDocs decide whether the supplied Markdown is renderable.
 
-Each attempt keeps bounded run state and event summaries; a completed date retains the selected post,
-sealed bundle, and the receipts that connect the bundle to the verified page:
+Each attempt keeps bounded working state while it can still help diagnose a failure. After verified
+delivery, the producer retains only the date-owned machine log and terminal summary:
 
 ```text
 out/<owner>/daily_blog/<report_date>/
-  runs/<run_id>/                 bounded state, events, and editorial reliability summaries
-  publication/bundle.json        sealed bundle-v9 manifest
-  publication/evidence.json      exact source evidence
-  publication/editorial_projection.json
-  publication/publication_surface.json
-  post.md                        selected reader-facing post
+  runlog-<report_date>.jsonl     canonical machine events
+  summary.jsonl                  canonical terminal outcome
 ```
 
-The publisher finishes an accepted handoff with a date-keyed
-`vosslab.daily-blog.publication.v6` receipt. It binds the bundle digest, selected artifact,
-reader-body digest, and the archived survivor surface identity and hash, so the rendered page can be
-checked against the same evidence and image authority used during editorial admission.
+The producer's `vosslab.daily-blog.import-receipt.v3` binds the sealed transfer to the installed
+post, every selected date-owned image, and the expected rendered page. Images use short links such
+as `2026-08-17/vosslab-repository-<content-hash>-capture.png`; deterministic code owns those names.
 
 ## Also useful: local content drafts
 

@@ -4,7 +4,6 @@
 import contextlib
 import json
 import pathlib
-import shutil
 import types
 
 # PIP3 modules
@@ -30,7 +29,6 @@ import daily_blog.projection
 import daily_blog.publication_admission
 import daily_blog.publisher
 import daily_blog.publisher_contract
-import daily_blog.publication_article_projection
 import daily_blog.publication_state
 import daily_blog.publication_workflow
 import daily_blog.repository_editorial_workflow
@@ -131,84 +129,6 @@ def _active_roster(
 
 
 #============================================
-def _current_publication_config(tmp_path: pathlib.Path) -> types.SimpleNamespace:
-	"""Create one complete publisher-owned date publication for integrity tests."""
-	report_date = "2026-08-26"
-	item = daily_blog.schema.EvidenceItem.create(
-		"commit_metadata", "vosslab/project", "a" * 40, "", "", "work", "git show"
-	)
-	packet = daily_blog.schema.EvidencePacket.create(
-		report_date, "America/Chicago", True, {}, [], [], [item]
-	)
-	surface = _surface(packet)
-	record = daily_blog.repository_contracts.RepositoryRecord.from_dict({
-		"repository": "vosslab/project",
-		"repository_url": "https://github.com/vosslab/project",
-		"clone_url": "https://github.com/vosslab/project.git",
-		"created_at": "2020-01-01T00:00:00Z",
-		"is_fork": False,
-	})
-	roster = daily_blog.repository_contracts.RepositoryRoster.create("vosslab", [record])
-	post = (
-		"---\ndate: 2026-08-26\nslug: current-publication\ngenerator_run: run-one\n"
-		"evidence_manifest: evidence.json\neditorial_projection: editorial_projection.json\n---\n\n"
-		f"# Current publication\n\nA small maker note.\n\n<!-- evidence: {item.evidence_id} -->\n"
-	)
-	selected = daily_blog.artifacts.CompletePost.create(
-		report_date, (packet,), ("vosslab/project",), post, (item.evidence_id,), report_date,
-		str(tmp_path / "producer" / "vosslab" / "daily_blog" / report_date / "post.md"),
-	)
-	producer_root = tmp_path / "producer"
-	producer_root.mkdir()
-	bundle_path, bundle, _transfer_value = daily_blog.publication_contract.BundleWriter(
-		str(producer_root), "vosslab", _bundle_identity()
-	).write("run-one", surface, {}, roster, selected, daily_blog.activity.build_daily_active_roster(
-		"vosslab", report_date, roster.roster_id, [{
-			"repository": "vosslab/project", "sha": "a" * 40,
-			"author_timestamp": report_date + "T12:00:00Z",
-			"author_name": "Fixture", "message": "Fixture work",
-		}],
-	))
-	publisher_root = tmp_path / "publisher"
-	publisher_root.mkdir()
-	(publisher_root / "mkdocs.yml").write_text(
-		"markdown_extensions:\n  - toc:\n      permalink: true\n", encoding="utf-8",
-	)
-	archive = publisher_root / "data" / "publication_bundles" / report_date
-	archive.parent.mkdir(parents=True)
-	shutil.copytree(bundle_path, archive)
-	installed_post = publisher_root / "docs" / "blog" / "posts" / f"{report_date}.md"
-	installed_post.parent.mkdir(parents=True)
-	installed_post.write_text(post, encoding="utf-8")
-	(publisher_root / "generated" / "releases" / report_date).mkdir(parents=True)
-	(publisher_root / "generated" / "releases" / report_date / "index.html").write_text("ok", encoding="utf-8")
-	publication_record = {
-		"schema_version": daily_blog.publication_state.PUBLICATION_SCHEMA_VERSION,
-		"report_date": report_date,
-		"timezone": "America/Chicago",
-		"generator_run": bundle["generator"]["run_id"],
-		"generator_revision": bundle["generator"]["revision"],
-		"bundle_sha256": bundle["bundle_sha256"],
-		"article_body_sha256": daily_blog.publication_article_projection.article_body_sha256(
-			daily_blog.publication_article_projection.source_article_projection(
-				post, (publisher_root / "mkdocs.yml").read_text(encoding="utf-8"),
-			)
-		),
-		"best_artifact_id": bundle["best_artifact_id"],
-		"evidence_manifest": f"data/publication_bundles/{report_date}/evidence.json",
-		"editorial_projection_manifest": f"data/publication_bundles/{report_date}/editorial_projection.json",
-		"post_path": f"docs/blog/posts/{report_date}.md",
-		"imported_at": "2026-08-27T00:00:00Z",
-	}
-	path = publisher_root / "data" / "publications" / f"{report_date}.json"
-	path.parent.mkdir(parents=True)
-	path.write_text(json.dumps(publication_record), encoding="utf-8")
-	return types.SimpleNamespace(
-		daily_blog_repository=str(publisher_root), report_timezone="America/Chicago"
-	)
-
-
-#============================================
 def _path_record_config(tmp_path: pathlib.Path) -> daily_blog.config.DailyBlogConfig:
 	"""Build an offline configuration whose output root is intentionally unique."""
 	return daily_blog.config.DailyBlogConfig(
@@ -233,6 +153,21 @@ def _path_record_roster() -> daily_blog.repository_contracts.RepositoryRoster:
 			"is_fork": False,
 		}),
 	])
+
+
+#============================================
+def test_publication_inspection_uses_the_installed_post_and_release(tmp_path: pathlib.Path) -> None:
+	"""The renderer's two durable outputs make one report date occupied."""
+	root = tmp_path / "publisher"
+	post = root / "docs" / "blog" / "posts" / "2026-08-26.md"
+	post.parent.mkdir(parents=True)
+	post.write_text("# Published\n", encoding="utf-8")
+	(root / "generated" / "releases" / "2026-08-26").mkdir(parents=True)
+	config = types.SimpleNamespace(daily_blog_repository=str(root))
+
+	inspection = daily_blog.publication_state.inspect_publication(config, "2026-08-26")
+
+	assert inspection.state == "current"
 
 
 #============================================
@@ -317,67 +252,6 @@ def test_invoke_publisher_rejects_integer_replacement_intent() -> None:
 
 #============================================
 #============================================
-def test_publication_exists_rejects_a_tampered_declared_evidence_artifact(
-	tmp_path: pathlib.Path,
-) -> None:
-	"""An archive cannot become current merely because its manifest still exists."""
-	config = _current_publication_config(tmp_path)
-	evidence = pathlib.Path(config.daily_blog_repository) / "data" / "publication_bundles" / "2026-08-26" / "evidence.json"
-	evidence.write_text("{}", encoding="utf-8")
-
-	inspection = daily_blog.publication_state.inspect_publication(config, "2026-08-26")
-	assert inspection.state == "invalid"
-	with pytest.raises(RuntimeError, match="publication state is invalid"):
-		daily_blog.publication_state.publication_exists(config, "2026-08-26")
-
-
-#============================================
-def test_publication_exists_rejects_missing_repository_roster(
-	tmp_path: pathlib.Path,
-) -> None:
-	"""The roster is a required typed artifact, not optional supporting metadata."""
-	config = _current_publication_config(tmp_path)
-	roster = pathlib.Path(config.daily_blog_repository) / "data" / "publication_bundles" / "2026-08-26" / "repository_roster.json"
-	roster.unlink()
-
-	inspection = daily_blog.publication_state.inspect_publication(config, "2026-08-26")
-	assert inspection.state == "invalid"
-
-
-#============================================
-def test_publication_inspection_does_not_reclassify_an_internal_fault(
-	tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch,
-) -> None:
-	"""Expected corrupt state is invalid, but an internal fault remains a pipeline fault."""
-	config = _current_publication_config(tmp_path)
-
-	def fail_read(_path: str) -> object:
-		raise AssertionError("internal fault")
-
-	monkeypatch.setattr(daily_blog.io_utils, "read_json", fail_read)
-
-	with pytest.raises(AssertionError, match="internal fault"):
-		daily_blog.publication_state.inspect_publication(config, "2026-08-26")
-
-
-#============================================
-def test_publication_inspection_rejects_a_symlinked_archive_intermediate(
-	tmp_path: pathlib.Path,
-) -> None:
-	"""An occupied date is invalid when its publisher archive crosses a symlink."""
-	config = _current_publication_config(tmp_path)
-	root = pathlib.Path(config.daily_blog_repository)
-	data = root / "data"
-	replacement = root / "replacement-data"
-	data.rename(replacement)
-	data.symlink_to(replacement, target_is_directory=True)
-
-	inspection = daily_blog.publication_state.inspect_publication(config, "2026-08-26")
-
-	assert inspection.state == "invalid"
-
-
-#============================================
 def test_finalization_keeps_bundle_logical_while_importer_receives_absolute_path(
 	tmp_path: pathlib.Path,
 ) -> None:
@@ -408,14 +282,13 @@ def test_finalization_keeps_bundle_logical_while_importer_receives_absolute_path
 		lifecycle.append("site_import")
 		bundle = json.loads(next(entry.contents for entry in transfer.entries if entry.path == "bundle.json"))
 		return {
-			"schema_version": "vosslab.daily-blog.import-receipt.v2",
+			"schema_version": "vosslab.daily-blog.import-receipt.v3",
 			"status": "imported",
 			"bundle_sha256": bundle["bundle_sha256"],
 			"report_date": packet.report_date,
-			"publication_record_path": f"data/publications/{packet.report_date}.json",
-			"publication_record_sha256": "a" * 64,
 			"post_path": f"docs/blog/posts/{packet.report_date}.md",
 			"post_sha256": bundle["post"]["sha256"],
+			"assets": [],
 			"article_body_sha256": "a" * 64,
 			"rendered_page_path": (
 				f"generated/releases/{packet.report_date}/blog/2026/08/26/published/index.html"
