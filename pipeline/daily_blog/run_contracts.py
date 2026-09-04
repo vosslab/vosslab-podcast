@@ -34,7 +34,8 @@ LEGAL_PHASES = (
 )
 PHASE_STATUSES = {"pending", "running", "completed", "skipped", "failed"}
 RUN_STATES = {"running", "completed", "failed"}
-RUN_OUTCOMES = {"pending", "succeeded", "degraded", "no_activity", "failed"}
+COMPLETED_RUN_OUTCOMES = frozenset({"succeeded", "degraded", "no_activity"})
+RUN_OUTCOMES = {"pending", *COMPLETED_RUN_OUTCOMES, "failed"}
 BASE_OPERATIONAL_FAILURE_KINDS = frozenset({
 	"editorial_blocked",
 	"external_resource_error",
@@ -546,7 +547,7 @@ class RunRecord:
 				):
 					raise RuntimeError("No-activity run phases do not match completed acquisition.")
 			elif (
-				self.outcome not in {"succeeded", "degraded"}
+				self.outcome not in COMPLETED_RUN_OUTCOMES - {"no_activity"}
 				or any(phase.status != "completed" for phase in self.phases.values())
 			):
 				raise RuntimeError("Completed run contains an unfinished phase.")

@@ -201,7 +201,7 @@ def validate_terminal_summary(value: object) -> dict[str, object]:
 	if result["completed_at"] < result["created_at"]:
 		raise RuntimeError("Terminal summary completion precedes its creation.")
 	if result["state"] not in {"completed", "failed"} or result["outcome"] not in {
-		"succeeded", "degraded", "failed",
+		*daily_blog.run_contracts.COMPLETED_RUN_OUTCOMES, "failed",
 	}:
 		raise RuntimeError("Terminal summary state or outcome is invalid.")
 	if type(result["publication_completed"]) is not bool:
@@ -236,7 +236,7 @@ def validate_terminal_summary(value: object) -> dict[str, object]:
 	):
 		raise RuntimeError("Operational failure kind is invalid.")
 	if result["state"] == "completed":
-		if result["outcome"] not in {"succeeded", "degraded", "no_activity"}:
+		if result["outcome"] not in daily_blog.run_contracts.COMPLETED_RUN_OUTCOMES:
 			raise RuntimeError("Completed terminal summary has an invalid outcome.")
 		if result["terminal_fault_category"] or result["operational_failure_kind"] or result["failure_phase"]:
 			raise RuntimeError("Completed terminal summary has failure facts.")

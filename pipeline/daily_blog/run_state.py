@@ -422,11 +422,15 @@ class RunStore:
 			if details["site_import_status"] not in {"idempotent", "imported", "replaced"}:
 				raise RuntimeError("Daily-publication import status is unsupported.")
 		if "state" in details:
-			expected_state = "completed" if event.endswith("run_completed") else "running"
+			expected_state = "completed" if event in {
+				"daily_publication.run_completed", "daily_publication.no_activity_completed",
+			} else "running"
 			if details["state"] != expected_state:
 				raise RuntimeError("Daily-publication run state does not match the event.")
-		if "outcome" in details and event.endswith("run_completed"):
-			if details["outcome"] not in {"succeeded", "degraded"}:
+		if "outcome" in details and event in {
+			"daily_publication.run_completed", "daily_publication.no_activity_completed",
+		}:
+			if details["outcome"] not in daily_blog.run_contracts.COMPLETED_RUN_OUTCOMES:
 				raise RuntimeError("Daily-publication run outcome is unsupported.")
 		if event == "daily_publication.no_activity_completed" and (
 			details["outcome"] != "no_activity"
