@@ -48,12 +48,12 @@ def promotion_reliability(
 ) -> daily_blog.replication.StepReliability:
 	"""Record deterministic selection separately from route observations."""
 	if isinstance(promotion, daily_blog.artifacts.NoArtifact):
-		reasons, best = (promotion.reason,), ""
+		reasons, best, succeeded = (promotion.reason,), "", 0
 	elif isinstance(promotion, daily_blog.artifacts.DegradedPromotion):
-		reasons, best = promotion.reasons, promotion.artifact.artifact_id
+		reasons, best, succeeded = promotion.reasons, promotion.artifact.artifact_id, 1
 	else:
-		reasons, best = (), promotion.artifact.artifact_id
+		reasons, best, succeeded = (), promotion.artifact.artifact_id, 1
 	return daily_blog.replication.StepReliability(
-		"6.4", "degraded" if reasons else "succeeded", 1, 1, 0, 0, 0,
+		"6.4", "degraded" if reasons else "succeeded", 1, succeeded, 1 - succeeded, 0, 0,
 		_review_disagreements(votes), best, tuple(sorted(reasons)),
 	)

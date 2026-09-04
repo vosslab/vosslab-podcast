@@ -17,6 +17,7 @@ import daily_blog.io_utils
 import daily_blog.prompt_registry.editorial_contracts
 import daily_blog.mirrors
 import daily_blog.orchestrator
+import daily_blog.routes
 
 
 #============================================
@@ -45,6 +46,16 @@ def test_publication_resolves_through_one_explicit_contract_owner(
 
 	assert orchestrator.editorial_contract is daily_blog.prompt_registry.editorial_contracts.PRODUCTION_EDITORIAL_CONTRACT
 	assert daily_blog.prompt_registry.editorial_contracts.is_production_contract(orchestrator.editorial_contract)
+
+
+#============================================
+def test_publication_constructor_resolves_default_route_runner(tmp_path: pathlib.Path) -> None:
+	"""Production orchestration never forwards a nullable execution adapter."""
+	orchestrator = daily_blog.orchestrator.DailyPublicationOrchestrator(
+		make_config(tmp_path), "2026-08-23",
+	)
+
+	assert isinstance(orchestrator.route_runner, daily_blog.routes.CommandRouteRunner)
 
 
 #============================================

@@ -15,6 +15,7 @@ import daily_blog.routes
 import daily_blog.repository_contracts
 import daily_blog.schema
 import daily_blog.stage6
+import daily_blog.stage6_attempt_reliability
 import daily_blog.daily_outline_workflow
 import daily_blog.io_utils
 
@@ -279,6 +280,19 @@ def test_stage6_reviewer_prompt_overflow_preserves_generated_peer(tmp_path: Path
 		for observation in result.primary_observations
 		for item in observation.materialization.attempts
 	)
+
+
+#============================================
+def test_no_artifact_promotion_reports_unavailable_instead_of_success() -> None:
+	"""Human promotion counts distinguish an exhausted rung from a promoted post."""
+	summary = daily_blog.stage6_attempt_reliability.promotion_reliability(
+		daily_blog.artifacts.NoArtifact(
+			daily_blog.artifacts.CompletePost, "no_eligible_generation",
+		),
+		(),
+	)
+
+	assert summary.succeeded == 0 and summary.failed == 1
 
 
 #============================================

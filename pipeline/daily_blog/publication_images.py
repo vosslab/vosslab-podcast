@@ -54,6 +54,24 @@ class ImageDecorationPlan:
 
 
 #============================================
+def _placement_object(response: str) -> dict | None:
+	"""Return the first JSON object carrying placement advice from noisy text."""
+	decoder = json.JSONDecoder()
+	for index, character in enumerate(response):
+		if character != "{":
+			continue
+		try:
+			value, _end = decoder.raw_decode(response, index)
+		except json.JSONDecodeError:
+			continue
+		# ASVS 1.5.2 and 2.2.1: salvage only the allowlisted outer shape;
+		# individual placement fields remain positively validated below.
+		if isinstance(value, dict) and isinstance(value.get("placements"), list):
+			return value
+	return None
+
+
+#============================================
 def parse_image_decoration(
 	response: str,
 	catalog: "PublicationImageCatalog",
@@ -64,13 +82,8 @@ def parse_image_decoration(
 		raise RuntimeError("Image decoration parsing requires exact typed inputs.")
 	if type(block_count) is not int or block_count < 1:
 		raise RuntimeError("Image decoration requires a positive prose-block count.")
-	# ASVS 1.5.2 and 2.2.1: deserialize only JSON, then positively validate each
-	# placement before any editorial value reaches publication construction.
-	try:
-		value = json.loads(response.strip())
-	except (json.JSONDecodeError, TypeError):
-		return None
-	if not isinstance(value, dict) or not isinstance(value.get("placements"), list):
+	value = _placement_object(response)
+	if value is None:
 		return None
 	items = value["placements"]
 	allowed = {item.evidence_id for item in catalog.images}

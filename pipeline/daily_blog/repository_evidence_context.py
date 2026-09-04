@@ -1,6 +1,7 @@
 """Bound oversized repository evidence once for Stage 3 and Stage 4."""
 
 # Standard Library
+import collections.abc
 import dataclasses
 import json
 
@@ -82,8 +83,12 @@ def build_repository_evidence_context(
 	config: daily_blog.config.DailyBlogConfig,
 	budget: daily_blog.agents.RouteBudget,
 	runner: object | None,
-	cache_load,
-	cache_accept,
+	cache_load: collections.abc.Callable[
+		[daily_blog.agents.RouteRequest], daily_blog.agents.AgentResult | None,
+	],
+	cache_accept: collections.abc.Callable[
+		[daily_blog.agents.RouteRequest, daily_blog.agents.AgentResult], None,
+	],
 ) -> RepositoryEvidenceContext:
 	"""Use one summarizer only when canonical repository evidence is oversized."""
 	canonical = json.dumps(

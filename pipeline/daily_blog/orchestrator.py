@@ -27,6 +27,7 @@ import daily_blog.repository_contracts
 import daily_blog.repository_editorial_workflow
 import daily_blog.recovery
 import daily_blog.route_cache
+import daily_blog.routes
 import daily_blog.run_contracts
 import daily_blog.run_state
 import daily_blog.schema
@@ -191,7 +192,11 @@ class DailyPublicationOrchestrator:
 		self.report_date = report_date
 		self.force_regeneration = force_regeneration
 		self.runtime = daily_blog.publication_workflow.require_runtime(runtime)
-		self.route_runner = self.runtime.route_runner or route_runner
+		# ASVS 2.2.1: normalize the optional construction seam once. Downstream
+		# editorial operations always receive one concrete execution adapter.
+		self.route_runner = (
+			self.runtime.route_runner or route_runner or daily_blog.routes.CommandRouteRunner()
+		)
 		self.publisher_function = (
 			self.runtime.publisher_function or publisher_function or daily_blog.publisher.import_bundle
 		)

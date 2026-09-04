@@ -1,5 +1,8 @@
 ## 2026-09-03
 
+- Stage 6 recovery now validates retained primary-candidate eligibility under the original primary narrative scope instead of retroactively recomputing it under broader recovery coverage. A legitimate primary rejection can therefore activate recovery without being misclassified as corrupted lineage.
+- Stage 6 promotion accounting now reports a `NoArtifact` outcome as unavailable rather than claiming that one complete post was promoted with an empty artifact identity.
+- The publication orchestrator now resolves its optional route-runner override once into the normal command runner, so every downstream editorial operation receives a concrete adapter and the image decorator cannot crash after Stage F on `NoneType.run`. The decorator's tolerant parser also recovers the first valid placement object from common explanatory prose or Markdown-code-fence wrappers while retaining machine validation of every image ID, position, and final path.
 - Human progress no longer repeats the enclosing B/D/E/F batch duration on every editorial observation. Child lines report counts when observed; the measured shared wall time appears once on the owning phase completion line.
 - Oversized per-repository evidence now receives one bounded, cacheable summarizer operation before repository outline and story authoring. Both stages share the compact model context while the original machine-owned evidence packet remains the sole provenance and downstream availability source; unusable summarizer output falls back to the deterministic bounded evidence projection instead of dropping the repository.
 

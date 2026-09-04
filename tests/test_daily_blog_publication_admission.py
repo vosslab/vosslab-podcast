@@ -472,7 +472,9 @@ def test_image_decorator_selects_catalog_identity_and_machine_assigns_route(tmp_
 	assert selection.images[0].destination_path == "docs/blog/posts/2026-08-29/first.png"
 
 
-def test_image_decorator_route_is_optional_and_machine_resolves_selected_id(tmp_path: Path) -> None:
+def test_image_decorator_route_is_optional_and_machine_resolves_selected_id(
+	tmp_path: Path,
+) -> None:
 	"""One tolerant decorator call can select an image without gaining path authority."""
 	base = _packet("vosslab/first", "first.png")
 	change = next(item for item in base.items if item.kind == "dated_changelog")
@@ -509,6 +511,32 @@ def test_image_decorator_route_is_optional_and_machine_resolves_selected_id(tmp_
 
 	assert decorated.image_paths == ("2026-08-29/first.png",)
 	assert image.evidence_id in decorated.evidence_ids
+
+
+#============================================
+def test_image_decorator_salvages_placement_object_from_common_llm_wrappers() -> None:
+	"""Explanatory prose and a Markdown fence do not hide usable placement advice."""
+	base = _packet("vosslab/first", "first.png")
+	change = next(item for item in base.items if item.kind == "dated_changelog")
+	image = daily_blog.schema.EvidenceItem.create(
+		"screenshot", "vosslab/first", "a" * 40, "image.png", "c" * 40,
+		"Screenshot.", "fixture", asset_path="assets/first.png",
+		publish_path="2026-08-29/first.png",
+	)
+	packet = daily_blog.schema.EvidencePacket.create(
+		base.report_date, base.timezone, True, {}, [], list(base.activity), [change, image],
+	)
+	catalog = daily_blog.publication_images.build_image_catalog(
+		packet, {image.asset_path: b"image"},
+	)
+	response = (
+		"Here is the placement:\n```json\n{\"placements\":[{\"image_id\":\""
+		+ image.evidence_id + "\",\"after_block\":0,\"alt_text\":\"Useful view\"}]}\n```"
+	)
+
+	plan = daily_blog.publication_images.parse_image_decoration(response, catalog, 1)
+
+	assert plan is not None and plan.placements[0].image_id == image.evidence_id
 
 
 #============================================

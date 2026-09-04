@@ -4048,3 +4048,54 @@ Tests
 Next actions
 1. Use the next ordinary live run to confirm the compact console reports one duration per measured
    editorial batch and never attributes that same duration to every child observation.
+
+---
+Session Update: 2026-09-03 (default image-decorator route execution)
+
+Change
+- Fixed the second August 31 post-F crash at its ownership boundary: the publication orchestrator
+  now resolves an absent route-runner override to one concrete CommandRouteRunner during construction.
+  Downstream stages, including image decoration, no longer receive nullable execution state.
+- Kept runner injection for controlled and offline runtimes; it is an execution-adapter capability,
+  not optional state inside editorial operations.
+- Made image-decoration parsing recover the first valid placements object from ordinary explanatory
+  prose or Markdown code fences, while retaining positive validation of catalog IDs, positions, alt
+  text, date-owned paths, and machine-selected bytes.
+- Removed prompt-wording and exact total-call coupling from the oversized-summary regression tests.
+
+Tests
+- Focused image, contract, repository, observability, and lint coverage passed 272 tests under
+  Python 3.12.
+- The complete Python 3.12 permanent suite passed all 4,006 tests in 30.37 seconds after correcting
+  two function annotations found only by the full typing-policy test.
+- The controlled no-egress daily-publication E2E passed initial import, same-date replacement,
+  selected-only image transfer, rendered-page verification, successful cleanup, and expected
+  page-failure diagnostic retention.
+
+Next actions
+1. Confirm the next ordinary August 31 run crosses image decoration and reaches publication
+   finalization with the construction-owned CommandRouteRunner.
+
+---
+Session Update: 2026-09-03 (Stage 6 primary-to-recovery scope)
+
+Change
+- Diagnosed the next August 31 failure from its retained run artifacts. All three primary writers
+  produced posts, but primary narrative-scope eligibility rejected their evidence references; the
+  recovery coordinator then incorrectly recomputed those retained primary decisions using broader
+  recovery coverage and classified the expected difference as corrupt lineage.
+- Recomputed retained source-candidate decisions under their original primary scope. Recovery-created
+  candidates continue to use recovery scope, preserving the intentional authority distinction.
+- Corrected Step 6.4 accounting so NoArtifact reports zero promoted and one unavailable instead of
+  claiming a successful promotion with an empty artifact identity.
+
+Tests
+- Focused Stage 6, recovery, observability, typing, and lint coverage passed 490 tests under Python
+  3.12, including a two-repository narrative-versus-recovery coverage regression.
+- The complete Python 3.12 permanent suite passed all 4,008 tests in 30.43 seconds.
+- The controlled no-egress publication E2E passed import, replacement, selected-only image transfer,
+  successful cleanup, rendered verification, and expected page-failure diagnostic retention.
+
+Next actions
+1. Use the next ordinary live run to confirm Stage 6 descends into recovery instead of stopping on
+   source-decision validation.

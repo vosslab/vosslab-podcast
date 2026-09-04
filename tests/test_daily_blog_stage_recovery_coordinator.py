@@ -209,6 +209,77 @@ def test_parsed_ineligible_source_descends_to_an_eligible_recovery_post(
 	assert result.artifact is recovered
 
 
+#============================================
+def test_primary_decision_uses_primary_scope_when_recovery_has_broader_coverage(
+	tmp_path: pathlib.Path,
+) -> None:
+	"""Recovery validates retained primary facts without retroactively widening them."""
+	first = _packet("vosslab/narrative")
+	second = _packet("vosslab/supporting")
+	packets = tuple(sorted((first, second), key=lambda item: item.packet_id))
+	stories = tuple(
+		daily_blog.artifacts.RepoStory.create(
+			packet.report_date, (packet,), packet.items[0].repository,
+			"Grounded story. <!-- evidence: " + packet.items[0].evidence_id + " -->",
+			(packet.items[0].evidence_id,),
+		)
+		for packet in packets
+	)
+	outline = daily_blog.artifacts.DailyOutline.create(
+		first.report_date, (first,), (first.items[0].repository,),
+		"Narrative outline. <!-- evidence: " + first.items[0].evidence_id + " -->",
+		(first.items[0].evidence_id,),
+	)
+	surface = daily_blog.publication_admission.build_surface(
+		packets, tuple(sorted((first.items[0].repository, second.items[0].repository))),
+		_LIMITS, (outline,) + stories,
+	)
+	primary = daily_blog.artifacts.CompletePost.create(
+		first.report_date, packets, (second.items[0].repository,),
+		"# Supporting work\n\nGrounded. <!-- evidence: " + second.items[0].evidence_id + " -->\n",
+		(second.items[0].evidence_id,), first.report_date, str(tmp_path / "post.md"),
+	)
+	primary_decision = daily_blog.publication_admission.complete_post_eligibility(
+		primary, surface, str(tmp_path), recovery=False,
+	)
+	primary_result = daily_blog.replication.ReplicationResult(
+		daily_blog.artifacts.CompletePost, (dataclasses.replace(
+			_candidate(True, tmp_path), artifact=primary, eligibility=primary_decision,
+		),),
+	)
+	recovered = daily_blog.artifacts.CompletePost.create(
+		first.report_date, packets,
+		tuple(sorted((first.items[0].repository, second.items[0].repository))),
+		"# Recovered\n\nGrounded. <!-- evidence: "
+		+ first.items[0].evidence_id + ", " + second.items[0].evidence_id + " -->\n",
+		tuple(sorted((first.items[0].evidence_id, second.items[0].evidence_id))),
+		first.report_date, str(tmp_path / "post.md"),
+	)
+
+	def invoke(*_args: object) -> daily_blog.recovery.RecoveryAttempt:
+		return daily_blog.recovery.RecoveryAttempt(
+			daily_blog.artifacts.SelectedPeer(recovered, daily_blog.artifacts.CompletePost),
+			daily_blog.recovery.GenerationObservation(
+				"recovery_writer", 1, 1, (recovered.artifact_id,),
+			),
+			_recovery_generation(tmp_path, recovered),
+		)
+
+	value = dataclasses.replace(
+		_input(first, tmp_path, ()), stage_key="stage6/complete_post/recovery",
+		source_result=primary_result, packets=packets,
+		allowed_repositories=surface.coverage_repositories,
+		publication_surface=surface,
+		paths=(daily_blog.stage_recovery_coordinator.RecoveryPathAdapter(
+			daily_blog.recovery.RecoveryRung.DAILY_OUTLINE_EXPANSION, invoke,
+		),),
+	)
+	result = _coordinator(tmp_path).run(value)
+
+	assert not primary_decision.eligible
+	assert result.artifact is recovered
+
+
 def test_parsed_source_with_forged_machine_metadata_is_a_configuration_fault(
 	tmp_path: pathlib.Path,
 ) -> None:

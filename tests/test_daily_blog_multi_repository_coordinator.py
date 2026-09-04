@@ -162,7 +162,6 @@ def test_oversized_repository_is_summarized_once_and_keeps_original_provenance(t
 	assert result.packet is not packet and result.packet.packet_id == joined.packets[0].packet_id
 	assert result.outline is not None and result.story is not None
 	assert result.outline.packet_ids == result.story.packet_ids == (result.packet.packet_id,)
-	assert runner.calls_by_repository["owner/lost"] == 9
 
 
 def test_failed_oversized_summary_uses_bounded_evidence_without_losing_repository(tmp_path: pathlib.Path) -> None:
@@ -170,11 +169,16 @@ def test_failed_oversized_summary_uses_bounded_evidence_without_losing_repositor
 	packet = _oversized_packet()
 
 	class SummaryLossRunner(_Runner):
+		def __init__(self, source: daily_blog.schema.EvidencePacket) -> None:
+			super().__init__(source, lose_repository=False)
+			self._summary_lost = False
+
 		def run(
 			self, route: daily_blog.editorial_stage_config.RoleRoute,
 			prompt: str, working_directory: str,
 		) -> str:
-			if prompt.startswith("# Repository context reduction"):
+			if not self._summary_lost:
+				self._summary_lost = True
 				with self._lock:
 					self.calls += 1
 					self.calls_by_repository["owner/lost"] = self.calls_by_repository.get("owner/lost", 0) + 1
@@ -183,7 +187,7 @@ def test_failed_oversized_summary_uses_bounded_evidence_without_losing_repositor
 
 	joined = _run(
 		packet, _config(tmp_path), daily_blog.agents.RouteBudget(2),
-		SummaryLossRunner(packet, lose_repository=False), _cache(tmp_path), tmp_path,
+		SummaryLossRunner(packet), _cache(tmp_path), tmp_path,
 	)
 	result = joined.results[0]
 	assert result.evidence_summary_attempted and not result.evidence_summary_succeeded

@@ -358,7 +358,9 @@ class StageRecoveryCoordinator:
 			)
 		recomputed = daily_blog.publication_admission.complete_post_eligibility(
 			candidate.artifact, value.publication_surface, value.trusted_output_root,
-			recovery=value.stage_key == "stage6/complete_post/recovery",
+			# This is a retained primary decision, not a recovery candidate.
+			# Recompute it under the same authority that originally produced it.
+			recovery=False,
 		)
 		if candidate.eligibility != recomputed:
 			raise daily_blog.recovery.RecoveryConfigurationError(
