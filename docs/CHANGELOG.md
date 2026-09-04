@@ -103,6 +103,13 @@
 
 ### Fixes and Maintenance
 
+- Corrected final project coverage to render the full acquisition activity independently of the
+  narrower Stage 6 editorial surface. A valid selected post therefore reaches publication even when
+  its LLM-facing narrative scope intentionally omits report-day repositories; the footer leaves its
+  provenance and image authority unchanged and never compares unrelated scopes.
+- Clarified A3 daily-blog progress: it now reports repositories selected from the report-day
+  commit search and separately names unavailable mirror refreshes, rather than claiming every
+  selected repository had usable report-day commits.
 - Fixed the optional image decorator's execution-scope identity. Its single request now carries and
   executes under the same configured concurrency bound, so a suitable-image attempt can run after
   final synthesis instead of failing before dispatch. Typed route failure still preserves the

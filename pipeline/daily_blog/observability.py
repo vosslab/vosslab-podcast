@@ -509,7 +509,7 @@ class HumanProgress:
 	}
 	_PHASE_STARTS = {
 		"repository_discovery": "Finding the account repository roster",
-		"mirror_refresh": "Refreshing repositories with report-day commits",
+		"mirror_refresh": "Refreshing repositories selected from report-day commits",
 		"activity_location": "Locating exact report-day commits",
 		"evidence_assembly": "Summarizing repository commits and changelogs",
 		"repository_editorial": "Preparing repository outlines and summaries",
@@ -618,9 +618,16 @@ class HumanProgress:
 				"green",
 			)
 		elif phase == "mirror_refresh" and isinstance(output, list):
+			unavailable = sum(
+				item.get("refresh_result") == "failed"
+				for item in output if isinstance(item, dict)
+			)
+			message = f"Checked {len(output)} repos selected from report-day commits"
+			if unavailable:
+				message += f"; {unavailable} unavailable"
 			self.note(
 				"A3",
-				f"Found {len(output)} repos with commits on {self.report_date}{suffix}", "bold green",
+				message + suffix, "bold green",
 			)
 		elif phase == "activity_location" and isinstance(output, list):
 			commits = sum(len(item.get("commits", ())) for item in output if isinstance(item, dict))

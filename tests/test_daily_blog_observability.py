@@ -364,6 +364,21 @@ def test_human_progress_times_coordinator_owned_steps(
 
 
 #============================================
+def test_mirror_progress_reports_selected_and_unavailable_repositories(
+	tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str],
+) -> None:
+	"""Mirror progress distinguishes search selection from unavailable refreshes."""
+	progress = daily_blog.observability.HumanProgress(
+		REPORT_DATE, str(tmp_path / "runlog.jsonl"),
+	)
+	progress.phase_result("mirror_refresh", [
+		{"refresh_result": "refreshed"}, {"refresh_result": "failed"},
+	], False)
+
+	assert "A3 | Checked 2 repos selected from report-day commits; 1 unavailable" in capsys.readouterr().out
+
+
+#============================================
 def test_human_progress_prints_phase_completion_time(
 	tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str],
 ) -> None:

@@ -32,7 +32,7 @@ def _activity(repository: str, count: int) -> daily_blog.schema.RepositoryActivi
 
 
 #============================================
-def test_coverage_replaces_authored_subset_with_all_exact_activity(tmp_path: pathlib.Path) -> None:
+def test_coverage_uses_acquisition_packet_for_all_exact_activity(tmp_path: pathlib.Path) -> None:
 	activities = (_activity("vosslab/alpha", 1), _activity("vosslab/beta", 3))
 	item = daily_blog.schema.EvidenceItem.create(
 		"commit_metadata", "vosslab/alpha", activities[0].commits[0].sha, "", "a" * 40,
@@ -41,16 +41,19 @@ def test_coverage_replaces_authored_subset_with_all_exact_activity(tmp_path: pat
 	packet = daily_blog.schema.EvidencePacket.create(
 		"2026-08-31", "America/Chicago", True, {}, [], activities, [item],
 	)
+	survivor_packet = daily_blog.schema.EvidencePacket.create(
+		"2026-08-31", "America/Chicago", True, {}, [], (activities[0],), [item],
+	)
 	evidence_id = item.evidence_id
 	post = daily_blog.artifacts.CompletePost.create(
-		packet.report_date, (packet,), ("vosslab/alpha",),
+		packet.report_date, (survivor_packet,), ("vosslab/alpha",),
 		"# Work\n\nNarrative. <!-- evidence: " + evidence_id
 		+ " -->\n\n## Project coverage\n\n- vosslab/alpha\n",
 		(evidence_id,), packet.report_date, str(tmp_path / "post.md"),
 	)
 
 	result = daily_blog.publication_coverage.attach_project_coverage(
-		post, (packet,), activities,
+		post, (survivor_packet,), activities,
 	)
 
 	assert result.content.count("## Project coverage") == 1
@@ -65,7 +68,7 @@ def test_coverage_replaces_authored_subset_with_all_exact_activity(tmp_path: pat
 
 
 #============================================
-def test_coverage_rejects_activity_not_bound_to_evidence(tmp_path: pathlib.Path) -> None:
+def test_coverage_keeps_acquisition_activity_outside_editorial_evidence(tmp_path: pathlib.Path) -> None:
 	activity = _activity("vosslab/alpha", 1)
 	item = daily_blog.schema.EvidenceItem.create(
 		"commit_metadata", "vosslab/alpha", activity.commits[0].sha, "", "a" * 40,
@@ -80,11 +83,8 @@ def test_coverage_rejects_activity_not_bound_to_evidence(tmp_path: pathlib.Path)
 		(item.evidence_id,), packet.report_date, str(tmp_path / "post.md"),
 	)
 
-	try:
-		daily_blog.publication_coverage.attach_project_coverage(
-			post, (packet,), (_activity("vosslab/beta", 1),),
-		)
-	except RuntimeError as error:
-		assert "sealed evidence activity" in str(error)
-	else:
-		raise AssertionError("Unbound activity was accepted.")
+	result = daily_blog.publication_coverage.attach_project_coverage(
+		post, (packet,), (_activity("vosslab/beta", 1),),
+	)
+
+	assert "- [vosslab/beta](https://github.com/vosslab/beta) — 1 commit\n" in result.content

@@ -23,8 +23,8 @@ def attach_project_coverage(
 ) -> daily_blog.artifacts.CompletePost:
 	"""Replace authored coverage with exact machine-owned activity counts.
 
-	ASVS 1.1.2 and 2.2.1: repository identities are positively validated before
-	they are rendered into Markdown links at the final publication boundary.
+	ASVS 2.3.1: final coverage follows the acquisition's exact machine-observed
+	activity while preserving the selected post's existing provenance identity.
 	"""
 	if type(post) is not daily_blog.artifacts.CompletePost:
 		raise RuntimeError("Project coverage requires an exact CompletePost.")
@@ -42,14 +42,6 @@ def attach_project_coverage(
 		or any(REPOSITORY_RE.fullmatch(item.repository) is None for item in ordered)
 	):
 		raise RuntimeError("Project coverage activity is invalid.")
-	packet_activity = {
-		(item.repository, tuple(commit.sha for commit in item.commits))
-		for packet in packets for item in packet.activity
-	}
-	if packet_activity != {
-		(item.repository, tuple(commit.sha for commit in item.commits)) for item in ordered
-	}:
-		raise RuntimeError("Project coverage does not match the sealed evidence activity.")
 	body = PROJECT_COVERAGE_RE.sub("", post.content).rstrip()
 	rows = []
 	for item in ordered:

@@ -4144,3 +4144,38 @@ Tests
 Next actions
 1. Republish August 31 through the ordinary command when desired to replace its old four-repository
    authored footer with the five-repository exact-count footer.
+
+---
+Session Update: 2026-09-03 (A3 mirror-progress wording)
+
+Change
+- Reworded A3 so it reports the repositories selected from the report-day commit search instead of
+  claiming all selected repositories supplied usable activity.
+- Added the unavailable-refresh count when an individual selected mirror cannot be refreshed.
+
+Tests
+- Focused human-progress coverage verifies that selection and unavailability appear separately.
+
+Next actions
+1. The next ordinary daily-blog run will display the clarified A3 status.
+
+---
+Session Update: 2026-09-03 (full sealed project coverage)
+
+Change
+- Diagnosed the post-editorial publication failure: the final footer compared the full acquisition
+  activity against the intentionally narrower Stage 6 LLM-facing evidence surface.
+- Kept the deterministic Project coverage footer's selected-post provenance and image authority
+  unchanged while rendering full acquisition activity with code-owned Markdown generation. It does
+  not compare unrelated activity and editorial scopes or block a usable selected post.
+
+Tests
+- Focused coverage regression uses a narrow survivor packet for the authored post and wider
+  acquisition activity for the deterministic footer, without changing post provenance.
+- Focused coverage, publication-state, and observability tests passed 33 cases under Python 3.12.
+- The controlled no-egress daily-publication E2E passed initial import, same-date replacement,
+  selected-only image transfer, rendered-page verification, and expected post-import page failure.
+
+Next actions
+1. Rerun the failed 2026-08-27 publication when ready; it should resume with the corrected footer
+   authority and retain its normal deterministic image-selection boundary.

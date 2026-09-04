@@ -322,6 +322,8 @@ class DailyPublicationOrchestrator:
 				retry_attempts=self.config.final_synthesis.route_retry_attempts,
 				maximum_parallel_calls=self.config.final_synthesis.maximum_parallel_calls,
 			)
+			# ASVS 2.3.1: final coverage follows acquisition activity without changing
+			# the selected post's survivor-scoped provenance and image authority.
 			covered_post = daily_blog.publication_coverage.attach_project_coverage(
 				decorated_post, surface.source_packets, acquisition.activities,
 			)
