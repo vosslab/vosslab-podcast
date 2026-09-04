@@ -581,6 +581,8 @@ class HumanProgress:
 				)
 		elif event == "daily_publication.editorial_step_completed":
 			step = str(details["step"])
+			if step == "project_coverage":
+				return
 			code = self._STEP_CODES.get(step, step)
 			label = self._STEP_LABELS.get(step, "editorial results received")
 			message = f"{code} | {details['succeeded']} {label}"

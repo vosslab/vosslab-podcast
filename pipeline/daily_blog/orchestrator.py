@@ -20,11 +20,13 @@ import daily_blog.prompt_registry.editorial_contracts
 import daily_blog.publication_contract
 import daily_blog.publication_finalization
 import daily_blog.publication_images
+import daily_blog.publication_coverage
 import daily_blog.publication_workflow
 import daily_blog.publisher
 import daily_blog.repositories
 import daily_blog.repository_contracts
 import daily_blog.repository_editorial_workflow
+import daily_blog.replication
 import daily_blog.recovery
 import daily_blog.route_cache
 import daily_blog.routes
@@ -320,12 +322,25 @@ class DailyPublicationOrchestrator:
 				retry_attempts=self.config.final_synthesis.route_retry_attempts,
 				maximum_parallel_calls=self.config.final_synthesis.maximum_parallel_calls,
 			)
+			covered_post = daily_blog.publication_coverage.attach_project_coverage(
+				decorated_post, surface.source_packets, acquisition.activities,
+			)
+			coverage_summary = daily_blog.replication.StepReliability(
+				"project_coverage", "succeeded", 1, 1, 0, 0, 1, 0,
+				covered_post.artifact_id, (),
+			)
+			self.store.record_editorial_step(
+				self.record, coverage_summary,
+				daily_blog.run_contracts.RepairPublicationIncumbent(
+					self.record.best_artifact_id, covered_post.artifact_id,
+				),
+			)
 			validated = daily_blog.publication_workflow.validate_selected_post(
-				self, decorated_post, surface,
+				self, covered_post, surface,
 				recovery=stage6_result.recovery_generation is not None,
 			)
-			if validated.source_post is not decorated_post:
-				raise RuntimeError("Publication validation must retain the exact decorated source post.")
+			if validated.source_post is not covered_post:
+				raise RuntimeError("Publication validation must retain the exact covered source post.")
 			image_selection = daily_blog.publication_images.resolve_final_post_images(
 				surface, validated.post, acquisition.assets,
 			)

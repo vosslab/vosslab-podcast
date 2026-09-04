@@ -180,17 +180,28 @@ def evidence_references(content: str) -> tuple[str, ...]:
 def ensure_evidence_references(
 	content: str, fallback_evidence_ids: tuple[str, ...],
 ) -> tuple[str, tuple[str, ...]]:
-	"""Attach trusted input provenance when authored prose omits evidence comments.
+	"""Normalize authored provenance to the caller-owned evidence authority.
 
-	Unknown model-authored references remain visible to normal eligibility checks. This
-	normalization only handles the absence of presentation syntax by attaching the
-	caller-owned evidence set to the whole artifact.
+	Model-authored evidence tokens are untrusted presentation metadata. Keep usable
+	references, remove unknown ones, and attach the trusted fallback set when the model
+	provides no usable reference. Artifact eligibility remains the backstop for corrupt
+	or incorrectly constructed machine-owned state.
 	"""
-	existing = evidence_references(content)
-	if existing:
-		return content, existing
 	identifiers = _require_text_tuple(fallback_evidence_ids, "fallback evidence_ids")
-	closed = content.rstrip() + "\n\n<!-- evidence: " + ", ".join(identifiers) + " -->\n"
+	allowed = set(identifiers)
+
+	def normalized_comment(match: re.Match[str]) -> str:
+		values = tuple(sorted({
+			value.strip() for value in match.group(1).split(",")
+			if value.strip() in allowed
+		}))
+		return "" if not values else "<!-- evidence: " + ", ".join(values) + " -->"
+
+	normalized = EVIDENCE_COMMENT_RE.sub(normalized_comment, content)
+	existing = evidence_references(normalized)
+	if existing:
+		return normalized, existing
+	closed = normalized.rstrip() + "\n\n<!-- evidence: " + ", ".join(identifiers) + " -->\n"
 	return closed, identifiers
 
 

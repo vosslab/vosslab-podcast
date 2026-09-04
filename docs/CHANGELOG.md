@@ -1,5 +1,8 @@
 ## 2026-09-03
 
+- Move the reader-visible Project coverage footer outside LLM ownership: finalization now replaces any authored subset with every exact report-day repository and its deterministic commit count from sealed activity evidence, ordered by commit count descending with repository-name tie-breaking.
+- Normalize invented model-authored evidence comment tokens to the caller-owned evidence set, preserving usable prose and trusted provenance instead of discarding complete-post candidates; retain unknown-reference rejection only as an integrity boundary for machine-owned artifacts.
+
 - Stage 6 recovery now validates retained primary-candidate eligibility under the original primary narrative scope instead of retroactively recomputing it under broader recovery coverage. A legitimate primary rejection can therefore activate recovery without being misclassified as corrupted lineage.
 - Stage 6 promotion accounting now reports a `NoArtifact` outcome as unavailable rather than claiming that one complete post was promoted with an empty artifact identity.
 - The publication orchestrator now resolves its optional route-runner override once into the normal command runner, so every downstream editorial operation receives a concrete adapter and the image decorator cannot crash after Stage F on `NoneType.run`. The decorator's tolerant parser also recovers the first valid placement object from common explanatory prose or Markdown-code-fence wrappers while retaining machine validation of every image ID, position, and final path.

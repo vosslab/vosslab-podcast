@@ -293,6 +293,30 @@ def test_unknown_evidence_reference_is_reported() -> None:
 
 
 #============================================
+def test_authored_unknown_evidence_references_are_normalized() -> None:
+	"""Treat invented model citation tokens as recoverable presentation noise."""
+	content, evidence_ids = daily_blog.artifacts.ensure_evidence_references(
+		"Useful prose.\n\n<!-- evidence: known, invented -->\n", ("known",),
+	)
+
+	assert evidence_ids == ("known",)
+	assert "<!-- evidence: known -->" in content
+	assert "invented" not in content
+
+
+#============================================
+def test_only_unknown_authored_evidence_uses_trusted_fallback() -> None:
+	"""Close provenance mechanically when no authored citation token is usable."""
+	content, evidence_ids = daily_blog.artifacts.ensure_evidence_references(
+		"Useful prose.\n\n<!-- evidence: invented -->\n", ("known-a", "known-b"),
+	)
+
+	assert evidence_ids == ("known-a", "known-b")
+	assert "invented" not in content
+	assert "<!-- evidence: known-a, known-b -->" in content
+
+
+#============================================
 def test_wrong_repository_evidence_is_reported() -> None:
 	"""Evidence cannot substantiate an artifact outside its owning repository."""
 	source = packet("vosslab/other")

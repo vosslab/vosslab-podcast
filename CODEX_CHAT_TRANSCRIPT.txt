@@ -4099,3 +4099,48 @@ Tests
 Next actions
 1. Use the next ordinary live run to confirm Stage 6 descends into recovery instead of stopping on
    source-decision validation.
+
+---
+Session Update: 2026-09-03 (model-authored evidence normalization)
+
+Change
+- Removed citation-token compliance as an editorial availability condition. Model-authored evidence
+  comments are now normalized against caller-owned evidence authority; invented tokens are discarded,
+  valid tokens are retained, and deterministic code supplies trusted provenance when none remains.
+- Retained unknown-reference rejection only for corrupt or incorrectly constructed machine-owned
+  artifacts, where it represents an integrity boundary rather than an LLM-quality gate.
+
+Tests
+- Focused artifact, Stage 6, recovery, and publication-validation coverage passed 109 tests under
+  Python 3.12.
+- The complete Python 3.12 permanent suite passed all 4,010 tests in 30.61 seconds.
+
+Next actions
+1. Confirm on a future ordinary run that invented evidence tokens are reported as normalized metadata
+   rather than making complete-post generations unavailable.
+
+---
+Session Update: 2026-09-03 (machine-owned project coverage)
+
+Change
+- Moved the reader-visible Project coverage footer outside LLM ownership. After final editorial and
+  image selection, deterministic code replaces any authored coverage section with every repository
+  in the sealed exact-commit activity and its commit count, in canonical repository order.
+- Bound the footer transition into the incumbent journal before publication validation so the final
+  artifact identity and decision trail remain replayable.
+- Confirmed the omitted August 31 repository was vosslab/peptidyle-learning-engine with 8 exact
+  commits. The full exact activity counts were Ferrum 3, Peptidyle 8, starter template 1, syllabus
+  10, and podcast 4.
+
+Tests
+- Focused publication coverage, validation, bundle, and contract tests passed 33 tests under Python
+  3.12.
+- The complete Python 3.12 permanent suite passed all 4,012 tests in 30.54 seconds with the final
+  incumbent-journal integration active.
+- The controlled no-egress publication E2E then passed initial import, same-date replacement,
+  selected-only image transfer, successful cleanup, rendered verification, and expected page-failure
+  diagnostic retention with the deterministic footer transition active.
+
+Next actions
+1. Republish August 31 through the ordinary command when desired to replace its old four-repository
+   authored footer with the five-repository exact-count footer.
