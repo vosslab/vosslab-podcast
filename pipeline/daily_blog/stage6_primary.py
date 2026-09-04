@@ -206,6 +206,8 @@ def _run_primary_editors(
 	)
 	editor_view = context.plan.materialize("primary", batch_index, generation_ids)
 	candidate_json = daily_blog.stage6._anonymous_posts(context.value, editor_source)
+	if candidate_json is None:
+		return editing
 	editor_requests = tuple(daily_blog.stage6_execution.build_request(
 		context.value, context.run_id, item, editor_view, stage.editor_route,
 		daily_blog.complete_post_editor_prompts.render_complete_post_editor_prompt(

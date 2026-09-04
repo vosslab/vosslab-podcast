@@ -134,6 +134,11 @@ def _ranked_item_queues(
 	"""Group an already-canonical evidence sequence into exact-slice queues."""
 	queues: dict[int, dict[str, collections.deque]] = {}
 	for item in items:
+		# Empty optional evidence carries no citable model context. Keep its
+		# provenance in the sealed packet, but let the next usable source serve
+		# the repository instead of manufacturing an invalid zero-length excerpt.
+		if not item.content:
+			continue
 		rank_queues = queues.setdefault(item.authority_rank, {})
 		repository_queue = rank_queues.setdefault(item.repository, collections.deque())
 		repository_queue.extend(_exact_slices(item, excerpt_chars))
@@ -262,6 +267,8 @@ def _coverage_fits_context(
 	"""Return whether one exact slice per survivor fits this complete frame."""
 	coverage_items: dict[int, dict[str, daily_blog.schema.EvidenceItem]] = {}
 	for item in items:
+		if not item.content:
+			continue
 		by_repository = coverage_items.setdefault(item.authority_rank, {})
 		if item.repository not in by_repository:
 			by_repository[item.repository] = item
@@ -449,10 +456,13 @@ def validate_bounded_evidence_context(
 	activities = {activity.repository: activity for activity in activity_values}
 	if len(activities) != len(activity_values):
 		raise RuntimeError("Bounded evidence context survivor activities overlap repositories.")
+	citable_repositories = {
+		item.repository for packet in ordered for item in packet.items if item.content
+	}
 	if tuple(card.repository for card in context.repositories) != tuple(sorted(
-		activities,
+		citable_repositories,
 		key=lambda repository: _activity_order(activities[repository]),
-		)):
+	)):
 		raise RuntimeError("Bounded evidence context repository cards are not canonical.")
 	for card in context.repositories:
 		expected_card = _repository_card(
@@ -549,14 +559,20 @@ def build_bounded_evidence_context(
 	if len({packet.timezone for packet in ordered}) != 1:
 		raise RuntimeError("Bounded evidence survivor packets disagree on timezone.")
 	limits = _validate_limits(projection_limits)
+	items = tuple(
+		item for packet in ordered for item in packet.items if item.content
+	)
+	citable_repositories = {item.repository for item in items}
 	activities = sorted(
-		(activity for packet in ordered for activity in packet.activity),
+		(
+			activity for packet in ordered for activity in packet.activity
+			if activity.repository in citable_repositories
+		),
 		key=_activity_order,
 	)
 	if len({activity.repository for activity in activities}) != len(activities):
 		raise RuntimeError("Bounded evidence survivor packets overlap repositories.")
 	cards = [_repository_card(activity, limits["commit_subject_chars"]) for activity in activities]
-	items = tuple(item for packet in ordered for item in packet.items)
 	if {card.repository for card in cards} != {item.repository for item in items}:
 		raise RuntimeError(
 			"Bounded evidence survivor activity and citable repository coverage disagree."

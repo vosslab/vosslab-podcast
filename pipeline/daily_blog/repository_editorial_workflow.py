@@ -174,6 +174,22 @@ class RepositoryEditorialCoordinator:
 		aggregates = _aggregate_repository_reliability(joined.results)
 		for summary in aggregates:
 			dependencies.record_summary(summary, daily_blog.run_contracts.ObserveIncumbent())
+		stage5_results = tuple(
+			item for item in joined.results
+			if item.outline is not None and item.story is not None
+			and any(evidence.content for evidence in item.packet.items)
+		)
+		stage5_stories = tuple(sorted(
+			(item.story for item in stage5_results if item.story is not None),
+			key=lambda item: item.artifact_id,
+		))
+		stage5_outlines = tuple(sorted(
+			(item.outline for item in stage5_results if item.outline is not None),
+			key=lambda item: item.artifact_id,
+		))
+		stage5_packets = tuple(sorted(
+			(item.packet for item in stage5_results), key=lambda item: item.packet_id,
+		))
 		artifact = {
 			"schema_version": "vosslab.daily-blog.repository-editorial.v1",
 			"repositories": [{
@@ -186,11 +202,12 @@ class RepositoryEditorialCoordinator:
 				"degraded": item.degraded,
 				"evidence_summary_attempted": item.evidence_summary_attempted,
 				"evidence_summary_succeeded": item.evidence_summary_succeeded,
+				"stage5_included": item in stage5_results,
 			} for item in joined.results],
-			"survivor_packet_ids": [item.packet_id for item in joined.packets],
+			"survivor_packet_ids": [item.packet_id for item in stage5_packets],
 			"reliability": [item.to_dict() for item in aggregates],
 		}
-		if not joined.repo_stories:
+		if not stage5_stories:
 			dependencies.write_artifact("repository_editorial.json", artifact)
 			self._raise_terminal_fault(joined, projected, aggregates, rubric_sha256)
 		context_chars = min(
@@ -198,12 +215,12 @@ class RepositoryEditorialCoordinator:
 			daily_blog.daily_outline_prompts.MAX_EVIDENCE_CONTEXT_CHARS,
 		)
 		evidence_context = daily_blog.projection.build_bounded_evidence_context(
-			joined.packets,
+			stage5_packets,
 			dependencies.config.projection_limits,
 			context_chars,
 		)
 		daily_blog.projection.validate_bounded_evidence_context(
-			joined.packets,
+			stage5_packets,
 			evidence_context,
 		)
 		artifact["stage5_evidence_context"] = {
@@ -213,7 +230,7 @@ class RepositoryEditorialCoordinator:
 		}
 		dependencies.write_artifact("stage5_evidence_context.json", evidence_context.to_dict())
 		value = daily_blog.daily_outline_workflow.DailyOutlineInput(
-			joined.repo_stories, joined.repo_outlines, joined.packets, evidence_context,
+			stage5_stories, stage5_outlines, stage5_packets, evidence_context,
 			os.path.abspath(dependencies.config.output_root),
 		)
 		artifact["stage5_repository_context"] = {

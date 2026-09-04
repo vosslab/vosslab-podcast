@@ -114,6 +114,9 @@ summary falls back to deterministic bounded evidence. The original sealed packet
 The coordinator refits the context after an outline exists so JSON escaping and the Stage C writer frame cannot turn
 ordinary model or evidence size into a terminal failure.
 
+Empty optional evidence is retained in the sealed acquisition packet but omitted from model excerpts. A repository
+with no non-empty evidence is excluded from the later editorial survivor scope; other repositories continue.
+
 ## C: Repository summaries
 
 | Step | Work | Ownership | Working output |

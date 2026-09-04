@@ -4259,3 +4259,36 @@ Tests
 
 Next actions
 1. Rerunning 2026-08-16 will end cleanly after A5 with a no-activity message.
+
+---
+Session Update: 2026-09-04 (empty evidence survivor reduction)
+
+Change
+- Stage 5 ignores zero-character optional evidence when deriving citable excerpts. If a repository
+  has no non-empty evidence, its outline and story are removed from the remaining blog scope while
+  other survivors proceed normally.
+
+Tests
+- Added no pytest. One-time deterministic replay of saved 2026-08-03 evidence completed bounded
+  projection with five repositories and 15 exact excerpts; no route or model call was made.
+
+Next actions
+1. Rerun the external editorial workflow for 2026-08-03 only when a fresh publication is desired.
+
+---
+Session Update: 2026-09-04 (optional-editor recovery and longer posts)
+
+Change
+- Made oversized optional candidate waves ordinary degradation in repository outlines, repository
+  stories, and complete-post editing. Existing grounded generator or writer candidates remain
+  eligible to continue; no candidate-context size mismatch raises a pipeline fault.
+
+Tests
+- Added no pytest. Existing permanent workflow tests are sufficient and the new behavior is a
+  normal degradation path, not a model-compliance contract.
+- Focused repository editorial, bounded-evidence, Stage 6, Stage 7, and prompt-registry checks:
+  38 passed under Python 3.12.
+
+Next actions
+1. The activated maker brief still owns post length. Approve exact new writer and final-synthesis
+   wording before changing that human-owned contract or its activation receipt.

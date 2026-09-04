@@ -213,13 +213,13 @@ def _unique(
 
 
 #============================================
-def _anonymous_stories(items: collections.abc.Iterable[daily_blog.artifacts.RepoStory]) -> str:
-	"""Render canonical anonymous whole candidates for independent editors."""
+def _anonymous_stories(items: collections.abc.Iterable[daily_blog.artifacts.RepoStory]) -> str | None:
+	"""Render optional anonymous candidates, or omit an overlarge editor wave."""
 	ordered = _unique(items)
 	value = json.dumps({"stories": [{"content": item.content} for item in ordered]}, sort_keys=True,
 		separators=(",", ":"), ensure_ascii=True)
 	if len(value) > daily_blog.repository_story_prompts.MAX_CANDIDATE_STORIES_CHARS:
-		raise RuntimeError("Repository-story candidate context exceeds its bounded limit.")
+		return None
 	return value
 
 
@@ -334,15 +334,16 @@ def run_repository_story(
 	editing = daily_blog.replication.ReplicationResult(daily_blog.artifacts.RepoStory, ())
 	if writer_peers:
 		candidate_json = _anonymous_stories(writer_peers)
-		editor_requests = tuple(_request(value, "4_2", "editor", str(index + 1), config.editor_route,
-			daily_blog.repository_story_prompts.render_repository_story_editor(outline_json, evidence_json,
-				candidate_json, "editor-" + str(index + 1), loaded_value), config, contract_identity,
-			rubric_identity, tuple(item.content_hash for item in writer_peers)) for index in range(config.editor_count))
-		if any(len(request.prompt) > config.prompt_limits["editor_chars"] for request in editor_requests):
-			editor_requests = ()
-		if editor_requests:
-			editing = daily_blog.replication.replicate(editor_requests, route_runner, budget, daily_blog.artifacts.RepoStory,
-				lambda result: _story(value, result), lambda item: _eligible(value, item), cache_load, cache_accept)
+		if candidate_json is not None:
+			editor_requests = tuple(_request(value, "4_2", "editor", str(index + 1), config.editor_route,
+				daily_blog.repository_story_prompts.render_repository_story_editor(outline_json, evidence_json,
+					candidate_json, "editor-" + str(index + 1), loaded_value), config, contract_identity,
+				rubric_identity, tuple(item.content_hash for item in writer_peers)) for index in range(config.editor_count))
+			if any(len(request.prompt) > config.prompt_limits["editor_chars"] for request in editor_requests):
+				editor_requests = ()
+			if editor_requests:
+				editing = daily_blog.replication.replicate(editor_requests, route_runner, budget, daily_blog.artifacts.RepoStory,
+					lambda result: _story(value, result), lambda item: _eligible(value, item), cache_load, cache_accept)
 	editor_peers = _unique(editing.eligible)
 	peers = editor_peers or writer_peers
 	if incumbent is not None:

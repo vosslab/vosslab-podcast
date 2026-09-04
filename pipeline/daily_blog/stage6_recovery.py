@@ -55,7 +55,7 @@ class _RecoveryContext:
 		[object, daily_blog.agents.AgentResult], daily_blog.artifacts.CompletePost,
 	]
 	anonymous_posts: collections.abc.Callable[
-		[object, collections.abc.Iterable[daily_blog.artifacts.CompletePost]], str,
+		[object, collections.abc.Iterable[daily_blog.artifacts.CompletePost]], str | None,
 	]
 	plan: daily_blog.stage6_attempt_plan.Stage6AttemptPlan
 	rendered_context: str
@@ -109,7 +109,7 @@ def recover_complete_post(
 		[object, daily_blog.agents.AgentResult], daily_blog.artifacts.CompletePost,
 	],
 	anonymous_posts: collections.abc.Callable[
-		[object, collections.abc.Iterable[daily_blog.artifacts.CompletePost]], str,
+		[object, collections.abc.Iterable[daily_blog.artifacts.CompletePost]], str | None,
 	],
 	plan: daily_blog.stage6_attempt_plan.Stage6AttemptPlan,
 ) -> object:
@@ -247,6 +247,8 @@ def _run_recovery_editors(
 	candidate_json = context.anonymous_posts(
 		context.value.stage6_input, editor_source,
 	)
+	if candidate_json is None:
+		return editing, True
 	editor_requests = tuple(daily_blog.stage6_execution.build_request(
 		context.value.stage6_input, context.run_id, item, editor_view,
 		stage.editor_route,

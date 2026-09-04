@@ -16,6 +16,7 @@ origin belongs there too. Rules: [REPO_STYLE.md](REPO_STYLE.md).
 - once the final blog post is created, all the previous steps become unneeded; a fresh run would replace them. But before the final blog post is
   created, the previous steps are needed for tracing issues.
 - Robust means the workflow succeeds despite imperfect, stochastic LLM behavior. It does not mean adding more gates that require the LLM to follow increasingly strict instructions.
+- robust means not crash, even when the data is imperfect, what we do with the imperfect varies, it is salvagable? if yes, clean it up; would trying again with a fresh LLM give a better result? if yes, try it again; it is a complete loss? if yes, skip it;
 - An LLM stage may be sloppy, incomplete, malformed, or contrary to instructions. The pipeline should salvage whatever is usable, normalize it mechanically where possible, and continue unless the artifact is genuinely unusable for the next stage.
 - LLMs are stochastic, random, and do not always follow the rules
 - Treat imperfect LLM output as normal operating conditions.

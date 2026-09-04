@@ -6,6 +6,9 @@
   `evidence_unavailable` pipeline fault. It makes no post and no publisher call; the terminal run
   receipt records the normal no-publication result.
 
+- Stage 5 now ignores empty optional evidence when choosing exact model excerpts. A repository with
+  no usable evidence is removed from the later blog scope while other survivors continue.
+
 - Added aggregate successful-response character counts to human CLI editorial progress, such as
   `E1 | 2 complete posts received; 12,345 chars`. The journal records only the bounded scalar, not
   prompts or model text, and legacy events without the field replay as zero.
@@ -16,8 +19,13 @@
   whole report as an implementation defect. Stage 4 repeats that fit after the outline exists, so its
   distinct writer frame also remains a recoverable normalization boundary.
 
+- Optional outline mergers, repository-story editors, and complete-post editors now decline an
+  overlarge candidate context as ordinary editorial degradation. The typed upstream candidate remains
+  available for promotion and publication; a contextual size mismatch cannot terminate the run.
+
 ### Fixes and Maintenance
 
+- Synchronized shared style guides, tests, and repository support files from the starter template.
 - Synchronized shared style guides, tests, and repository support files from the starter template.
 ## 2026-09-03
 

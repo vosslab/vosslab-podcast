@@ -520,8 +520,8 @@ def _unique(items: collections.abc.Iterable[daily_blog.artifacts.CompletePost]) 
 def _anonymous_posts(
 	value: Stage6Input,
 	items: collections.abc.Iterable[daily_blog.artifacts.CompletePost],
-) -> str:
-	"""Render anonymous mechanically grounded drafts for an editor."""
+) -> str | None:
+	"""Render optional drafts, or preserve the usable writer post without an editor wave."""
 	candidates = [
 		{
 			"alias": "candidate-" + str(index + 1),
@@ -531,7 +531,7 @@ def _anonymous_posts(
 	]
 	rendered = json.dumps({"candidates": candidates}, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
 	if len(rendered) > daily_blog.complete_post_editor_prompts.MAX_CANDIDATE_POSTS_CHARS:
-		raise RuntimeError("Stage 6 editor candidate context exceeds its bounded limit.")
+		return None
 	return rendered
 #============================================
 def _aggregate(steps: tuple[daily_blog.replication.StepReliability, ...]) -> daily_blog.replication.StepReliability:
