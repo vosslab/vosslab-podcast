@@ -261,7 +261,7 @@ report.
   `output/`, or `output_smoke/` rules: they can hide legitimate tracked paths such as
   `tests/output/` inside the repository.
 - Keep tool-mandated names distinct when renaming them would break the tool. Root-anchor a local
-  exception such as `/out/`; keep named tool output such as `/graphify-out/` in its owning rule.
+  exception such as `/output-pipeline/`; keep named tool output such as `/graphify-output-pipeline/` in its owning rule.
   Filename patterns such as `*.out` and logs are separate policies, not output-directory aliases.
 - Put large inputs under a clear root folder such as `data/`.
 - Note input and output locations in `docs/USAGE.md`.

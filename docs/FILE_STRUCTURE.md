@@ -117,11 +117,11 @@ bounded delivery-result and text-free failure protocol at that cross-repository 
 
 ## Generated daily-blog data
 
-The configured `output_root` and output owner place generated data below `out/<owner>/` by default.
+The configured `output_root` and output owner place generated data below `output-pipeline/<owner>/` by default.
 The exact paths are configuration-dependent; durable records use logical paths where appropriate.
 
 ```text
-out/<owner>/
+output-pipeline/<owner>/
 +- daily_blog/YYYY-MM-DD/
 |  +- summary.jsonl                       bounded terminal receipts for this date
 |  +- post.md                             trusted selected-post handoff during finalization
@@ -160,8 +160,8 @@ no runtime reader.
 
 ## Generated artifacts
 
-`out/` holds local generated content, date-owned daily-blog records, caches, and locks; its exact
-location is configured by `output_root`. `graphify-out/` is an ignored orientation map generated
+`output-pipeline/` holds local generated content, date-owned daily-blog records, caches, and locks; its exact
+location is configured by `output_root`. `graphify-output-pipeline/` is an ignored orientation map generated
 from source. Python bytecode, build outputs, virtual environments, local reports, and generated or
 local-only directories are also ignored by [`.gitignore`](../.gitignore). Do not treat an ignored
 path as authoritative source or runtime proof.

@@ -46,7 +46,7 @@ consumer boundary modules.
 ### Report date owns a publication
 
 **Decision.** `report_date` is the sole identity for a daily publication. The producer writes one
-stable bundle at `out/<owner>/daily_blog/YYYY-MM-DD/publication/`; the publisher owns the matching
+stable bundle at `output-pipeline/<owner>/daily_blog/YYYY-MM-DD/publication/`; the publisher owns the matching
 archive, rendered release, post, and receipt under the same date. `bundle_sha256` verifies bundle
 integrity without defining a second publication identity.
 

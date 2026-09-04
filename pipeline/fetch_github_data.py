@@ -74,7 +74,7 @@ def parse_args() -> argparse.Namespace:
 	)
 	parser.add_argument(
 		"--output",
-		default="out/github_data.jsonl",
+		default="output-pipeline/github_data.jsonl",
 		help="Path to JSONL output file.",
 	)
 	fork_group = parser.add_mutually_exclusive_group()
@@ -104,7 +104,7 @@ def parse_args() -> argparse.Namespace:
 	)
 	parser.add_argument(
 		"--daily-cache-dir",
-		default="out/daily_cache",
+		default="output-pipeline/daily_cache",
 		help="Directory for per-day JSONL cache files.",
 	)
 	args = parser.parse_args()
@@ -144,8 +144,8 @@ def main() -> None:
 	token = runtime_credentials.get_github_token()
 	log_step("Using authenticated GitHub API mode via runtime GITHUB_TOKEN.")
 	api_cache_dir = pipeline_settings.resolve_user_scoped_out_path(
-		os.path.join("out", "cache", "github_api"),
-		os.path.join("out", "cache", "github_api"),
+		os.path.join("output-pipeline", "cache", "github_api"),
+		os.path.join("output-pipeline", "cache", "github_api"),
 		user,
 	)
 
@@ -204,12 +204,12 @@ def main() -> None:
 
 	scoped_output_arg = pipeline_settings.resolve_user_scoped_out_path(
 		args.output,
-		"out/github_data.jsonl",
+		"output-pipeline/github_data.jsonl",
 		user,
 	)
 	scoped_daily_cache_dir = pipeline_settings.resolve_user_scoped_out_path(
 		args.daily_cache_dir,
-		"out/daily_cache",
+		"output-pipeline/daily_cache",
 		user,
 	)
 	date_text = window_start_local.date().isoformat()

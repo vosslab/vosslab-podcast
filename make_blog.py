@@ -34,7 +34,7 @@ def repository_root() -> pathlib.Path:
 REPO_ROOT = repository_root()
 PIPELINE_DIR = REPO_ROOT / "pipeline"
 SETTINGS_PATH = REPO_ROOT / "settings.yaml"
-OUTPUT_ROOT = REPO_ROOT / "out"
+OUTPUT_ROOT = REPO_ROOT / "output-pipeline"
 DATE_PATTERN = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}$")
 if str(PIPELINE_DIR) not in sys.path:
 	sys.path.insert(0, str(PIPELINE_DIR))

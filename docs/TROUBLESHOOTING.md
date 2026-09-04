@@ -31,7 +31,7 @@ the named stage's input before deleting or regenerating cached files. See
 
 Symptom: a date-owned daily publication needs diagnosis or recovery.
 
-Start with `out/<owner>/daily_blog/YYYY-MM-DD/summary.jsonl`, then inspect the
+Start with `output-pipeline/<owner>/daily_blog/YYYY-MM-DD/summary.jsonl`, then inspect the
 date-owned `run_state.json` and `runlog-YYYY-MM-DD.jsonl`. The
 summary is the bounded terminal receipt and authoritative editorial-step
 summary. The run state contains phase state and selected-artifact identity; the
@@ -164,7 +164,7 @@ them, run:
 
 ```bash
 source source_me.sh && python3 automation/report_blog_reliability.py \
-  --owner OUTPUT_OWNER --report-date YYYY-MM-DD --output-root out
+  --owner OUTPUT_OWNER --report-date YYYY-MM-DD --output-root output-pipeline
 ```
 
 The report is advisory: its denominators show observed runs and attempts, and

@@ -125,7 +125,7 @@ def date_stamp_output_path(output_path: str, date_text: str) -> str:
 	"""
 	Ensure output filename includes one local-date stamp.
 	"""
-	candidate = (output_path or "").strip() or "out/github_data.jsonl"
+	candidate = (output_path or "").strip() or "output-pipeline/github_data.jsonl"
 	candidate = candidate.replace("{date}", date_text)
 	directory, filename = os.path.split(candidate)
 	if not filename:
@@ -147,8 +147,8 @@ def repo_list_cache_path(user: str) -> str:
 	"""
 	return os.path.abspath(
 		pipeline_settings.resolve_user_scoped_out_path(
-			os.path.join("out", "cache", "list_repos.json"),
-			os.path.join("out", "cache", "list_repos.json"),
+			os.path.join("output-pipeline", "cache", "list_repos.json"),
+			os.path.join("output-pipeline", "cache", "list_repos.json"),
 			user,
 		)
 	)

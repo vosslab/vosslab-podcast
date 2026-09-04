@@ -18,9 +18,9 @@ from podlib import prompt_loader
 
 WORD_RE = re.compile(r"[A-Za-z0-9']+")
 DATE_STAMP_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
-DEFAULT_INPUT_PATH = "out/outline.json"
-DEFAULT_OUTPUT_PATH = "out/blog_post.md"
-DEFAULT_REPO_DRAFT_CACHE_DIR = "out/blog_repo_drafts"
+DEFAULT_INPUT_PATH = "output-pipeline/outline.json"
+DEFAULT_OUTPUT_PATH = "output-pipeline/blog_post.md"
+DEFAULT_REPO_DRAFT_CACHE_DIR = "output-pipeline/blog_repo_drafts"
 
 
 #============================================
@@ -822,7 +822,7 @@ def date_stamp_output_path(output_path: str, date_text: str) -> str:
 	"""
 	Ensure output filename includes one local-date stamp and no time stamp.
 	"""
-	candidate = (output_path or "").strip() or "out/blog_post.md"
+	candidate = (output_path or "").strip() or "output-pipeline/blog_post.md"
 	candidate = candidate.replace("{date}", date_text)
 	directory, filename = os.path.split(candidate)
 	if not filename:

@@ -19,8 +19,8 @@ WHITESPACE_RE = re.compile(r"\s+")
 XML_TAG_RE = re.compile(r"</?[a-zA-Z][a-zA-Z0-9_]*[^>]*>")
 DATE_STAMP_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
 H1_RE = re.compile(r"^#\s+(.+)", re.MULTILINE)
-DEFAULT_INPUT_PATH = "out/blog_post.md"
-DEFAULT_OUTPUT_PATH = "out/bluesky_post.txt"
+DEFAULT_INPUT_PATH = "output-pipeline/blog_post.md"
+DEFAULT_OUTPUT_PATH = "output-pipeline/bluesky_post.txt"
 
 
 #============================================

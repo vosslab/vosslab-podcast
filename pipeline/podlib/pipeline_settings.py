@@ -155,17 +155,17 @@ def get_github_allowed_emails(settings: dict) -> list[str]:
 #============================================
 def resolve_user_scoped_out_path(path_text: str, default_path_text: str, user: str) -> str:
 	"""
-	Scope default out/ paths under out/<user>/ while preserving custom paths.
+	Scope default output-pipeline/ paths under output-pipeline/<user>/ while preserving custom paths.
 	"""
 	path_value = (path_text or "").strip()
 	default_value = (default_path_text or "").strip()
 	if path_value != default_value:
 		return path_value
-	if not default_value.startswith("out/"):
+	if not default_value.startswith("output-pipeline/"):
 		return path_value
-	tail = default_value[len("out/"):].lstrip("/")
+	tail = default_value[len("output-pipeline/"):].lstrip("/")
 	user_value = (user or "").strip() or "vosslab"
-	return os.path.join("out", user_value, tail)
+	return os.path.join("output-pipeline", user_value, tail)
 
 
 #============================================

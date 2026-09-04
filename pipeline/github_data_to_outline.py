@@ -19,11 +19,11 @@ from podlib import prompt_loader
 
 
 WORD_RE = re.compile(r"[A-Za-z0-9']+")
-DEFAULT_INPUT_PATH = "out/github_data.jsonl"
-DEFAULT_OUTLINE_JSON = "out/outline.json"
-DEFAULT_OUTLINE_TXT = "out/outline.md"
-DEFAULT_REPO_SHARDS_DIR = "out/outline_repos"
-DEFAULT_DAILY_OUTLINES_DIR = "out/daily_outlines"
+DEFAULT_INPUT_PATH = "output-pipeline/github_data.jsonl"
+DEFAULT_OUTLINE_JSON = "output-pipeline/outline.json"
+DEFAULT_OUTLINE_TXT = "output-pipeline/outline.md"
+DEFAULT_REPO_SHARDS_DIR = "output-pipeline/outline_repos"
+DEFAULT_DAILY_OUTLINES_DIR = "output-pipeline/daily_outlines"
 DAILY_GLOBAL_TARGET_WORDS = 2000
 MIN_REPO_TARGET_WORDS = 750
 
@@ -640,7 +640,7 @@ def summarize_outline_with_llm(
 	model_override: str,
 	max_tokens: int,
 	repo_limit: int,
-	repo_shards_dir: str = "out/outline_repos",
+	repo_shards_dir: str = "output-pipeline/outline_repos",
 	continue_mode: bool = True,
 	depth: int = 1,
 ) -> dict:

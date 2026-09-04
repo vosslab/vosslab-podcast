@@ -25,7 +25,7 @@ The central editorial question remains:
 The live August 24 run completed publication successfully:
 
 - Run: `20260901T032524Z-28fe5e871f`
-- Run state: `out/vosslab/daily_blog/2026-08-24/runs/20260901T032524Z-28fe5e871f/run_state.json`
+- Run state: `output-pipeline/vosslab/daily_blog/2026-08-24/runs/20260901T032524Z-28fe5e871f/run_state.json`
 - Published source: `/home/vosslab/nsh/vosslab-daily-blog/docs/blog/posts/2026-08-24.md`
 - Published page: `http://aella.local:8016/blog/2026/08/24/make-the-real-path-carry-the-proof/`
 - Final result: completed, imported, built, and verified with `outcome=degraded`

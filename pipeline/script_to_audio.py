@@ -14,8 +14,8 @@ from podlib import audio_utils
 from podlib import pipeline_settings
 
 
-DEFAULT_SCRIPT_PATH = "out/podcast_script.txt"
-DEFAULT_OUTPUT_PATH = "out/podcast_audio.mp3"
+DEFAULT_SCRIPT_PATH = "output-pipeline/podcast_script.txt"
+DEFAULT_OUTPUT_PATH = "output-pipeline/podcast_audio.mp3"
 DATE_STAMP_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
 
 

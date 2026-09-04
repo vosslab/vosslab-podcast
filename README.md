@@ -89,7 +89,7 @@ Each attempt keeps bounded working state while it can still help diagnose a fail
 delivery, the producer retains only the date-owned machine log and terminal summary:
 
 ```text
-out/<owner>/daily_blog/<report_date>/
+output-pipeline/<owner>/daily_blog/<report_date>/
   runlog-<report_date>.jsonl     canonical machine events
   summary.jsonl                  canonical terminal outcome
 ```
@@ -101,7 +101,7 @@ as `2026-08-17/vosslab-repository-<content-hash>-capture.png`; deterministic cod
 ## Also useful: local content drafts
 
 When a date-owned, evidence-sealed Work Log post is not needed, the general GitHub-to-content route
-creates user-scoped drafts beneath `out/<github_username>/`:
+creates user-scoped drafts beneath `output-pipeline/<github_username>/`:
 
 ```bash
 source source_me.sh && python3 automation/run_local_pipeline.py --last-day

@@ -29,7 +29,7 @@ def parse_args(arguments: list[str] | None = None) -> argparse.Namespace:
 	)
 	parser.add_argument(
 		"--output-root",
-		default="out",
+		default="output-pipeline",
 		help="Trusted producer output root used only for the GitHub client cache directory.",
 	)
 	return parser.parse_args(arguments)

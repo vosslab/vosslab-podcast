@@ -324,7 +324,7 @@ def _runtime(
 #============================================
 def _assert_date_summary_retains_run(root: pathlib.Path, run_id: str) -> dict:
 	"""Return the current date-owned parser-validated terminal summary."""
-	path = root / "out" / "vosslab" / "daily_blog" / REPORT_DATE / "summary.jsonl"
+	path = root / "output-pipeline" / "vosslab" / "daily_blog" / REPORT_DATE / "summary.jsonl"
 	if not path.is_file():
 		raise RuntimeError("Terminal run did not produce a date summary.")
 	lines = path.read_text(encoding="utf-8").splitlines()
@@ -361,11 +361,11 @@ def _success_and_overwrite() -> None:
 	with tempfile.TemporaryDirectory(prefix="daily-publication-e2e-") as temporary:
 		root, publisher = pathlib.Path(temporary), pathlib.Path(temporary) / "publisher"
 		_initialize_publisher(publisher)
-		(root / "out").mkdir()
+		(root / "output-pipeline").mkdir()
 		_write_settings(root / "settings.yaml", publisher, root / "mirrors")
 		with contextlib.ExitStack() as stack:
 			stack.enter_context(unittest.mock.patch.object(make_blog, "SETTINGS_PATH", root / "settings.yaml"))
-			stack.enter_context(unittest.mock.patch.object(make_blog, "OUTPUT_ROOT", root / "out"))
+			stack.enter_context(unittest.mock.patch.object(make_blog, "OUTPUT_ROOT", root / "output-pipeline"))
 			first_runtime, _first_runner = _runtime(root, publisher, False)
 			with unittest.mock.patch("daily_blog.orchestrator.new_run_id", return_value="controlled-first"):
 				if make_blog.command(["--date", REPORT_DATE], runtime=first_runtime) != 0:
@@ -374,11 +374,11 @@ def _success_and_overwrite() -> None:
 			_assert_published(publisher, first_summary)
 			replacement_root = root / "replacement"
 			replacement_root.mkdir()
-			(replacement_root / "out").mkdir()
+			(replacement_root / "output-pipeline").mkdir()
 			_write_settings(replacement_root / "settings.yaml", publisher, replacement_root / "mirrors")
 			replacement_runtime, _replacement_runner = _runtime(replacement_root, publisher, False)
 			stack.enter_context(unittest.mock.patch.object(make_blog, "SETTINGS_PATH", replacement_root / "settings.yaml"))
-			stack.enter_context(unittest.mock.patch.object(make_blog, "OUTPUT_ROOT", replacement_root / "out"))
+			stack.enter_context(unittest.mock.patch.object(make_blog, "OUTPUT_ROOT", replacement_root / "output-pipeline"))
 			with unittest.mock.patch("daily_blog.orchestrator.new_run_id", return_value="controlled-replacement"):
 				if make_blog.command(["--date", REPORT_DATE, "--yes"], runtime=replacement_runtime) != 0:
 					raise RuntimeError("Same-date replacement command failed.")
@@ -391,12 +391,12 @@ def _post_import_failure() -> None:
 	with tempfile.TemporaryDirectory(prefix="daily-publication-e2e-") as temporary:
 		root, publisher = pathlib.Path(temporary), pathlib.Path(temporary) / "publisher"
 		_initialize_publisher(publisher)
-		(root / "out").mkdir()
+		(root / "output-pipeline").mkdir()
 		_write_settings(root / "settings.yaml", publisher, root / "mirrors")
 		runtime, _runner = _runtime(root, publisher, True)
 		with contextlib.ExitStack() as stack:
 			stack.enter_context(unittest.mock.patch.object(make_blog, "SETTINGS_PATH", root / "settings.yaml"))
-			stack.enter_context(unittest.mock.patch.object(make_blog, "OUTPUT_ROOT", root / "out"))
+			stack.enter_context(unittest.mock.patch.object(make_blog, "OUTPUT_ROOT", root / "output-pipeline"))
 			stack.enter_context(unittest.mock.patch("daily_blog.orchestrator.new_run_id", return_value="controlled-page-failure"))
 			try:
 				make_blog.command(["--date", REPORT_DATE], runtime=runtime)
@@ -405,7 +405,7 @@ def _post_import_failure() -> None:
 					raise RuntimeError("Public command propagated the wrong verification error.") from error
 			else:
 				raise RuntimeError("Operational page verification failure did not propagate.")
-		record_path = root / "out" / "vosslab" / "daily_blog" / REPORT_DATE / "run_state.json"
+		record_path = root / "output-pipeline" / "vosslab" / "daily_blog" / REPORT_DATE / "run_state.json"
 		record = json.loads(record_path.read_text(encoding="utf-8"))
 		if record["state"] != "failed" or record["phases"]["page_verification"]["status"] != "failed":
 			raise RuntimeError("Post-import verification failure did not persist its failed phase.")
@@ -416,7 +416,7 @@ def _post_import_failure() -> None:
 			or summary["terminal_fault_category"]
 		):
 			raise RuntimeError("Terminal summary did not retain the bounded operational failure.")
-		post = root / "out" / "vosslab" / "daily_blog" / REPORT_DATE / "post.md"
+		post = root / "output-pipeline" / "vosslab" / "daily_blog" / REPORT_DATE / "post.md"
 		installed = publisher / "docs" / "blog" / "posts" / (REPORT_DATE + ".md")
 		release = publisher / "generated" / "releases" / REPORT_DATE
 		if not (post.is_file() and installed.is_file() and release.is_dir()):

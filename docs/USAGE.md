@@ -28,7 +28,7 @@ source source_me.sh && python3 automation/run_local_pipeline.py --last-week
 - `--settings PATH`, `--max-retries COUNT`, and `--retry-wait-seconds SECONDS`
   override the documented runner defaults.
 
-The runner writes user-scoped artifacts under `out/<github_username>/`, including
+The runner writes user-scoped artifacts under `output-pipeline/<github_username>/`, including
 the fetched JSONL, `blog_post_*.md`, `bluesky_post-*.txt`, podcast text, and any
 generated MP3 files. It stops after fetch when the selected window has no commits.
 
@@ -80,7 +80,7 @@ corroboration, not a test prerequisite or a claim about synthetic prose quality.
 - Live input comes from the configured repository roster, exact Git activity, and bounded
   source projections. The model sees the deterministic evidence packet through an isolated route.
 - The producer writes date-owned artifacts below
-	`out/<owner>/daily_blog/<report_date>/`. Working state and the sealed bundle remain while a run is
+	`output-pipeline/<owner>/daily_blog/<report_date>/`. Working state and the sealed bundle remain while a run is
 	incomplete; verified success retains `runlog-<report_date>.jsonl` and `summary.jsonl`.
 - The sealed bundle contains the validated selected post, its artifact identity, evidence,
   repository roster, editorial projection, prompt-contract binding, activation receipt, and source-

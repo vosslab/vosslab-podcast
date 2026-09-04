@@ -18,7 +18,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 	parser.add_argument(
 		"--report-date", required=True, help="Report date in YYYY-MM-DD format.",
 	)
-	parser.add_argument("--output-root", default="out", help="Output root (default: out).")
+	parser.add_argument("--output-root", default="output-pipeline", help="Output root (default: output-pipeline).")
 	parser.add_argument(
 		"--json", action="store_true", dest="as_json", help="Emit canonical JSON.",
 	)

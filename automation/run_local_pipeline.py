@@ -330,7 +330,7 @@ def resolve_latest_fetch_output_path(repo_root: str, user: str) -> str:
 	"""
 	Resolve latest user-scoped fetch JSONL output file.
 	"""
-	base_dir = os.path.join(repo_root, "out", user)
+	base_dir = os.path.join(repo_root, "output-pipeline", user)
 	pattern = os.path.join(base_dir, "github_data_*.jsonl")
 	candidates = [path for path in glob.glob(pattern) if os.path.isfile(path)]
 	if not candidates:
@@ -362,7 +362,7 @@ def render_artifact_list(
 	"""
 	Print final artifact path list for quick review.
 	"""
-	user_out = os.path.join(repo_root, "out", user)
+	user_out = os.path.join(repo_root, "output-pipeline", user)
 	blog_path = find_latest_match(user_out, "blog_post_*.md")
 	bluesky_path = find_latest_match(user_out, "bluesky_post-*.txt")
 	podcast_script_path = find_latest_match(user_out, "podcast_script-*.txt")
@@ -413,7 +413,7 @@ def main() -> None:
 	if args.no_api_calls and (not os.path.isfile(fetch_output_path)):
 		raise RuntimeError(
 			"No cached fetch output found for --no-api-calls mode. "
-			+ f"Expected under {os.path.join(repo_root, 'out', user)}."
+			+ f"Expected under {os.path.join(repo_root, 'output-pipeline', user)}."
 		)
 
 	stage_rows: list[tuple[str, str, str]] = []
@@ -450,7 +450,7 @@ def main() -> None:
 			raise RuntimeError(f"Pipeline aborted at stage: {stage_name}")
 
 	render_summary_table(console, stage_rows)
-	log_step(console, f"Pipeline run complete: {os.path.join(repo_root, 'out', user)}", style="green")
+	log_step(console, f"Pipeline run complete: {os.path.join(repo_root, 'output-pipeline', user)}", style="green")
 	render_artifact_list(console, repo_root, user, date_text)
 
 

@@ -33,7 +33,7 @@ and `--depth`.
 
 ## Current output contract
 
-Default artifacts are below `out/<github_username>/`; the full contract is
+Default artifacts are below `output-pipeline/<github_username>/`; the full contract is
 [docs/OUT_DIRECTORY_ORGANIZATION_SPEC.md](../OUT_DIRECTORY_ORGANIZATION_SPEC.md).
 
 - Fetch: `github_data_YYYY-MM-DD.jsonl` and `daily_cache/github_data_YYYY-MM-DD.jsonl`.
@@ -58,7 +58,7 @@ Default artifacts are below `out/<github_username>/`; the full contract is
 
 The initial milestone design named retired paths and contracts, including
 `outline_github_data.py`, `outline_to_bluesky_post.py`, `outline_to_podcast_script.py`, a shell
-runner, bare `out/` paths, and WAV/AIFF episode outputs. Those descriptions are superseded by the
+runner, bare `output-pipeline/` paths, and WAV/AIFF episode outputs. Those descriptions are superseded by the
 current executable paths and output contract above.
 
 The broad pipeline still uses local LLM stages. Its retired daily-blog revival assumptions do not

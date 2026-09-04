@@ -9,7 +9,7 @@ step identifiers so presentation remains separate from workflow authority.
 Every run writes beneath one report-date-owned directory:
 
 ```text
-out/<owner>/daily_blog/YYYY-MM-DD/
+output-pipeline/<owner>/daily_blog/YYYY-MM-DD/
 ```
 
 The `report_date` is the sole durable publication identity. A rerun for the same date updates or

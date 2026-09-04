@@ -21,9 +21,9 @@ SPEAKER_LINE_RE = re.compile(r"^\s*([A-Za-z0-9_ -]+)\s*:\s*(.+?)\s*$")
 SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+")
 H1_RE = re.compile(r"^#\s+(.+)", re.MULTILINE)
 DATE_STAMP_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
-DEFAULT_INPUT_PATH = "out/blog_post.md"
-DEFAULT_OUTPUT_PATH = "out/podcast_script.txt"
-DEFAULT_NARRATION_OUTPUT_PATH = "out/podcast_narration.txt"
+DEFAULT_INPUT_PATH = "output-pipeline/blog_post.md"
+DEFAULT_OUTPUT_PATH = "output-pipeline/podcast_script.txt"
+DEFAULT_NARRATION_OUTPUT_PATH = "output-pipeline/podcast_narration.txt"
 
 # Q101 radio personality labels in speaker order
 ALL_SPEAKER_LABELS = ["BHOST", "KCOLOR", "CPRODUCER"]

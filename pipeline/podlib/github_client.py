@@ -23,7 +23,7 @@ class GitHubClient:
 		self,
 		token: str,
 		log_fn: collections.abc.Callable[[str], None] | None = None,
-		cache_dir: str = "out/cache/github_api",
+		cache_dir: str = "output-pipeline/cache/github_api",
 	) -> None:
 		if not isinstance(token, str) or not token.strip():
 			raise RuntimeError("GitHubClient requires the runtime GITHUB_TOKEN credential.")

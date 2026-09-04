@@ -12,9 +12,9 @@ from podlib import pipeline_settings
 
 DATE_STAMP_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
 DAILY_JSON_RE = re.compile(r"^github_outline-(\d{4}-\d{2}-\d{2})\.json$")
-DEFAULT_DAILY_OUTLINES_DIR = "out/daily_outlines"
-DEFAULT_OUTPUT_JSON = "out/outline.json"
-DEFAULT_OUTPUT_MD = "out/compilation_outline.md"
+DEFAULT_DAILY_OUTLINES_DIR = "output-pipeline/daily_outlines"
+DEFAULT_OUTPUT_JSON = "output-pipeline/outline.json"
+DEFAULT_OUTPUT_MD = "output-pipeline/compilation_outline.md"
 
 
 #============================================

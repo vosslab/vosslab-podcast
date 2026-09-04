@@ -101,7 +101,7 @@ def test_generate_blog_markdown_with_llm_retries_for_limit(
 		max_tokens=1200,
 		word_limit=50,
 		continue_mode=False,
-		repo_draft_cache_dir="out/test_blog_repo_drafts",
+		repo_draft_cache_dir="output-pipeline/test_blog_repo_drafts",
 	)
 	assert pipeline_text_utils.count_words(markdown) >= 50
 	assert markdown.startswith("# Title")
@@ -185,7 +185,7 @@ def test_generate_blog_markdown_with_llm_rejects_out_of_band(
 			max_tokens=1200,
 			word_limit=100,
 			continue_mode=False,
-			repo_draft_cache_dir="out/test_blog_repo_drafts",
+			repo_draft_cache_dir="output-pipeline/test_blog_repo_drafts",
 		)
 		assert False, "Expected RuntimeError for hard word-band rejection"
 	except RuntimeError as error:
@@ -215,8 +215,8 @@ def test_date_stamp_output_path_adds_local_date() -> None:
 	"""
 	Output filename should gain a local-date suffix when missing.
 	"""
-	path = outline_to_blog_post.date_stamp_output_path("out/blog_post.md", "2026-02-22")
-	assert path.endswith("out/blog_post_2026-02-22.md")
+	path = outline_to_blog_post.date_stamp_output_path("output-pipeline/blog_post.md", "2026-02-22")
+	assert path.endswith("output-pipeline/blog_post_2026-02-22.md")
 
 
 #============================================
@@ -225,10 +225,10 @@ def test_date_stamp_output_path_keeps_existing_date() -> None:
 	Output filename should not duplicate an existing date stamp.
 	"""
 	path = outline_to_blog_post.date_stamp_output_path(
-		"out/blog_post_2026-02-22.md",
+		"output-pipeline/blog_post_2026-02-22.md",
 		"2026-02-22",
 	)
-	assert path.endswith("out/blog_post_2026-02-22.md")
+	assert path.endswith("output-pipeline/blog_post_2026-02-22.md")
 
 
 #============================================

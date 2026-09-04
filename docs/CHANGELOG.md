@@ -2,6 +2,9 @@
 
 ### Behavior or Interface Changes
 
+- Generated pipeline artifacts now default to `output-pipeline/` rather than `out/`, including
+  Daily Blog run state, caches, and the shared content-pipeline command defaults.
+
 - A report day with verified zero activity now closes as `no_activity` instead of raising an
   `evidence_unavailable` pipeline fault. It makes no post and no publisher call; the terminal run
   receipt records the normal no-publication result.

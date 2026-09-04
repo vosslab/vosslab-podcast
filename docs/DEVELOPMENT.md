@@ -156,9 +156,9 @@ Generated material is ignored unless it is a deliberately tracked project
 artifact. Keep generated directories at the repository root and do not use
 their contents as authority for source behavior. In particular:
 
-- `out/` holds user-scoped run state, sealed bundles, and publication receipts.
+- `output-pipeline/` holds user-scoped run state, sealed bundles, and publication receipts.
 - `generated/` belongs to generated site output; the producer does not own it.
-- `graphify-out/` is an orientation index, not proof of the current runtime.
+- `graphify-output-pipeline/` is an orientation index, not proof of the current runtime.
 - `output_screenshot_capture/` is temporary capture output and is removed by its harness.
 
 `docs/BLOG_CONTRACT.md` is human-owned and byte-protected. Ordinary pipeline

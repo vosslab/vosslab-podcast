@@ -187,7 +187,7 @@ def _load_logging_config(settings: dict) -> DailyBlogLoggingConfig:
 	return DailyBlogLoggingConfig(max_events_per_run=configured.get("max_events_per_run"))
 
 
-def load_config(settings_path: str = "settings.yaml", output_root: str = "out") -> DailyBlogConfig:
+def load_config(settings_path: str = "settings.yaml", output_root: str = "output-pipeline") -> DailyBlogConfig:
 	"""Load and validate the complete daily-blog producer configuration."""
 	settings, resolved_path = pipeline_settings.load_settings(settings_path)
 	daily_blog_settings = pipeline_settings.get_nested_value(settings, ["daily_blog"], {})

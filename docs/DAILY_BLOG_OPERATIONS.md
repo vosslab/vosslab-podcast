@@ -143,7 +143,7 @@ fail; it is not a publishable fallback. Exhausting the ladder is a pipeline faul
 Each run is stored under:
 
 ```text
-out/<owner>/daily_blog/YYYY-MM-DD/
+output-pipeline/<owner>/daily_blog/YYYY-MM-DD/
 ```
 
 The interactive command prints a Rich progress summary instead of streaming machine JSON. Its first
@@ -202,7 +202,7 @@ matching work while the prior attempt remains an auditable receipt.
 The producer writes one selected-post handoff at:
 
 ```text
-out/<owner>/daily_blog/YYYY-MM-DD/publication/
+output-pipeline/<owner>/daily_blog/YYYY-MM-DD/publication/
 ```
 
 Its manifest is `vosslab.daily-blog.bundle.v9`. It binds the report date, selected

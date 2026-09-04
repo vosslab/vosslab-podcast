@@ -59,10 +59,10 @@ run record and event log before opening larger artifacts.
 
 ```bash
 source source_me.sh && python3 -m json.tool \
-  out/OWNER/daily_blog/YYYY-MM-DD/run_state.json
-sed -n '1,160p' out/OWNER/daily_blog/YYYY-MM-DD/runlog-YYYY-MM-DD.jsonl
+  output-pipeline/OWNER/daily_blog/YYYY-MM-DD/run_state.json
+sed -n '1,160p' output-pipeline/OWNER/daily_blog/YYYY-MM-DD/runlog-YYYY-MM-DD.jsonl
 source source_me.sh && python3 -m json.tool \
-  out/OWNER/daily_blog/YYYY-MM-DD/publication_bundle.json
+  output-pipeline/OWNER/daily_blog/YYYY-MM-DD/publication_bundle.json
 ```
 
 Completed runs distinguish editorial degradation, typed pipeline faults, and incomplete operational
@@ -89,14 +89,14 @@ complete bundle's integrity; it is not a version or an alternate publication ide
 
 ```bash
 source source_me.sh && python3 -m json.tool \
-  out/OWNER/daily_blog/YYYY-MM-DD/publication/bundle.json
+  output-pipeline/OWNER/daily_blog/YYYY-MM-DD/publication/bundle.json
 source source_me.sh && python3 -m json.tool \
-  out/OWNER/daily_blog/YYYY-MM-DD/publication/evidence.json
+  output-pipeline/OWNER/daily_blog/YYYY-MM-DD/publication/evidence.json
 source source_me.sh && python3 -m json.tool \
-  out/OWNER/daily_blog/YYYY-MM-DD/publication/editorial_projection.json
+  output-pipeline/OWNER/daily_blog/YYYY-MM-DD/publication/editorial_projection.json
 source source_me.sh && python3 -m json.tool \
-  out/OWNER/daily_blog/YYYY-MM-DD/publication/publication_surface.json
-sed -n '1,220p' out/OWNER/daily_blog/YYYY-MM-DD/publication/post.md
+  output-pipeline/OWNER/daily_blog/YYYY-MM-DD/publication/publication_surface.json
+sed -n '1,220p' output-pipeline/OWNER/daily_blog/YYYY-MM-DD/publication/post.md
 ```
 
 The producer bundle binds the selected whole post, evidence, roster, survivor surface, and editorial

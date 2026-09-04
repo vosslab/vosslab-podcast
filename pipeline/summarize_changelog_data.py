@@ -27,7 +27,7 @@ from podlib import changelog_summarizer
 from podlib import prompt_loader
 
 
-DEFAULT_INPUT_PATH = "out/github_data.jsonl"
+DEFAULT_INPUT_PATH = "output-pipeline/github_data.jsonl"
 DEFAULT_THRESHOLD = 6000
 
 
