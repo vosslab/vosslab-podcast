@@ -23,6 +23,7 @@ import daily_blog.projection
 import daily_blog.prompt_registry.editorial_contracts
 import daily_blog.recovery
 import daily_blog.repository_contracts
+import daily_blog.routes
 import daily_blog.schema
 import daily_blog.stage6
 
@@ -503,7 +504,7 @@ def test_image_decorator_route_is_optional_and_machine_resolves_selected_id(tmp_
 	decorated = daily_blog.publication_images.decorate_post(
 		post, catalog, (surface.packet,), Runner(), daily_blog.agents.RouteBudget(),
 		daily_blog.editorial_stage_config.RoleRoute("image_decorator", ("fixture",)),
-		str(tmp_path), retry_attempts=0, maximum_parallel_calls=1,
+		str(tmp_path), retry_attempts=0, maximum_parallel_calls=2,
 	)
 
 	assert decorated.image_paths == ("2026-08-29/first.png",)
@@ -551,6 +552,16 @@ def test_image_decorator_failure_preserves_publishable_incumbent(tmp_path: Path)
 		post, catalog, plan, (surface.packet,),
 	)
 	assert decorated.image_paths == (image.publish_path,)
+
+	class FailedRunner:
+		def run(self, _route: object, _prompt: str, _working_directory: str) -> str:
+			raise daily_blog.routes.EditorialRouteProcessError("fixture route failure")
+
+	assert daily_blog.publication_images.decorate_post(
+		post, catalog, (surface.packet,), FailedRunner(), daily_blog.agents.RouteBudget(2),
+		daily_blog.editorial_stage_config.RoleRoute("image_decorator", ("fixture",)),
+		str(tmp_path), retry_attempts=0, maximum_parallel_calls=2,
+	) is post
 
 
 #============================================

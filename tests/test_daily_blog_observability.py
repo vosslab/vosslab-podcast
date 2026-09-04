@@ -380,3 +380,35 @@ def test_human_progress_prints_phase_completion_time(
 
 
 #============================================
+def test_editorial_observations_do_not_repeat_owning_phase_duration(
+	tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str],
+) -> None:
+	"""Concurrent child observations do not masquerade as independently timed work."""
+	progress = daily_blog.observability.HumanProgress(
+		REPORT_DATE, str(tmp_path / "runlog.jsonl"),
+	)
+	clock = iter((10.0, 184.0))
+	progress._clock = clock.__next__
+	progress.event("daily_publication.phase_started", {"phase": "repository_editorial"})
+	progress.event("daily_publication.editorial_step_completed", {
+		"step": "3.1", "outcome": "succeeded", "attempted": 6,
+		"succeeded": 6, "failed": 0, "reused": 0, "repaired": 0,
+		"disagreements": 0, "selected_artifact_id": "", "reasons": [],
+	})
+	progress.event("daily_publication.editorial_step_completed", {
+		"step": "4.4", "outcome": "succeeded", "attempted": 3,
+		"succeeded": 3, "failed": 0, "reused": 0, "repaired": 0,
+		"disagreements": 0, "selected_artifact_id": "", "reasons": [],
+	})
+	progress.event("daily_publication.phase_completed", {
+		"phase": "repository_editorial", "reused": False,
+	})
+	output = capsys.readouterr().out
+
+	assert "B1 | 6 repository outlines received\n" in output
+	assert "C4 | 3 repository summaries promoted\n" in output
+	assert output.count("completed in 2m54s") == 0
+	assert "B | Completed in 2m54s" in output
+
+
+#============================================

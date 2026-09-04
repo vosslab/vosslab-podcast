@@ -17,6 +17,7 @@ import daily_blog.repository_story_prompts
 import daily_blog.repository_story_workflow
 import daily_blog.route_cache
 import daily_blog.recovery
+import daily_blog.repository_evidence_context
 import daily_blog.schema
 
 
@@ -142,6 +143,8 @@ class RepositoryJobResult:
 	story: daily_blog.artifacts.RepoStory | None
 	terminal_fault: daily_blog.recovery.TerminalFaultCategory | None = None
 	terminal_fault_digest: daily_blog.recovery.TerminalFaultDigest | None = None
+	evidence_summary_attempted: bool = False
+	evidence_summary_succeeded: bool = False
 
 	def __post_init__(self) -> None:
 		if (
@@ -160,6 +163,12 @@ class RepositoryJobResult:
 			or self.terminal_fault is not self.terminal_fault_digest.category
 		):
 			raise RuntimeError("Repository editorial job result terminal fault digest is invalid.")
+		if (
+			type(self.evidence_summary_attempted) is not bool
+			or type(self.evidence_summary_succeeded) is not bool
+			or self.evidence_summary_succeeded and not self.evidence_summary_attempted
+		):
+			raise RuntimeError("Repository editorial evidence summary observation is invalid.")
 		if self.outline_result is None:
 			if any(item is not None for item in (self.story_result, self.outline, self.story)) or self.terminal_fault is None:
 				raise RuntimeError("Repository editorial failed job result is invalid.")
@@ -417,8 +426,12 @@ def _run_job(value: RepositoryJobInput) -> RepositoryJobResult:
 		raise RuntimeError("Repository editorial job requires exact input.")
 	if {item.repository for item in value.packet.items} != {value.repository}:
 		raise RuntimeError("Repository editorial job packet scope conflicts with repository.")
+	evidence_context = daily_blog.repository_evidence_context.build_repository_evidence_context(
+		value.packet, value.repository, value.working_directory, value.config,
+		value.budget, value.runner, value.cache_load, value.cache_accept,
+	)
 	outline_value = daily_blog.repository_outline_workflow.RepositoryOutlineInput(
-		value.packet, value.repository, value.working_directory,
+		value.packet, value.repository, value.working_directory, evidence_context.content,
 	)
 	outline_result = daily_blog.repository_outline_workflow.run_repository_outline(
 		outline_value, value.config.repository_outline, value.budget, value.runner,
@@ -426,17 +439,24 @@ def _run_job(value: RepositoryJobInput) -> RepositoryJobResult:
 	)
 	outline = outline_result.artifact
 	if outline is None:
-		return RepositoryJobResult(value.repository, value.packet, outline_result, None, None, None)
+		return RepositoryJobResult(
+			value.repository, value.packet, outline_result, None, None, None,
+			evidence_summary_attempted=evidence_context.summary_attempted,
+			evidence_summary_succeeded=evidence_context.summary_succeeded,
+		)
 	story_value = daily_blog.repository_story_workflow.RepositoryStoryInput(
-		outline, (value.packet,), value.working_directory,
+		outline, (value.packet,), value.working_directory, evidence_context.content,
 	)
 	story_result = daily_blog.repository_story_workflow.run_repository_story(
 		story_value, value.config.repository_story, value.budget, value.runner,
 		rubric=value.rubric, rubric_sha256=value.rubric_sha256,
 		loaded_prompts=value.story_prompts, cache_load=value.cache_load, cache_accept=value.cache_accept,
 	)
-	return RepositoryJobResult(value.repository, value.packet, outline_result, story_result,
-		outline, story_result.artifact)
+	return RepositoryJobResult(
+		value.repository, value.packet, outline_result, story_result, outline, story_result.artifact,
+		evidence_summary_attempted=evidence_context.summary_attempted,
+		evidence_summary_succeeded=evidence_context.summary_succeeded,
+	)
 
 
 def _canonical_effects(

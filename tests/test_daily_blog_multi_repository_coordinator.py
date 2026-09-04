@@ -53,6 +53,20 @@ def _packet(marker: str = "b") -> daily_blog.schema.EvidencePacket:
 	)
 
 
+def _oversized_packet() -> daily_blog.schema.EvidencePacket:
+	"""Return one valid repository packet too large for direct Stage 3/4 rendering."""
+	repository = "owner/lost"
+	item = daily_blog.schema.EvidenceItem.create(
+		"dated_changelog", repository, "a" * 40, "CHANGELOG.md", "b" * 40,
+		"Large grounded change. " + ("implementation detail " * 4000), "git show",
+	)
+	return daily_blog.schema.EvidencePacket.create(
+		"2026-08-29", "America/Chicago", True, {},
+		[{"repository": repository, "object_available": True}],
+		[_activity(repository, "a")], [item],
+	)
+
+
 def _config(tmp_path: pathlib.Path) -> daily_blog.config.DailyBlogConfig:
 	"""Return compact real stage policies without relying on tunable defaults."""
 	route = daily_blog.editorial_stage_config.RoleRoute("fixture", ("fixture",))
@@ -134,6 +148,46 @@ def test_surviving_repository_promotes_a_paired_local_artifact_within_shared_bud
 
 	assert tuple(item.repositories for item in joined.repo_stories) == (("owner/survivor",),)
 	assert budget.used_calls > 0
+
+
+def test_oversized_repository_is_summarized_once_and_keeps_original_provenance(tmp_path: pathlib.Path) -> None:
+	"""One bounded summary serves both stages without replacing authoritative evidence."""
+	packet = _oversized_packet()
+	runner = _Runner(packet, lose_repository=False)
+	joined = _run(packet, _config(tmp_path), daily_blog.agents.RouteBudget(2), runner, _cache(tmp_path), tmp_path)
+
+	assert len(joined.results) == 1
+	result = joined.results[0]
+	assert result.evidence_summary_attempted and result.evidence_summary_succeeded
+	assert result.packet is not packet and result.packet.packet_id == joined.packets[0].packet_id
+	assert result.outline is not None and result.story is not None
+	assert result.outline.packet_ids == result.story.packet_ids == (result.packet.packet_id,)
+	assert runner.calls_by_repository["owner/lost"] == 9
+
+
+def test_failed_oversized_summary_uses_bounded_evidence_without_losing_repository(tmp_path: pathlib.Path) -> None:
+	"""Ordinary summarizer loss falls back to deterministic evidence projection."""
+	packet = _oversized_packet()
+
+	class SummaryLossRunner(_Runner):
+		def run(
+			self, route: daily_blog.editorial_stage_config.RoleRoute,
+			prompt: str, working_directory: str,
+		) -> str:
+			if prompt.startswith("# Repository context reduction"):
+				with self._lock:
+					self.calls += 1
+					self.calls_by_repository["owner/lost"] = self.calls_by_repository.get("owner/lost", 0) + 1
+				return ""
+			return super().run(route, prompt, working_directory)
+
+	joined = _run(
+		packet, _config(tmp_path), daily_blog.agents.RouteBudget(2),
+		SummaryLossRunner(packet, lose_repository=False), _cache(tmp_path), tmp_path,
+	)
+	result = joined.results[0]
+	assert result.evidence_summary_attempted and not result.evidence_summary_succeeded
+	assert result.outline is not None and result.story is not None
 
 
 def test_validated_cache_reuses_equivalent_work_but_rubric_change_requires_fresh_routes(tmp_path: pathlib.Path) -> None:

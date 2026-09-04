@@ -1,5 +1,8 @@
 ## 2026-09-03
 
+- Human progress no longer repeats the enclosing B/D/E/F batch duration on every editorial observation. Child lines report counts when observed; the measured shared wall time appears once on the owning phase completion line.
+- Oversized per-repository evidence now receives one bounded, cacheable summarizer operation before repository outline and story authoring. Both stages share the compact model context while the original machine-owned evidence packet remains the sole provenance and downstream availability source; unusable summarizer output falls back to the deterministic bounded evidence projection instead of dropping the repository.
+
 ### Behavior or Interface Changes
 
 - Added monotonic elapsed-time reporting to every human-visible daily-publication step. Existing
@@ -94,6 +97,10 @@
 
 ### Fixes and Maintenance
 
+- Fixed the optional image decorator's execution-scope identity. Its single request now carries and
+  executes under the same configured concurrency bound, so a suitable-image attempt can run after
+  final synthesis instead of failing before dispatch. Typed route failure still preserves the
+  already-publishable selected post and continues without decoration.
 - Moved Stage 6 phase start before its model work. Complete-post generation now reports its real
   elapsed time, and an exception during that work is attributed to Stage 6 instead of the previously
   completed daily-outline phase.

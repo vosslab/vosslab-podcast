@@ -532,22 +532,6 @@ class HumanProgress:
 	_PHASE_RESULT_LINES = frozenset({
 		"repository_discovery", "mirror_refresh", "activity_location", "evidence_assembly",
 	})
-	_STEP_PHASES = {
-		"3.1": "repository_editorial", "3.2": "repository_editorial",
-		"3.3": "repository_editorial", "3.4": "repository_editorial",
-		"4.1": "repository_editorial", "4.2": "repository_editorial",
-		"4.3": "repository_editorial", "4.4": "repository_editorial",
-		"repository_job": "repository_editorial",
-		"5.1": "stage5_daily_outline", "5.2": "stage5_daily_outline",
-		"5.3": "stage5_daily_outline", "5.4": "stage5_daily_outline",
-		"5.5": "stage5_daily_outline",
-		"6.1": "stage6_complete_post", "6.2": "stage6_complete_post",
-		"6.3": "stage6_complete_post", "6.4": "stage6_complete_post",
-		"stage6_complete_post": "stage6_complete_post",
-		"7.1": "stage7_final_synthesis", "7.2": "stage7_final_synthesis",
-		"7.3": "stage7_final_synthesis", "publication_validation": "publication_validation",
-	}
-
 	def __init__(self, report_date: str, journal_path: str) -> None:
 		"""Create one terminal renderer for a validated date and confined journal path."""
 		self.report_date = _opaque(report_date, "Progress report date")
@@ -604,10 +588,6 @@ class HumanProgress:
 				message += f"; {details['failed']} unavailable"
 			if details["reused"]:
 				message += f"; {details['reused']} reused"
-			phase = self._STEP_PHASES.get(step)
-			if phase in self._started:
-				elapsed = self._clock() - self._started[phase]
-				message += f"; completed in {format_elapsed(elapsed)}"
 			self._write(message, "green" if details["succeeded"] else "yellow")
 		elif event == "daily_publication.phase_failed":
 			phase = str(details["phase"])

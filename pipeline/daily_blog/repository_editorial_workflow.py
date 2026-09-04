@@ -184,6 +184,8 @@ class RepositoryEditorialCoordinator:
 				"outcome": "failed" if item.terminal_fault is not None else "succeeded",
 				"terminal_fault": "" if item.terminal_fault is None else str(item.terminal_fault),
 				"degraded": item.degraded,
+				"evidence_summary_attempted": item.evidence_summary_attempted,
+				"evidence_summary_succeeded": item.evidence_summary_succeeded,
 			} for item in joined.results],
 			"survivor_packet_ids": [item.packet_id for item in joined.packets],
 			"reliability": [item.to_dict() for item in aggregates],

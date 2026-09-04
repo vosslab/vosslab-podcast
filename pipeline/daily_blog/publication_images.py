@@ -203,7 +203,7 @@ def decorate_post(
 		cache_input_hash=identity,
 	)
 	result = daily_blog.agents.execute_requests(
-		[request], runner, 1, budget,
+		[request], runner, maximum_parallel_calls, budget,
 	)[0]
 	if not result.ok:
 		return post

@@ -3990,3 +3990,61 @@ Tests
 Next actions
 1. Observe the corrected Stage 6 duration on the next ordinary live run; do not create a permanent
    timing or live-model test for that observation.
+
+---
+Session Update: 2026-09-03 (August 27 and August 31 scaling diagnosis)
+
+Change
+- Compared the live report-date runs end to end and traced wall time, route calls, concurrency,
+  cache reuse, repository attrition, context construction, and the August 31 decorator crash.
+- Fixed the decorator's request/executor concurrency mismatch. The request now executes under its
+  configured bounded scope, while typed route failure preserves the already-selected post.
+- Kept this repair independent of prompt prose, retry counts, context limits, admission gates, and
+  unrelated stage concurrency.
+
+Tests
+- `source source_me.sh && python3 -m pytest tests/test_daily_blog_publication_admission.py tests/test_daily_blog_observability.py -q`
+  passed 36 tests under Python 3.12.
+
+Next actions
+1. Treat repository evidence projection and survivor attrition as separate design work; do not
+   increase limits or add model calls merely to make the historical runs pass.
+
+---
+Session Update: 2026-09-03 (oversized repository evidence summarization)
+
+Change
+- Added one bounded, cacheable repository-evidence summarizer operation only when a repository's
+  canonical evidence exceeds the existing Stage 3/4 model-context limit.
+- Shared the resulting compact context across repository outline and story authoring while retaining
+  the original EvidencePacket as the sole machine-owned provenance and downstream evidence source.
+- Made empty or failed summarizer output an ordinary degraded result: deterministic bounded evidence
+  is used instead, so stochastic summarizer failure does not remove the repository.
+- Recorded per-repository summary attempt and success observations in repository_editorial.json.
+
+Tests
+- Focused repository workflow, coordinator, publication admission, observability, and lint coverage
+  passed 277 tests under Python 3.12.
+- The complete Python 3.12 permanent suite passed all 3,991 tests in 30.06 seconds.
+
+Next actions
+1. Confirm the next large-evidence live day reports one summary call per oversized repository and
+   retains every evidence-backed repository through Stage 3/4 without raising the context limit.
+
+---
+Session Update: 2026-09-03 (honest editorial batch timing)
+
+Change
+- Removed fabricated B1-C5, D1-D5, E1-E5, and F1-F3 elapsed suffixes. Those child observations are
+  emitted after their concurrent coordinator returns and do not own independent wall-clock timers.
+- Kept the actual measured batch duration on the owning B, D, E, or F phase completion line, so each
+  human-visible observation still appears on completion without repeating shared wall time.
+
+Tests
+- Focused progress, publication admission, repository coordinator, and lint coverage passed 263
+  tests under Python 3.12.
+- The complete Python 3.12 permanent suite passed all 3,992 tests in 30.36 seconds.
+
+Next actions
+1. Use the next ordinary live run to confirm the compact console reports one duration per measured
+   editorial batch and never attributes that same duration to every child observation.

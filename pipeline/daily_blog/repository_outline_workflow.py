@@ -29,6 +29,7 @@ class RepositoryOutlineInput:
 	packet: daily_blog.schema.EvidencePacket
 	repository: str
 	working_directory: str
+	model_evidence_context: str | None = None
 
 	#============================================
 	def __post_init__(self) -> None:
@@ -52,6 +53,11 @@ class RepositoryOutlineInput:
 			raise RuntimeError("Repository-outline input packet must isolate one repository.")
 		if self.packet.packet_id != daily_blog.io_utils.hash_value(self.packet.content_dict()):
 			raise RuntimeError("Repository-outline input packet identity is invalid.")
+		if self.model_evidence_context is not None and (
+			type(self.model_evidence_context) is not str or not self.model_evidence_context
+			or len(self.model_evidence_context) > daily_blog.repository_outline_prompts.MAX_EVIDENCE_CONTEXT_CHARS
+		):
+			raise RuntimeError("Repository-outline model evidence context is invalid.")
 
 	#============================================
 	@property
@@ -68,8 +74,10 @@ class RepositoryOutlineInput:
 	#============================================
 	def render_evidence(self) -> str:
 		"""Return canonical bounded evidence without prior model conversation."""
-		value = json.dumps(daily_blog.schema.model_cache_packet_content(self.packet), sort_keys=True, separators=(",", ":"),
-			ensure_ascii=True)
+		value = self.model_evidence_context or json.dumps(
+			daily_blog.schema.model_cache_packet_content(self.packet), sort_keys=True,
+			separators=(",", ":"), ensure_ascii=True,
+		)
 		if len(value) > daily_blog.repository_outline_prompts.MAX_EVIDENCE_CONTEXT_CHARS:
 			raise RuntimeError("Repository-outline evidence context exceeds its bounded limit.")
 		return value

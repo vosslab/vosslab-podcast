@@ -33,6 +33,7 @@ class RepositoryStoryInput:
 	outline: daily_blog.artifacts.RepoOutline
 	packets: tuple[daily_blog.schema.EvidencePacket, ...]
 	working_directory: str
+	model_evidence_context: str | None = None
 
 	#============================================
 	def __post_init__(self) -> None:
@@ -74,6 +75,11 @@ class RepositoryStoryInput:
 			self.outline, self.packets, allowed_repositories=self.outline.repositories,
 		).eligible:
 			raise RuntimeError("Repository-story input outline is not mechanically eligible.")
+		if self.model_evidence_context is not None and (
+			type(self.model_evidence_context) is not str or not self.model_evidence_context
+			or len(self.model_evidence_context) > daily_blog.repository_story_prompts.MAX_EVIDENCE_CONTEXT_CHARS
+		):
+			raise RuntimeError("Repository-story model evidence context is invalid.")
 
 	#============================================
 	@property
@@ -98,8 +104,10 @@ class RepositoryStoryInput:
 	#============================================
 	def render_evidence(self) -> str:
 		"""Return canonical bounded packet source without model conversation state."""
-		value = json.dumps([daily_blog.schema.model_cache_packet_content(packet) for packet in self.packets], sort_keys=True,
-			separators=(",", ":"), ensure_ascii=True)
+		value = self.model_evidence_context or json.dumps(
+			[daily_blog.schema.model_cache_packet_content(packet) for packet in self.packets], sort_keys=True,
+			separators=(",", ":"), ensure_ascii=True,
+		)
 		if len(value) > daily_blog.repository_story_prompts.MAX_EVIDENCE_CONTEXT_CHARS:
 			raise RuntimeError("Repository-story evidence context exceeds its bounded limit.")
 		return value
