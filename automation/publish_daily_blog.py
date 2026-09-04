@@ -54,7 +54,8 @@ def publish_report_date(
 		confirm_replace: Optional narrow terminal callback for an unapproved occupied date.
 
 	Returns:
-		True after an import or replacement, or False when the user declines replacement.
+		True after an import, replacement, or verified no-activity completion; False when the
+		user declines replacement.
 
 	Raises:
 		RuntimeError: The date, existing receipt, generation, bundle, or import is invalid.
@@ -81,6 +82,9 @@ def publish_report_date(
 				config, report_date, force_regeneration=should_replace, runtime=runtime,
 				command_started_at=command_started_at,
 			)
+		if _bundle.get("status") == "no_activity":
+			print(f"No report-day activity for {report_date}; no publication created.")
+			return True
 		print(f"Daily publication: {bundle_path}")
 		print(f"Report date: {report_date}")
 		print(f"Publication status: {'replaced' if should_replace else 'imported'}")

@@ -281,8 +281,28 @@ class DailyPublicationOrchestrator:
 		record_phase_failure(self.record, self.store, error)
 
 	#============================================
+	def _complete_no_activity(self, packet: daily_blog.schema.EvidencePacket) -> tuple[str, dict]:
+		"""Record a normal no-publication terminal result for an empty report day."""
+		# ASVS 2.2.1/2.3.1: only completed, exact empty acquisition may bypass
+		# editorial and publisher stages; retrieval loss remains a normal failure.
+		if (
+			type(packet) is not daily_blog.schema.EvidencePacket
+			or packet.activity or packet.items or packet.mirrors
+		):
+			raise RuntimeError("No-activity completion requires an exact empty evidence packet.")
+		self.record.complete_no_activity()
+		self.store.save(self.record)
+		self.store.append_event(
+			"daily_publication.no_activity_completed",
+			{"activity_count": 0, "evidence_count": 0, "outcome": self.record.outcome, "state": self.record.state},
+		)
+		self.store.finalize_summary(self.record)
+		self.store.discard_completed_working_artifacts()
+		return "", {"report_date": self.report_date, "status": "no_activity"}
+
+	#============================================
 	def run(self) -> tuple[str, dict]:
-		"""Run each durable boundary in its required publication order."""
+		"""Run each durable boundary or close a verified no-activity report date."""
 		try:
 			acquisition = daily_blog.acquisition_workflow.AcquisitionCoordinator(
 				daily_blog.acquisition_workflow.AcquisitionDependencies(
@@ -291,6 +311,8 @@ class DailyPublicationOrchestrator:
 					self.store, self.record, self.cache, self._start, self._complete,
 				)
 			).acquire()
+			if not acquisition.packet.activity:
+				return self._complete_no_activity(acquisition.packet)
 			image_catalog = daily_blog.publication_images.build_image_catalog(
 				acquisition.packet, acquisition.assets,
 			)

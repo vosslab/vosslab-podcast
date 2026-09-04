@@ -68,6 +68,9 @@ class RunStore:
 				"verified_page_sha256",
 			}
 		),
+		"daily_publication.no_activity_completed": frozenset(
+			{"activity_count", "evidence_count", "outcome", "state"}
+		),
 		"daily_publication.run_started": frozenset({"state"}),
 	}
 
@@ -425,6 +428,14 @@ class RunStore:
 		if "outcome" in details and event.endswith("run_completed"):
 			if details["outcome"] not in {"succeeded", "degraded"}:
 				raise RuntimeError("Daily-publication run outcome is unsupported.")
+		if event == "daily_publication.no_activity_completed" and (
+			details["outcome"] != "no_activity"
+			or details["state"] != "completed"
+			or any(type(details[name]) is not int or details[name] != 0 for name in (
+				"activity_count", "evidence_count",
+			))
+		):
+			raise RuntimeError("Daily-publication no-activity completion is invalid.")
 
 	def _event_line(self, event: str, details: dict[str, object]) -> str:
 		"""Validate and serialize one lifecycle-safe publication event."""

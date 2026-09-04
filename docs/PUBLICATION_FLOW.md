@@ -96,6 +96,10 @@ A  Acquire deterministic evidence
 | A5 | Assemble bounded commit, changelog, diff, and supporting-file evidence | MOA | `evidence.json` |
 | A6 | Catalog candidate images with stable evidence identities and no embedded bytes | MOA | `image_catalog.json` |
 
+If A2 through A5 establish an exact empty activity and evidence packet, the run ends as `no_activity`.
+This is a successful no-publication outcome: editorial, validation, bundling, and publisher phases are skipped.
+It is not used for incomplete acquisition, mirror loss, or any non-empty packet.
+
 ## B: Repository outlines
 
 | Step | Work | Ownership | Working output |

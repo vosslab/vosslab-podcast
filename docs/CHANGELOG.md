@@ -2,6 +2,10 @@
 
 ### Behavior or Interface Changes
 
+- A report day with verified zero activity now closes as `no_activity` instead of raising an
+  `evidence_unavailable` pipeline fault. It makes no post and no publisher call; the terminal run
+  receipt records the normal no-publication result.
+
 - Added aggregate successful-response character counts to human CLI editorial progress, such as
   `E1 | 2 complete posts received; 12,345 chars`. The journal records only the bounded scalar, not
   prompts or model text, and legacy events without the field replay as zero.

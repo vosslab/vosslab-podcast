@@ -170,7 +170,7 @@ def _classify_run(summary: dict[str, object], totals: dict[str, object]) -> None
 	state = summary["state"]
 	outcome = summary["outcome"]
 	fault = summary["terminal_fault_category"]
-	if state == "completed" and outcome == "succeeded":
+	if state == "completed" and outcome in {"succeeded", "no_activity"}:
 		totals["completed_succeeded"] += 1
 	elif state == "completed" and outcome == "degraded":
 		totals["completed_editorial_degradation"] += 1

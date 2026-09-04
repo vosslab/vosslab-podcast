@@ -236,7 +236,7 @@ def validate_terminal_summary(value: object) -> dict[str, object]:
 	):
 		raise RuntimeError("Operational failure kind is invalid.")
 	if result["state"] == "completed":
-		if result["outcome"] not in {"succeeded", "degraded"}:
+		if result["outcome"] not in {"succeeded", "degraded", "no_activity"}:
 			raise RuntimeError("Completed terminal summary has an invalid outcome.")
 		if result["terminal_fault_category"] or result["operational_failure_kind"] or result["failure_phase"]:
 			raise RuntimeError("Completed terminal summary has failure facts.")
@@ -251,7 +251,10 @@ def validate_terminal_summary(value: object) -> dict[str, object]:
 			raise RuntimeError("Failed terminal summary requires its failure phase.")
 	if result["publication_completed"] != bool(result["verified_page_sha256"]):
 		raise RuntimeError("Terminal summary publication facts are inconsistent.")
-	if result["state"] == "completed" and not result["publication_completed"]:
+	if (
+		result["state"] == "completed" and result["outcome"] != "no_activity"
+		and not result["publication_completed"]
+	):
 		raise RuntimeError("Completed terminal summary requires verified publication.")
 	steps = value["editorial_steps"]
 	if type(steps) is not list or len(steps) > MAX_SUMMARY_STEPS:
@@ -608,6 +611,12 @@ class HumanProgress:
 				f"Published {self.report_date}: {details['site_import_status']} "
 				f"({details['outcome']}); completed in {duration}",
 				"bold green",
+			)
+		elif event == "daily_publication.no_activity_completed":
+			duration = format_elapsed(self._clock() - self._run_started)
+			self._write(
+				f"No report-day activity for {self.report_date}; no publication created; completed in {duration}",
+				"green",
 			)
 
 	def phase_result(self, phase: str, output: object, reused: bool) -> None:

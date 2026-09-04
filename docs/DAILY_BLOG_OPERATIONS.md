@@ -153,6 +153,10 @@ and successful-response character totals. Color is enabled on capable terminals 
 redirected. The human display is observational and never controls publication. The canonical step
 and filename map lives in the dedicated publication-flow reference.
 
+When acquisition confirms zero report-day commits and evidence items, the run closes successfully as
+`no_activity`. It skips editorial and publication stages, creates no post, and retains the terminal
+summary and run log as the receipt. Acquisition errors still remain failures.
+
 The date directory also owns `summary.jsonl`, the bounded current terminal receipt. Inspect it first
 for the terminal outcome,
 publication status, terminal run-record digest, and verified-page digest. Then inspect

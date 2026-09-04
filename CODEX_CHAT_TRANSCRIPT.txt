@@ -4241,3 +4241,21 @@ Tests
 Next actions
 1. The next external-route daily run can exercise the normal adaptive reduction path without adding
    a model-behavior gate to the permanent suite.
+
+---
+Session Update: 2026-09-04 (verified no-activity completion)
+
+Change
+- A completed empty acquisition now closes the report date as `no_activity`, skips every editorial
+  and publication phase, emits a clear success receipt, and does not create a post or call a model.
+- Retained failure behavior for incomplete acquisition or a non-empty evidence packet; only an exact
+  empty packet can take the no-publication terminal branch.
+
+Tests
+- Added no new pytest. This is a narrow durable-state correction; existing focused and full suites
+  remain the verification boundary rather than creating an implementation-proof scenario test.
+- One-time no-activity run-record round trip passed. Focused state, observability, reliability, CLI,
+  and publication-state checks passed 78 cases; the full Python suite passed 4,040 cases.
+
+Next actions
+1. Rerunning 2026-08-16 will end cleanly after A5 with a no-activity message.

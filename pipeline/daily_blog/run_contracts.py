@@ -32,9 +32,9 @@ LEGAL_PHASES = (
 	"site_import",
 	"page_verification",
 )
-PHASE_STATUSES = {"pending", "running", "completed", "failed"}
+PHASE_STATUSES = {"pending", "running", "completed", "skipped", "failed"}
 RUN_STATES = {"running", "completed", "failed"}
-RUN_OUTCOMES = {"pending", "succeeded", "degraded", "failed"}
+RUN_OUTCOMES = {"pending", "succeeded", "degraded", "no_activity", "failed"}
 BASE_OPERATIONAL_FAILURE_KINDS = frozenset({
 	"editorial_blocked",
 	"external_resource_error",
@@ -449,6 +449,27 @@ class RunRecord:
 		self.completed_at = now
 
 	#============================================
+	def complete_no_activity(self) -> None:
+		"""Close a verified empty report date without inventing editorial work."""
+		acquisition = LEGAL_PHASES[:4]
+		remaining = LEGAL_PHASES[4:]
+		if (
+			self.state != "running" or self.current_phase
+			or any(self.phases[phase].status != "completed" for phase in acquisition)
+			or any(self.phases[phase].status != "pending" for phase in remaining)
+		):
+			raise RuntimeError("No-activity completion requires completed acquisition only.")
+		now = daily_blog.io_utils.utc_now()
+		for phase in remaining:
+			record = self.phases[phase]
+			record.status = "skipped"
+			record.completed_at = now
+		self.state = "completed"
+		self.outcome = "no_activity"
+		self.updated_at = now
+		self.completed_at = now
+
+	#============================================
 	def validate(self) -> None:
 		"""Reject incomplete or internally inconsistent run-state records."""
 		if self.schema_version != RUN_SCHEMA:
@@ -517,12 +538,18 @@ class RunRecord:
 			raise RuntimeError("Failed run requires a failed outcome.")
 		if self.state != "failed" and self.outcome == "failed":
 			raise RuntimeError("Non-failed run cannot retain a failed outcome.")
-		if self.state == "completed" and any(
-			phase.status != "completed" for phase in self.phases.values()
-		):
-			raise RuntimeError("Completed run contains an unfinished phase.")
-		if self.state == "completed" and self.outcome not in {"succeeded", "degraded"}:
-			raise RuntimeError("Completed run requires a successful or degraded outcome.")
+		if self.state == "completed":
+			if self.outcome == "no_activity":
+				if (
+					any(self.phases[phase].status != "completed" for phase in LEGAL_PHASES[:4])
+					or any(self.phases[phase].status != "skipped" for phase in LEGAL_PHASES[4:])
+				):
+					raise RuntimeError("No-activity run phases do not match completed acquisition.")
+			elif (
+				self.outcome not in {"succeeded", "degraded"}
+				or any(phase.status != "completed" for phase in self.phases.values())
+			):
+				raise RuntimeError("Completed run contains an unfinished phase.")
 		if type(self.editorial_transitions) is not list:
 			raise RuntimeError("Run editorial transitions must be a list.")
 		steps = []
@@ -553,7 +580,7 @@ class RunRecord:
 			)
 		if self.best_artifact_id != best_artifact_id:
 			raise RuntimeError("Run incumbent does not match its replayed editorial transitions.")
-		if self.state == "completed":
+		if self.state == "completed" and self.outcome != "no_activity":
 			if (
 				not self.repository_roster
 				or not self.evidence_packet
