@@ -6,7 +6,6 @@ import argparse
 import collections.abc
 import datetime
 import json
-import os
 import pathlib
 import re
 import subprocess
@@ -33,35 +32,10 @@ def repository_root() -> pathlib.Path:
 
 
 REPO_ROOT = repository_root()
-REPO_VENV = REPO_ROOT / ".venv"
 PIPELINE_DIR = REPO_ROOT / "pipeline"
 SETTINGS_PATH = REPO_ROOT / "settings.yaml"
 OUTPUT_ROOT = REPO_ROOT / "out"
 DATE_PATTERN = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}$")
-REQUIRED_PYTHON = (3, 12)
-
-
-#============================================
-def _restart_with_repo_python() -> None:
-	"""Relaunch through the repository's physical Python environment when needed."""
-	if REPO_VENV.is_symlink() or not REPO_VENV.is_dir():
-		raise RuntimeError("make_blog.py requires the physical repository-local .venv.")
-	python_path = REPO_VENV / "bin" / "python3"
-	if not python_path.is_file() or not os.access(python_path, os.X_OK):
-		raise RuntimeError("make_blog.py requires an executable .venv/bin/python3.")
-	if os.path.realpath(sys.prefix) == os.path.realpath(REPO_VENV):
-		if sys.version_info[:2] != REQUIRED_PYTHON:
-			raise RuntimeError("make_blog.py requires repository Python 3.1x.")
-		return
-	arguments = [str(python_path), str(REPO_ROOT / "make_blog.py"), *sys.argv[1:]]
-	# ASVS 1.2.5: pass a fixed executable and separate arguments directly, without a shell.
-	# Bandit B606 is accepted because the executable is the fixed, verified repository Python.
-	os.execv(str(python_path), arguments)  # nosec B606
-
-
-if __name__ == "__main__":
-	_restart_with_repo_python()
-
 if str(PIPELINE_DIR) not in sys.path:
 	sys.path.insert(0, str(PIPELINE_DIR))
 

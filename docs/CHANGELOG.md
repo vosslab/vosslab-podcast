@@ -19,11 +19,14 @@
   whole report as an implementation defect. Stage 4 repeats that fit after the outline exists, so its
   distinct writer frame also remains a recoverable normalization boundary.
 
-- Optional outline mergers, repository-story editors, and complete-post editors now decline an
-  overlarge candidate context as ordinary editorial degradation. The typed upstream candidate remains
-  available for promotion and publication; a contextual size mismatch cannot terminate the run.
+- An acquired report day whose repository editorial work leaves no citable survivors now closes as
+  `no_usable_evidence`, without a post or publisher call. Its run artifacts remain in place for
+  diagnosis until a later attempt produces a publication.
 
 ### Fixes and Maintenance
+
+- `make_blog.py` now runs with the system Python selected by its shebang; it no longer relaunches
+  itself through a repository-local virtual environment.
 
 - Synchronized shared style guides, tests, and repository support files from the starter template.
 
@@ -31,6 +34,9 @@
 
 - Removed the Stage 6 recovery pytest that asserted a tunable prompt limit, internal cache counters,
   and reason-string storage rather than durable user-visible behavior.
+
+- Removed repository-editorial tests that required all lost repository outputs to become a terminal
+  pipeline fault; the workflow now records that outcome for diagnosis and closes without publication.
 ## 2026-09-03
 
 - Move the reader-visible Project coverage footer outside LLM ownership: finalization now replaces any authored subset with every exact report-day repository and its deterministic commit count from sealed activity evidence, ordered by commit count descending with repository-name tie-breaking.

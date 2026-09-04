@@ -12,9 +12,9 @@ import pytest
 import daily_blog.config
 import daily_blog.editorial_stage_config
 import daily_blog.editorial
-import daily_blog.io_utils
 import daily_blog.locks
 import daily_blog.multi_repository_coordinator
+import daily_blog.recovery
 import daily_blog.repository_contracts
 import daily_blog.repository_editorial_workflow
 import daily_blog.route_cache
@@ -76,19 +76,16 @@ def _config(tmp_path: Path) -> daily_blog.config.DailyBlogConfig:
 
 
 class _Runner:
-	"""Thread-safe deterministic route adapter with optional Stage-4 loss."""
+	"""Thread-safe deterministic route adapter."""
 
 	#============================================
-	def __init__(self, packet: daily_blog.schema.EvidencePacket, lose_stories: bool = False) -> None:
+	def __init__(self, packet: daily_blog.schema.EvidencePacket) -> None:
 		self._evidence = {item.repository: item.evidence_id for item in packet.items}
-		self._lose_stories = lose_stories
 		self._lock = threading.Lock()
 
 	#============================================
 	def run(self, route: daily_blog.editorial_stage_config.RoleRoute, prompt: str, _working_directory: str) -> str:
 		with self._lock:
-			if self._lose_stories and route.name.startswith("repository_story_"):
-				return ""
 			if route.name.endswith("reviewer"):
 				return '{"winner":"A","reason":"grounded","evidence_quality":"high","confidence":1}'
 			repository = "owner/alpha" if "owner/alpha" in prompt else "owner/beta"
@@ -207,4 +204,3 @@ def test_failed_repository_is_persisted_and_stage5_receives_only_healthy_sibling
 		and summaries
 		and completed
 	)
-

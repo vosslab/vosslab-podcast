@@ -84,19 +84,6 @@ def test_parse_args_rejects_date_selector_collisions() -> None:
 		make_blog.parse_args(["-Y", "--yes"])
 
 
-#============================================
-def test_repo_python_boundary_rejects_wrong_interpreter(
-	monkeypatch: pytest.MonkeyPatch,
-) -> None:
-	"""The direct command fails closed inside a repository environment using the wrong Python."""
-	monkeypatch.setattr(make_blog.sys, "prefix", str(make_blog.REPO_VENV))
-	monkeypatch.setattr(make_blog.sys, "version_info", (3, 13, 0))
-
-	with pytest.raises(RuntimeError, match="Python 3.1x"):
-		make_blog._restart_with_repo_python()
-
-
-#============================================
 def test_selected_report_date_uses_configured_timezone_for_yesterday(
 	monkeypatch: pytest.MonkeyPatch,
 ) -> None:
