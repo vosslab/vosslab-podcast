@@ -235,7 +235,7 @@ def _generation_reliability(step: str, generation: daily_blog.replication.Replic
 	succeeded = sum(item.result.ok and item.eligibility is not None and item.eligibility.eligible for item in candidates)
 	return daily_blog.replication.StepReliability(step, "degraded" if reasons else "succeeded", len(candidates),
 		succeeded, len(candidates) - succeeded, sum(item.result.resumed and item.result.ok for item in candidates),
-		0, 0, "", tuple(sorted(reasons)))
+		0, 0, "", tuple(sorted(reasons)), response_chars=daily_blog.replication.response_characters(generation))
 
 
 #============================================

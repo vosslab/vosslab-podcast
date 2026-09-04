@@ -60,8 +60,8 @@ def test_coverage_uses_acquisition_packet_for_all_exact_activity(tmp_path: pathl
 	assert "<!-- evidence: " + evidence_id + " -->" in result.content
 	assert result.content.endswith(
 		"## Project coverage\n\n"
-		"- [vosslab/beta](https://github.com/vosslab/beta) — 3 commits\n"
-		"- [vosslab/alpha](https://github.com/vosslab/alpha) — 1 commit\n"
+		"- [vosslab/beta](https://github.com/vosslab/beta) - 3 commits\n"
+		"- [vosslab/alpha](https://github.com/vosslab/alpha) - 1 commit\n"
 	)
 	assert result.repositories == post.repositories
 	assert result.evidence_ids == post.evidence_ids
@@ -87,4 +87,4 @@ def test_coverage_keeps_acquisition_activity_outside_editorial_evidence(tmp_path
 		post, (packet,), (_activity("vosslab/beta", 1),),
 	)
 
-	assert "- [vosslab/beta](https://github.com/vosslab/beta) — 1 commit\n" in result.content
+	assert "- [vosslab/beta](https://github.com/vosslab/beta) - 1 commit\n" in result.content

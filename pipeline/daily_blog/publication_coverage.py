@@ -48,7 +48,7 @@ def attach_project_coverage(
 		count = len(item.commits)
 		label = "commit" if count == 1 else "commits"
 		rows.append(
-			f"- [{item.repository}](https://github.com/{item.repository}) — {count} {label}"
+			f"- [{item.repository}](https://github.com/{item.repository}) - {count} {label}"
 		)
 	# Preserve machine-owned provenance independently of any authored footer bytes
 	# removed above; the reader-visible coverage rows do not depend on LLM citations.

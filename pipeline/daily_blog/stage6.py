@@ -545,7 +545,9 @@ def _aggregate(steps: tuple[daily_blog.replication.StepReliability, ...]) -> dai
 		sum(item.attempted for item in steps[:3]), sum(item.succeeded for item in steps[:3]),
 		sum(item.failed for item in steps[:3]), sum(item.reused for item in steps[:3]),
 		sum(item.repaired for item in steps[:3]), steps[2].disagreements, steps[3].best_artifact_id,
-		reasons, tuple(sorted(rejection_counts.items())))
+		reasons, tuple(sorted(rejection_counts.items())), response_chars=sum(
+			item.response_chars for item in steps[:3]
+		))
 
 
 #============================================

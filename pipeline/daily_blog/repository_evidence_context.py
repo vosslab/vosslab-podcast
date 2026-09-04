@@ -41,6 +41,87 @@ class RepositoryEvidenceContext:
 			raise RuntimeError("Repository evidence model context is invalid.")
 
 
+#============================================
+def _context_content(
+	packet: daily_blog.schema.EvidencePacket,
+	repository: str,
+	summary: str,
+	material: str,
+) -> str:
+	"""Encode one machine-owned wrapper around either compact context form."""
+	content = json.dumps({
+		"schema_version": "repository-evidence-summary.v1",
+		"repository": repository,
+		"packet_id": packet.packet_id,
+		"model_packet_id": daily_blog.schema.model_cache_packet_identity(packet),
+		"summary": summary,
+		"deterministic_evidence_context": material,
+	}, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+	return content
+
+
+#============================================
+def _fit_summary(
+	packet: daily_blog.schema.EvidencePacket,
+	repository: str,
+	summary: str,
+	context_limit: int,
+	context_fits: collections.abc.Callable[[str], bool],
+) -> str:
+	"""Keep the largest usable model summary within its consumer frame."""
+	lower = 1
+	upper = min(len(summary), _SUMMARY_CHARS)
+	best = ""
+	while lower <= upper:
+		length = (lower + upper) // 2
+		candidate = summary[:length]
+		content = _context_content(packet, repository, candidate, "")
+		if len(content) <= context_limit and context_fits(content):
+			best = candidate
+			lower = length + 1
+		else:
+			upper = length - 1
+	return best
+
+
+#============================================
+def _bounded_fallback_content(
+	packet: daily_blog.schema.EvidencePacket,
+	repository: str,
+	config: daily_blog.config.DailyBlogConfig,
+	context_limit: int,
+	context_fits: collections.abc.Callable[[str], bool],
+) -> str:
+	"""Render the largest deterministic fallback within the actual consumer frame."""
+	minimum = _context_content(packet, repository, "", "")
+	if len(minimum) > context_limit or not context_fits(minimum):
+		raise daily_blog.agents.EditorialTerminalError(
+			"Repository-outline generator limit cannot hold its required evidence envelope."
+		)
+	lower = 1
+	upper = min(config.projection_limits["context_chars"], _SUMMARY_SOURCE_CHARS)
+	best = ""
+	while lower <= upper:
+		length = (lower + upper) // 2
+		bounded = daily_blog.projection.build_bounded_evidence_context(
+			(packet,), config.projection_limits, length,
+		)
+		material = bounded.render_context(length)
+		content = _context_content(packet, repository, "", material)
+		if len(content) <= context_limit and context_fits(content):
+			best = material
+			lower = length + 1
+		else:
+			upper = length - 1
+	if not best:
+		raise daily_blog.agents.EditorialTerminalError(
+			"Repository-outline generator limit cannot hold deterministic evidence context."
+		)
+	content = _context_content(packet, repository, "", best)
+	return content
+
+
+#============================================
 def _request(
 	packet: daily_blog.schema.EvidencePacket,
 	repository: str,
@@ -83,24 +164,33 @@ def build_repository_evidence_context(
 	config: daily_blog.config.DailyBlogConfig,
 	budget: daily_blog.agents.RouteBudget,
 	runner: object | None,
+	context_limit: int,
 	cache_load: collections.abc.Callable[
 		[daily_blog.agents.RouteRequest], daily_blog.agents.AgentResult | None,
 	],
 	cache_accept: collections.abc.Callable[
 		[daily_blog.agents.RouteRequest, daily_blog.agents.AgentResult], None,
 	],
+	context_fits: collections.abc.Callable[[str], bool] | None = None,
 ) -> RepositoryEvidenceContext:
-	"""Use one summarizer only when canonical repository evidence is oversized."""
+	"""Reduce evidence whenever it cannot fit the actual downstream prompt."""
+	if (
+		type(context_limit) is not int or context_limit <= 0
+		or context_limit > daily_blog.repository_outline_prompts.MAX_EVIDENCE_CONTEXT_CHARS
+	):
+		raise daily_blog.agents.EditorialTerminalError("Repository evidence context limit is invalid.")
+	if context_fits is None:
+		context_fits = lambda content: len(content) <= context_limit
+	if not callable(context_fits):
+		raise daily_blog.agents.EditorialTerminalError("Repository evidence context consumer is invalid.")
 	canonical = json.dumps(
 		daily_blog.schema.model_cache_packet_content(packet), sort_keys=True,
 		separators=(",", ":"), ensure_ascii=True,
 	)
-	limit = daily_blog.repository_outline_prompts.MAX_EVIDENCE_CONTEXT_CHARS
-	if len(canonical) <= limit:
+	if len(canonical) <= context_limit and context_fits(canonical):
 		return RepositoryEvidenceContext(canonical, False, False)
 
-	# ASVS 2.2.1/2.3.2: bound the source before the external model call.  This
-	# deterministic context keeps exact evidence identifiers and repository cards.
+	# ASVS 2.2.1/2.3.2: bind model input to the actual consuming prompt frame.
 	source_limit = min(config.projection_limits["context_chars"], _SUMMARY_SOURCE_CHARS)
 	bounded = daily_blog.projection.build_bounded_evidence_context(
 		(packet,), config.projection_limits, source_limit,
@@ -120,17 +210,14 @@ def build_repository_evidence_context(
 		[request], runner, config.repository_outline.maximum_parallel_calls,
 		budget, cache_load,
 	)[0]
-	summary = result.text.strip()[:_SUMMARY_CHARS] if result.ok else ""
+	summary = _fit_summary(
+		packet, repository, result.text.strip(), context_limit, context_fits,
+	) if result.ok else ""
 	if summary and not result.resumed:
 		cache_accept(request, result)
 	# ASVS 1.5.2: model text is encoded only as plain JSON data. Machine-owned
 	# identities come exclusively from the authoritative packet, never from it.
-	content = json.dumps({
-		"schema_version": "repository-evidence-summary.v1",
-		"repository": repository,
-		"packet_id": packet.packet_id,
-		"model_packet_id": daily_blog.schema.model_cache_packet_identity(packet),
-		"summary": summary,
-		"deterministic_evidence_context": material if not summary else "",
-	}, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+	content = _context_content(packet, repository, summary, "")
+	if not summary:
+		content = _bounded_fallback_content(packet, repository, config, context_limit, context_fits)
 	return RepositoryEvidenceContext(content, True, bool(summary))

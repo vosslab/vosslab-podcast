@@ -19,6 +19,9 @@ origin belongs there too. Rules: [REPO_STYLE.md](REPO_STYLE.md).
 - An LLM stage may be sloppy, incomplete, malformed, or contrary to instructions. The pipeline should salvage whatever is usable, normalize it mechanically where possible, and continue unless the artifact is genuinely unusable for the next stage.
 - LLMs are stochastic, random, and do not always follow the rules
 - Treat imperfect LLM output as normal operating conditions.
+- When a model-facing context does not fit its rendered prompt, route it through the summarizer and
+  continue with the compact result or deterministic bounded fallback; do not fail a usable post on
+  a brittle size threshold.
 - Prefer tolerant parsing, normalization, defaults, repair, and deterministic post-processing.
 - Remove gates whose only purpose is verifying that the LLM followed formatting or procedural instructions exactly.
 - Remove tests that expect stochastic LLM behavior to be deterministic or instruction-perfect.

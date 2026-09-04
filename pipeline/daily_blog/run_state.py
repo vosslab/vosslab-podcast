@@ -48,6 +48,7 @@ class RunStore:
 			"outcome",
 			"repaired",
 			"reused",
+			"response_chars",
 			"step",
 			"succeeded",
 			"transition_artifact_id",
@@ -319,7 +320,16 @@ class RunStore:
 		"""Require the exact bounded fields and values for one lifecycle event."""
 		if event not in self.EVENT_FIELDS:
 			raise RuntimeError("Unsupported daily-publication event name.")
-		if set(details) != self.EVENT_FIELDS[event]:
+		legacy_editorial_fields = self.EVENT_FIELDS["daily_publication.editorial_step_completed"] - {
+			"response_chars",
+		}
+		if (
+			set(details) != self.EVENT_FIELDS[event]
+			and not (
+				event == "daily_publication.editorial_step_completed"
+				and set(details) == legacy_editorial_fields
+			)
+		):
 			raise RuntimeError("Daily-publication event fields do not match the event schema.")
 		if "phase" in details and details["phase"] not in daily_blog.run_contracts.LEGAL_PHASES:
 			raise RuntimeError("Daily-publication event phase is unsupported.")
@@ -335,6 +345,8 @@ class RunStore:
 				"reused",
 				"succeeded",
 			}
+			if "response_chars" in details:
+				count_fields.add("response_chars")
 			if any(type(details[name]) is not int or details[name] < 0 for name in count_fields):
 				raise RuntimeError("Daily-publication editorial counts are invalid.")
 			if details["succeeded"] + details["failed"] != details["attempted"]:
@@ -360,7 +372,7 @@ class RunStore:
 				details["step"], details["outcome"], details["attempted"],
 				details["succeeded"], details["failed"], details["reused"],
 				details["repaired"], details["disagreements"],
-				details["best_artifact_id"], (),
+				details["best_artifact_id"], (), response_chars=details.get("response_chars", 0),
 			)
 			prior_artifact_id = ""
 			if type(transition) in {
@@ -587,6 +599,7 @@ class RunStore:
 				details = {
 					name: value[name]
 					for name in self.EVENT_FIELDS["daily_publication.editorial_step_completed"]
+					if name in value
 				}
 				self.progress.event("daily_publication.editorial_step_completed", details)
 
@@ -664,6 +677,7 @@ class RunStore:
 			"outcome": summary.outcome,
 			"repaired": summary.repaired,
 			"reused": summary.reused,
+			"response_chars": summary.response_chars,
 			"step": summary.step,
 			"succeeded": summary.succeeded,
 			"transition_artifact_id": transition_projection["artifact_id"],
@@ -687,8 +701,12 @@ class RunStore:
 				intent_details = {
 					name: event_value[name]
 					for name in self.EVENT_FIELDS["daily_publication.editorial_step_completed"]
+					if name in event_value
 				}
-				if intent_details != details:
+				expected_details = {
+					name: value for name, value in details.items() if name in intent_details
+				}
+				if intent_details != expected_details:
 					raise RuntimeError("Pending editorial intent diverges from this step.")
 				before_hash = self._record_hash(before)
 				if before_hash == intent["before_record_sha256"]:

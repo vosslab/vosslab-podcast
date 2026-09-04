@@ -426,9 +426,24 @@ def _run_job(value: RepositoryJobInput) -> RepositoryJobResult:
 		raise RuntimeError("Repository editorial job requires exact input.")
 	if {item.repository for item in value.packet.items} != {value.repository}:
 		raise RuntimeError("Repository editorial job packet scope conflicts with repository.")
+	context_limits = []
+	for index in range(value.config.repository_outline.generator_count):
+		probe = daily_blog.repository_outline_prompts.render_repository_outline_generator(
+			"x", "generator-" + str(index + 1), value.outline_prompts,
+		)
+		context_limits.append(
+			value.config.repository_outline.prompt_limits["generator_chars"] - len(probe) + 1
+		)
+	context_limit = min(context_limits)
+	# ASVS 2.2.1: use the exact rendered consumer frame so untrusted evidence
+	# is reduced before dispatch rather than causing an avoidable worker fault.
+	if context_limit <= 0:
+		raise daily_blog.agents.EditorialTerminalError(
+			"Repository-outline generator limit cannot hold its required prompt frame."
+		)
 	evidence_context = daily_blog.repository_evidence_context.build_repository_evidence_context(
 		value.packet, value.repository, value.working_directory, value.config,
-		value.budget, value.runner, value.cache_load, value.cache_accept,
+		value.budget, value.runner, context_limit, value.cache_load, value.cache_accept,
 	)
 	outline_value = daily_blog.repository_outline_workflow.RepositoryOutlineInput(
 		value.packet, value.repository, value.working_directory, evidence_context.content,
@@ -447,6 +462,32 @@ def _run_job(value: RepositoryJobInput) -> RepositoryJobResult:
 	story_value = daily_blog.repository_story_workflow.RepositoryStoryInput(
 		outline, (value.packet,), value.working_directory, evidence_context.content,
 	)
+	outline_json = story_value.render_outline()
+
+	def story_context_fits(content: str) -> bool:
+		"""Confirm evidence fits every required Stage 4 writer prompt exactly."""
+		candidate = daily_blog.repository_story_workflow.RepositoryStoryInput(
+			outline, (value.packet,), value.working_directory, content,
+		)
+		evidence_json = candidate.render_evidence()
+		return all(
+			len(daily_blog.repository_story_prompts.render_repository_story_writer(
+				outline_json, evidence_json, "writer-" + str(index + 1), value.story_prompts,
+			)) <= value.config.repository_story.prompt_limits["writer_chars"]
+			for index in range(value.config.repository_story.writer_count)
+		)
+
+	# ASVS 2.2.1/2.3.2: Stage 4 has a distinct frame because the outline and
+	# JSON escaping are now present. Refit rather than turn ordinary size drift
+	# into a terminal worker fault.
+	story_evidence_context = daily_blog.repository_evidence_context.build_repository_evidence_context(
+		value.packet, value.repository, value.working_directory, value.config,
+		value.budget, value.runner, daily_blog.repository_outline_prompts.MAX_EVIDENCE_CONTEXT_CHARS,
+		value.cache_load, value.cache_accept, story_context_fits,
+	)
+	story_value = daily_blog.repository_story_workflow.RepositoryStoryInput(
+		outline, (value.packet,), value.working_directory, story_evidence_context.content,
+	)
 	story_result = daily_blog.repository_story_workflow.run_repository_story(
 		story_value, value.config.repository_story, value.budget, value.runner,
 		rubric=value.rubric, rubric_sha256=value.rubric_sha256,
@@ -454,8 +495,12 @@ def _run_job(value: RepositoryJobInput) -> RepositoryJobResult:
 	)
 	return RepositoryJobResult(
 		value.repository, value.packet, outline_result, story_result, outline, story_result.artifact,
-		evidence_summary_attempted=evidence_context.summary_attempted,
-		evidence_summary_succeeded=evidence_context.summary_succeeded,
+		evidence_summary_attempted=(
+			evidence_context.summary_attempted or story_evidence_context.summary_attempted
+		),
+		evidence_summary_succeeded=(
+			evidence_context.summary_succeeded or story_evidence_context.summary_succeeded
+		),
 	)
 
 

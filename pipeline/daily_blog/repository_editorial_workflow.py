@@ -39,7 +39,7 @@ def _aggregate_repository_reliability(
 			sum(item.attempted for item in items), sum(item.succeeded for item in items),
 			sum(item.failed for item in items), sum(item.reused for item in items),
 			sum(item.repaired for item in items), sum(item.disagreements for item in items),
-			"", reasons,
+			"", reasons, response_chars=sum(item.response_chars for item in items),
 		))
 	return tuple(values)
 

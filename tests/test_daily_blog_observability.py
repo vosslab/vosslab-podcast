@@ -427,3 +427,21 @@ def test_editorial_observations_do_not_repeat_owning_phase_duration(
 
 
 #============================================
+def test_human_progress_reports_aggregate_received_characters(
+	tmp_path: pathlib.Path, capsys: pytest.CaptureFixture[str],
+) -> None:
+	"""The CLI exposes scalar response volume without rendering model content."""
+	progress = daily_blog.observability.HumanProgress(
+		REPORT_DATE, str(tmp_path / "runlog.jsonl"),
+	)
+	progress.event("daily_publication.editorial_step_completed", {
+		"step": "6.1", "outcome": "succeeded", "attempted": 2,
+		"succeeded": 2, "failed": 0, "reused": 0, "repaired": 0,
+		"disagreements": 0, "response_chars": 12345,
+		"selected_artifact_id": "", "reasons": [],
+	})
+
+	assert "E1 | 2 complete posts received; 12,345 chars" in capsys.readouterr().out
+
+
+#============================================

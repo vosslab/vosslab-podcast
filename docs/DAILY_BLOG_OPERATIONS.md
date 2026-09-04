@@ -148,8 +148,8 @@ out/<owner>/daily_blog/YYYY-MM-DD/
 
 The interactive command prints a Rich progress summary instead of streaming machine JSON. Its first
 line names the absolute `runlog-YYYY-MM-DD.jsonl` path, followed by the selected date, repositories
-with commits, exact commit and evidence counts, and per-step received, reviewed, unavailable, and
-reused totals. Color is enabled on capable terminals and omitted automatically when output is
+with commits, exact commit and evidence counts, and per-step received, reviewed, unavailable, reused,
+and successful-response character totals. Color is enabled on capable terminals and omitted automatically when output is
 redirected. The human display is observational and never controls publication. The canonical step
 and filename map lives in the dedicated publication-flow reference.
 

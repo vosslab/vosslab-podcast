@@ -4179,3 +4179,65 @@ Tests
 Next actions
 1. Rerun the failed 2026-08-27 publication when ready; it should resume with the corrected footer
    authority and retain its normal deterministic image-selection boundary.
+
+---
+Session Update: 2026-09-04 (repository prompt-frame reduction)
+
+Change
+- Replaced the independent raw repository-evidence ceiling with a budget derived from each fully
+  rendered Stage-3 generator prompt.
+- Evidence that cannot fit now runs through the existing isolated summarizer, then flows into the
+  normal outline and story stages. A failed summarizer uses the largest deterministic bounded
+  evidence context that fits the same rendered consumer frame.
+- Preserved the original evidence packet as the provenance authority; only the model-facing context
+  is compacted.
+
+Tests
+- Focused repository coordinator, Stage-3 workflow, and configuration tests: 25 passed under
+  Python 3.12.
+- Replayed the saved 2026-08-23 evidence with a no-egress deterministic route stub. The affected
+  repository entered the summary path and produced one repository story.
+- Python compilation and `git diff --check` passed.
+
+Next actions
+1. Rerun `make_blog.py --date 2026-08-23 --yes` when external model routing is desired; the former
+   Stage-3 prompt overflow now takes the summarizer path instead of terminating the report.
+
+---
+Session Update: 2026-09-04 (editorial response character progress)
+
+Change
+- Added aggregate character counts for successful model responses to the human daily-blog CLI
+  progress lines. Generation stages now report both result count and total received characters.
+- Kept the JSON event journal and replay contract authoritative. They retain only the scalar count;
+  no prompt, response text, or additional model-derived diagnostics are logged.
+- Existing journals without this field replay with zero characters.
+
+Tests
+- Focused observability, run-state replay, replication, repository editorial, and Stage-7 tests:
+  84 passed under Python 3.12.
+- Complete Python 3.12 permanent suite: 4,040 passed in 30.83 seconds.
+- Python compilation passed.
+
+Next actions
+1. Observe the counts in the next ordinary daily-blog run; they are display metadata and cannot
+   affect route selection, editorial promotion, or publication.
+
+---
+Session Update: 2026-09-04 (resilience audit follow-up)
+
+Change
+- Fitted repository evidence against the actual Stage-4 writer prompt after the outline exists,
+  including JSON escaping. An oversized context now reuses the advisory summary path or its
+  deterministic bounded fallback before a writer can reject it for size.
+- Preserved successful response-character totals through repository and Stage-6 aggregate summaries.
+  Legacy journal events without that scalar remain replayable.
+
+Tests
+- Kept only permanent deterministic coverage for response-count presentation, aggregate arithmetic,
+  and legacy replay. Removed threshold-specific recovery-route checks after implementation proof:
+  successful publication, not compliance with a prescribed LLM path, is the contract.
+
+Next actions
+1. The next external-route daily run can exercise the normal adaptive reduction path without adding
+   a model-behavior gate to the permanent suite.

@@ -41,12 +41,13 @@ class StepReliability:
 	reasons: tuple[str, ...]
 	rejection_counts: tuple[tuple[str, int], ...] = ()
 	schema_version: str = EDITORIAL_RELIABILITY_SCHEMA
+	response_chars: int = 0
 
 	#============================================
 	def validate(self) -> None:
 		"""Reject inconsistent or unbounded reliability metadata."""
 		counts = (self.attempted, self.succeeded, self.failed, self.reused,
-			self.repaired, self.disagreements)
+			self.repaired, self.disagreements, self.response_chars)
 		if self.schema_version != EDITORIAL_RELIABILITY_SCHEMA:
 			raise RuntimeError("Editorial reliability schema is unsupported.")
 		if type(self.step) is not str or not self.step or self.outcome not in STEP_OUTCOMES:
@@ -94,9 +95,10 @@ class StepReliability:
 	def from_dict(cls, value: dict) -> "StepReliability":
 		"""Restore only the current reliability summary shape."""
 		fields = {field.name for field in dataclasses.fields(cls)}
+		legacy_fields = fields - {"response_chars"}
 		if (
 			type(value) is not dict
-			or set(value) != fields
+			or set(value) not in (fields, legacy_fields)
 			or type(value["reasons"]) is not list
 			or type(value["rejection_counts"]) is not list
 			or any(
@@ -110,7 +112,7 @@ class StepReliability:
 			value["failed"], value["reused"], value["repaired"], value["disagreements"],
 			value["best_artifact_id"], tuple(value["reasons"]),
 			tuple((item["code"], item["count"]) for item in value["rejection_counts"]),
-			value["schema_version"],
+			value["schema_version"], value.get("response_chars", 0),
 		)
 		summary.validate()
 		return summary
@@ -147,6 +149,15 @@ class ReplicationResult:
 
 
 #============================================
+def response_characters(result: ReplicationResult) -> int:
+	"""Return the aggregate text received from successful isolated routes."""
+	if type(result) is not ReplicationResult:
+		raise RuntimeError("Response character count requires an exact replication result.")
+	characters = sum(len(item.result.text) for item in result.candidates if item.result.ok)
+	return characters
+
+
+#============================================
 def generation_reliability(
 	step: str,
 	result: ReplicationResult,
@@ -174,6 +185,7 @@ def generation_reliability(
 	summary = StepReliability(
 		step, outcome, attempted, succeeded, attempted - succeeded, reused,
 		0, 0, "", tuple(sorted(all_reasons)), tuple(sorted(rejection_counts.items())),
+		response_chars=response_characters(result),
 	)
 	return summary
 

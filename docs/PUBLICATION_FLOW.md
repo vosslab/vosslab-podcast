@@ -100,9 +100,15 @@ A  Acquire deterministic evidence
 
 | Step | Work | Ownership | Working output |
 | --- | --- | --- | --- |
+| B0 | Compact evidence that cannot fit an exact outline or story prompt frame | LDMW | `repository_editorial.json` |
 | B1 | Generate repository outline candidates | LDMW | `repository_editorial.json` |
 | B2 | Optionally improve or review usable outlines | LDMW | `repository_editorial.json` |
 | B3 | Preserve usable promoted outlines | LDMW | `repository_editorial.json` |
+
+B0 is advisory and repeatable. A non-empty summary is normalized into the model-facing context; an unavailable
+summary falls back to deterministic bounded evidence. The original sealed packet remains the provenance authority.
+The coordinator refits the context after an outline exists so JSON escaping and the Stage C writer frame cannot turn
+ordinary model or evidence size into a terminal failure.
 
 ## C: Repository summaries
 

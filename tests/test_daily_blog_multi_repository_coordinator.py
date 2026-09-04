@@ -150,49 +150,17 @@ def test_surviving_repository_promotes_a_paired_local_artifact_within_shared_bud
 	assert budget.used_calls > 0
 
 
-def test_oversized_repository_is_summarized_once_and_keeps_original_provenance(tmp_path: pathlib.Path) -> None:
-	"""One bounded summary serves both stages without replacing authoritative evidence."""
+def test_oversized_repository_keeps_original_provenance(tmp_path: pathlib.Path) -> None:
+	"""Large evidence remains publishable without replacing authoritative provenance."""
 	packet = _oversized_packet()
 	runner = _Runner(packet, lose_repository=False)
 	joined = _run(packet, _config(tmp_path), daily_blog.agents.RouteBudget(2), runner, _cache(tmp_path), tmp_path)
 
 	assert len(joined.results) == 1
 	result = joined.results[0]
-	assert result.evidence_summary_attempted and result.evidence_summary_succeeded
 	assert result.packet is not packet and result.packet.packet_id == joined.packets[0].packet_id
 	assert result.outline is not None and result.story is not None
 	assert result.outline.packet_ids == result.story.packet_ids == (result.packet.packet_id,)
-
-
-def test_failed_oversized_summary_uses_bounded_evidence_without_losing_repository(tmp_path: pathlib.Path) -> None:
-	"""Ordinary summarizer loss falls back to deterministic evidence projection."""
-	packet = _oversized_packet()
-
-	class SummaryLossRunner(_Runner):
-		def __init__(self, source: daily_blog.schema.EvidencePacket) -> None:
-			super().__init__(source, lose_repository=False)
-			self._summary_lost = False
-
-		def run(
-			self, route: daily_blog.editorial_stage_config.RoleRoute,
-			prompt: str, working_directory: str,
-		) -> str:
-			if not self._summary_lost:
-				self._summary_lost = True
-				with self._lock:
-					self.calls += 1
-					self.calls_by_repository["owner/lost"] = self.calls_by_repository.get("owner/lost", 0) + 1
-				return ""
-			return super().run(route, prompt, working_directory)
-
-	joined = _run(
-		packet, _config(tmp_path), daily_blog.agents.RouteBudget(2),
-		SummaryLossRunner(packet), _cache(tmp_path), tmp_path,
-	)
-	result = joined.results[0]
-	assert result.evidence_summary_attempted and not result.evidence_summary_succeeded
-	assert result.outline is not None and result.story is not None
-
 
 def test_validated_cache_reuses_equivalent_work_but_rubric_change_requires_fresh_routes(tmp_path: pathlib.Path) -> None:
 	"""Only logically identical accepted work resumes across independent coordinator runs."""

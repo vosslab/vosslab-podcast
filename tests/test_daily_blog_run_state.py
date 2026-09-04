@@ -220,6 +220,35 @@ def test_run_store_replays_a_pending_replacement_without_duplicate_event(
 
 
 #============================================
+def test_run_store_replays_a_legacy_pending_event_without_response_characters(
+	tmp_path: pathlib.Path,
+	monkeypatch: pytest.MonkeyPatch,
+) -> None:
+	"""A scalar added to progress events cannot strand an otherwise valid replay."""
+	store = daily_blog.run_state.RunStore(str(tmp_path), "vosslab", "2026-08-23", "run-legacy-replay")
+	record = daily_blog.run_contracts.RunRecord.create("run-legacy-replay", "2026-08-23", CREATED_AT)
+	summary = editorial_summary("editorial-decision")
+
+	def interrupted_replay(run_fd: int, line: str) -> bool:
+		raise daily_blog.observability.EventJournalError("interrupted")
+
+	monkeypatch.setattr(store.event_sink, "replay_editorial_at", interrupted_replay)
+	with pytest.raises(RuntimeError, match="event could not be persisted"):
+		store.record_editorial_step(record, summary, daily_blog.run_contracts.ObserveIncumbent())
+	pending_path = pathlib.Path(store.pending_editorial_step_path)
+	pending = json.loads(pending_path.read_text(encoding="utf-8"))
+	event = json.loads(pending["event_line"])
+	del event["response_chars"]
+	pending["event_line"] = json.dumps(event, sort_keys=True, separators=(",", ":"))
+	pending["event_id"] = daily_blog.io_utils.sha256_text(pending["event_line"])
+	pending_path.write_text(json.dumps(pending, sort_keys=True, separators=(",", ":")), encoding="utf-8")
+
+	monkeypatch.undo()
+	store.record_editorial_step(record, summary, daily_blog.run_contracts.ObserveIncumbent())
+	assert not pending_path.exists()
+
+
+#============================================
 def _record_with_persisted_path(field: str, path: str) -> daily_blog.run_contracts.RunRecord:
 	"""Return a small record carrying one durable producer path."""
 	record = daily_blog.run_contracts.RunRecord.create("run-logical-path", "2026-08-23", CREATED_AT)

@@ -590,6 +590,10 @@ class HumanProgress:
 				message += f"; {details['failed']} unavailable"
 			if details["reused"]:
 				message += f"; {details['reused']} reused"
+			response_chars = details.get("response_chars", 0)
+			# ASVS 16.2.5: report only a scalar size, never model text or prompts.
+			if type(response_chars) is int and response_chars:
+				message += f"; {response_chars:,} chars"
 			self._write(message, "green" if details["succeeded"] else "yellow")
 		elif event == "daily_publication.phase_failed":
 			phase = str(details["phase"])

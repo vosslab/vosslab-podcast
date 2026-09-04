@@ -13,6 +13,7 @@ import daily_blog.editorial_stage_config
 import daily_blog.editorial
 import daily_blog.routes
 import daily_blog.repository_contracts
+import daily_blog.replication
 import daily_blog.schema
 import daily_blog.stage6
 import daily_blog.stage6_attempt_reliability
@@ -25,6 +26,20 @@ _CONTEXT_LIMITS = {
 	"context_chars": 60000,
 	"excerpt_chars": 1000,
 }
+
+
+#============================================
+def test_stage6_aggregate_retains_generation_response_characters() -> None:
+	"""The Stage 6 parent observation retains child generation-size telemetry."""
+	steps = tuple(
+		daily_blog.replication.StepReliability(
+			"stage6-" + str(index), "succeeded", 1, 1, 0, 0, 0, 0, "", (),
+			response_chars=characters,
+		)
+		for index, characters in enumerate((11, 22, 33, 44))
+	)
+
+	assert daily_blog.stage6._aggregate(steps).response_chars == 66
 
 
 #============================================

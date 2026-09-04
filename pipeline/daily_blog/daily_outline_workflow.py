@@ -554,7 +554,7 @@ def _generation_reliability(step: str, generation: daily_blog.replication.Replic
 	reason_set = set(reasons) | {item.failure for item in generation.candidates if item.failure}
 	if any(item.result.ok and (item.eligibility is None or not item.eligibility.eligible) for item in generation.candidates): reason_set.add("ineligible_generation")
 	succeeded = sum(item.result.ok and item.eligibility is not None and item.eligibility.eligible for item in generation.candidates)
-	return daily_blog.replication.StepReliability(step, "degraded" if reason_set else "succeeded", len(generation.candidates), succeeded, len(generation.candidates) - succeeded, sum(item.result.ok and item.result.resumed for item in generation.candidates), 0, 0, "", tuple(sorted(reason_set)))
+	return daily_blog.replication.StepReliability(step, "degraded" if reason_set else "succeeded", len(generation.candidates), succeeded, len(generation.candidates) - succeeded, sum(item.result.ok and item.result.resumed for item in generation.candidates), 0, 0, "", tuple(sorted(reason_set)), response_chars=daily_blog.replication.response_characters(generation))
 
 
 def _ranking_reliability(

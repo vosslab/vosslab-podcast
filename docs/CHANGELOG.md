@@ -1,3 +1,17 @@
+## 2026-09-04
+
+### Behavior or Interface Changes
+
+- Added aggregate successful-response character counts to human CLI editorial progress, such as
+  `E1 | 2 complete posts received; 12,345 chars`. The journal records only the bounded scalar, not
+  prompts or model text, and legacy events without the field replay as zero.
+
+- Made repository editorial prompt sizing consumer-aware: when exact evidence plus the real Stage 3
+  prompt frame exceeds the configured route capacity, the worker invokes the bounded summarizer and
+  continues with its compact result or a frame-fitted deterministic fallback instead of failing the
+  whole report as an implementation defect. Stage 4 repeats that fit after the outline exists, so its
+  distinct writer frame also remains a recoverable normalization boundary.
+
 ## 2026-09-03
 
 - Move the reader-visible Project coverage footer outside LLM ownership: finalization now replaces any authored subset with every exact report-day repository and its deterministic commit count from sealed activity evidence, ordered by commit count descending with repository-name tie-breaking.
