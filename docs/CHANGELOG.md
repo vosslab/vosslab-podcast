@@ -16,6 +16,9 @@
   whole report as an implementation defect. Stage 4 repeats that fit after the outline exists, so its
   distinct writer frame also remains a recoverable normalization boundary.
 
+### Fixes and Maintenance
+
+- Synchronized shared style guides, tests, and repository support files from the starter template.
 ## 2026-09-03
 
 - Move the reader-visible Project coverage footer outside LLM ownership: finalization now replaces any authored subset with every exact report-day repository and its deterministic commit count from sealed activity evidence, ordered by commit count descending with repository-name tie-breaking.
