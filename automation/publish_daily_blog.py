@@ -85,6 +85,9 @@ def publish_report_date(
 		if _bundle.get("status") == "no_activity":
 			print(f"No report-day activity for {report_date}; no publication created.")
 			return True
+		if _bundle.get("status") == "no_usable_evidence":
+			print(f"No usable report-day evidence for {report_date}; no publication created.")
+			return True
 		print(f"Daily publication: {bundle_path}")
 		print(f"Report date: {report_date}")
 		print(f"Publication status: {'replaced' if should_replace else 'imported'}")

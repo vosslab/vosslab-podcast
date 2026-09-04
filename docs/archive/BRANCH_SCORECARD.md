@@ -26,7 +26,6 @@ a user-scoped output contract, and a private-LAN-only static site.
 | Dynamic test evidence | `dr_voss`: 32 focused tests passed; `origin/main`: log-mode smoke passed |
 
 Before comparison, the current `dr_voss` worktree contained tracked modifications to
-`CODEX_CHAT_TRANSCRIPT.txt` and `docs/CHANGELOG.md`, plus these protected untracked files:
 
 - `devel/submit_to_pypi.py`
 - `docs/CLAUDE_HOOK_USAGE_GUIDE.md`

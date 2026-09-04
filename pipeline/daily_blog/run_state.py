@@ -71,6 +71,9 @@ class RunStore:
 		"daily_publication.no_activity_completed": frozenset(
 			{"activity_count", "evidence_count", "outcome", "state"}
 		),
+		"daily_publication.no_usable_evidence_completed": frozenset(
+			{"activity_count", "evidence_count", "outcome", "state"}
+		),
 		"daily_publication.run_started": frozenset({"state"}),
 	}
 
@@ -424,11 +427,13 @@ class RunStore:
 		if "state" in details:
 			expected_state = "completed" if event in {
 				"daily_publication.run_completed", "daily_publication.no_activity_completed",
+				"daily_publication.no_usable_evidence_completed",
 			} else "running"
 			if details["state"] != expected_state:
 				raise RuntimeError("Daily-publication run state does not match the event.")
 		if "outcome" in details and event in {
 			"daily_publication.run_completed", "daily_publication.no_activity_completed",
+			"daily_publication.no_usable_evidence_completed",
 		}:
 			if details["outcome"] not in daily_blog.run_contracts.COMPLETED_RUN_OUTCOMES:
 				raise RuntimeError("Daily-publication run outcome is unsupported.")
@@ -440,6 +445,13 @@ class RunStore:
 			))
 		):
 			raise RuntimeError("Daily-publication no-activity completion is invalid.")
+		if event == "daily_publication.no_usable_evidence_completed" and (
+			details["outcome"] != "no_usable_evidence" or details["state"] != "completed"
+			or any(type(details[name]) is not int or details[name] < 0 for name in (
+				"activity_count", "evidence_count",
+			))
+		):
+			raise RuntimeError("Daily-publication no-usable-evidence completion is invalid.")
 
 	def _event_line(self, event: str, details: dict[str, object]) -> str:
 		"""Validate and serialize one lifecycle-safe publication event."""

@@ -34,7 +34,7 @@ LEGAL_PHASES = (
 )
 PHASE_STATUSES = {"pending", "running", "completed", "skipped", "failed"}
 RUN_STATES = {"running", "completed", "failed"}
-COMPLETED_RUN_OUTCOMES = frozenset({"succeeded", "degraded", "no_activity"})
+COMPLETED_RUN_OUTCOMES = frozenset({"succeeded", "degraded", "no_activity", "no_usable_evidence"})
 RUN_OUTCOMES = {"pending", *COMPLETED_RUN_OUTCOMES, "failed"}
 BASE_OPERATIONAL_FAILURE_KINDS = frozenset({
 	"editorial_blocked",
@@ -471,6 +471,27 @@ class RunRecord:
 		self.completed_at = now
 
 	#============================================
+	def complete_no_usable_evidence(self) -> None:
+		"""Close a fully acquired day whose evidence has no citable survivor."""
+		completed = LEGAL_PHASES[:5]
+		remaining = LEGAL_PHASES[5:]
+		if (
+			self.state != "running" or self.current_phase
+			or any(self.phases[phase].status != "completed" for phase in completed)
+			or any(self.phases[phase].status != "pending" for phase in remaining)
+		):
+			raise RuntimeError("No-usable-evidence completion requires completed repository editorial.")
+		now = daily_blog.io_utils.utc_now()
+		for phase in remaining:
+			record = self.phases[phase]
+			record.status = "skipped"
+			record.completed_at = now
+		self.state = "completed"
+		self.outcome = "no_usable_evidence"
+		self.updated_at = now
+		self.completed_at = now
+
+	#============================================
 	def validate(self) -> None:
 		"""Reject incomplete or internally inconsistent run-state records."""
 		if self.schema_version != RUN_SCHEMA:
@@ -540,14 +561,15 @@ class RunRecord:
 		if self.state != "failed" and self.outcome == "failed":
 			raise RuntimeError("Non-failed run cannot retain a failed outcome.")
 		if self.state == "completed":
-			if self.outcome == "no_activity":
+			if self.outcome in {"no_activity", "no_usable_evidence"}:
+				completed_count = 4 if self.outcome == "no_activity" else 5
 				if (
-					any(self.phases[phase].status != "completed" for phase in LEGAL_PHASES[:4])
-					or any(self.phases[phase].status != "skipped" for phase in LEGAL_PHASES[4:])
+					any(self.phases[phase].status != "completed" for phase in LEGAL_PHASES[:completed_count])
+					or any(self.phases[phase].status != "skipped" for phase in LEGAL_PHASES[completed_count:])
 				):
-					raise RuntimeError("No-activity run phases do not match completed acquisition.")
+					raise RuntimeError("No-publication run phases do not match its completed boundary.")
 			elif (
-				self.outcome not in COMPLETED_RUN_OUTCOMES - {"no_activity"}
+				self.outcome not in COMPLETED_RUN_OUTCOMES - {"no_activity", "no_usable_evidence"}
 				or any(phase.status != "completed" for phase in self.phases.values())
 			):
 				raise RuntimeError("Completed run contains an unfinished phase.")
@@ -581,7 +603,7 @@ class RunRecord:
 			)
 		if self.best_artifact_id != best_artifact_id:
 			raise RuntimeError("Run incumbent does not match its replayed editorial transitions.")
-		if self.state == "completed" and self.outcome != "no_activity":
+		if self.state == "completed" and self.outcome not in {"no_activity", "no_usable_evidence"}:
 			if (
 				not self.repository_roster
 				or not self.evidence_packet

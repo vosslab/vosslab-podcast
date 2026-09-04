@@ -17,14 +17,14 @@ REPO_ROOT="$(git rev-parse --show-toplevel)"
 # positively verify its interpreter contract before it can affect command lookup.
 REPO_PYTHON_ENV="${REPO_ROOT}/.venv"
 if [[ ! -d "${REPO_PYTHON_ENV}" || -L "${REPO_PYTHON_ENV}" ]]; then
-	echo "Missing physical Python 3.12 environment: ${REPO_PYTHON_ENV}" >&2
-	echo "Create it with: python3.12 -m venv .venv" >&2
+	echo "Missing physical Python 3.1x environment: ${REPO_PYTHON_ENV}" >&2
+	echo "Create it with: python3 -m venv .venv" >&2
 	return 1
 fi
 if ! "${REPO_PYTHON_ENV}/bin/python3" -c \
 	'import sys; raise SystemExit(0 if sys.version_info[:2] == (3, 12) else 1)'
 then
-	echo "Repository environment must use Python 3.12." >&2
+	echo "Repository environment must use Python 3.1x." >&2
 	return 1
 fi
 export VIRTUAL_ENV="${REPO_PYTHON_ENV}"

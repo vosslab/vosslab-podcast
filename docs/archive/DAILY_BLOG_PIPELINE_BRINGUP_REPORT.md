@@ -476,7 +476,7 @@ date format, and publisher handoff to use. The requested root interface is now:
 ```
 
 The command also accepts canonical ISO `YYYY-MM-DD`. It resolves the repository root, relaunches
-through the physical repository-local Python 3.12 environment, fixes settings and output ownership
+through the physical repository-local Python 3.1x environment, fixes settings and output ownership
 to repository paths, and delegates one canonical report date to the shared publisher command.
 
 Existing-date behavior was another source of confusion. The current contract is:
@@ -587,7 +587,7 @@ in this report's status snapshot.
 
 ## Python environment challenge
 
-The repository requires Python 3.12 for producer commands, while the sibling publisher currently
+The repository requires Python 3.1x for producer commands, while the sibling publisher currently
 uses Python 3.13. Several earlier test reports accidentally used whatever `python3` appeared first
 and therefore did not constitute activation evidence for the producer.
 
@@ -598,7 +598,7 @@ source source_me.sh && python3 ...
 source source_me.sh && pytest tests/
 ```
 
-`make_blog.py` independently verifies the same physical Python 3.12 boundary after relaunch. This
+`make_blog.py` independently verifies the same physical Python 3.1x boundary after relaunch. This
 removed ambiguity between a successful compilation under one interpreter and a runnable pytest
 environment under another.
 
@@ -864,7 +864,6 @@ it reads like a maker describing work they care about, not a system reciting a d
 
 The primary local sources for this report are:
 
-- `CODEX_CHAT_TRANSCRIPT.txt`
 - `docs/CHANGELOG.md`
 - `docs/archive/DAILY_BLOG_PIPELINE_FIXUP_PLAN.md`
 - `docs/archive/BETTER_PROMPT_PLAN.md`

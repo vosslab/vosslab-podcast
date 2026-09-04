@@ -24,7 +24,7 @@ cd /home/vosslab/nsh/vosslab-podcast
 `--yesterday` (also `-Y`) resolves the completed previous calendar day in the configured report
 timezone. `--date` (also `-d`) accepts canonical `YYYY-MM-DD` and an unambiguous `YYYY-DD-MM`,
 then reports the canonical date before work starts. The command restarts under the repository's
-physical Python 3.12 environment.
+physical Python 3.1x environment.
 
 An occupied `--yesterday` (also `-Y`) date is automatically replaced for scheduled unattended
 operation. It validates the existing publication state, builds a complete replacement, then

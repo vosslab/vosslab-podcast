@@ -127,6 +127,23 @@ class RepositoryEditorialResult:
 			raise RuntimeError("Repository editorial result is invalid.")
 
 
+@dataclasses.dataclass(frozen=True)
+class RepositoryEditorialNoUsableEvidence:
+	"""Completed repository editorial that has no citable Stage 5 survivor."""
+
+	route_capacity: daily_blog.route_cache.RunCapacityPlan
+	route_budget: daily_blog.agents.RouteBudget
+
+	#============================================
+	def __post_init__(self) -> None:
+		if (
+			type(self.route_capacity) is not daily_blog.route_cache.RunCapacityPlan
+			or type(self.route_budget) is not daily_blog.agents.RouteBudget
+			or self.route_budget.maximum_parallel_calls != self.route_capacity.maximum_parallel_calls
+		):
+			raise RuntimeError("Repository editorial no-publication result is invalid.")
+
+
 class RepositoryEditorialCoordinator:
 	"""Accept a canonical repository join without owning route workers or Stage 5."""
 
@@ -139,7 +156,7 @@ class RepositoryEditorialCoordinator:
 	#============================================
 	def run(
 		self, packet: daily_blog.schema.EvidencePacket,
-	) -> RepositoryEditorialResult:
+	) -> RepositoryEditorialResult | RepositoryEditorialNoUsableEvidence:
 		"""Run the pure fan-out, then serialize only its accepted bounded effects."""
 		# ASVS 1.5.2, 2.2.1, and 2.3.1: revalidate frozen evidence and bind it
 		# to this run before capacity admission or any durable state transition.
@@ -174,6 +191,8 @@ class RepositoryEditorialCoordinator:
 		aggregates = _aggregate_repository_reliability(joined.results)
 		for summary in aggregates:
 			dependencies.record_summary(summary, daily_blog.run_contracts.ObserveIncumbent())
+		# Keep sealed packet provenance, but exclude repositories with no citable
+		# evidence from the aligned model-facing Stage 5 survivor scope.
 		stage5_results = tuple(
 			item for item in joined.results
 			if item.outline is not None and item.story is not None
@@ -208,8 +227,12 @@ class RepositoryEditorialCoordinator:
 			"reliability": [item.to_dict() for item in aggregates],
 		}
 		if not stage5_stories:
+			artifact["no_usable_evidence"] = True
 			dependencies.write_artifact("repository_editorial.json", artifact)
-			self._raise_terminal_fault(joined, projected, aggregates, rubric_sha256)
+			dependencies.complete("repository_editorial", {
+				"repositories": [], "packet_ids": [], "no_usable_evidence": True,
+			}, False)
+			return RepositoryEditorialNoUsableEvidence(capacity, budget)
 		context_chars = min(
 			dependencies.config.projection_limits["context_chars"],
 			daily_blog.daily_outline_prompts.MAX_EVIDENCE_CONTEXT_CHARS,

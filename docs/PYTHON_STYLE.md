@@ -22,7 +22,7 @@ AI agents frequently get these wrong. Read the full sections below for details.
 
 ## Python version
 
-* I like using one of the latest versions of python, but not the latest, of python3, currently **3.12**.
+* I like using one of the latest versions of python, but not the latest, of python3, currently **3.1x**.
 * In this repo, run python commands through the bootstrap pattern:
 * `source source_me.sh && python ...`
 
@@ -54,7 +54,7 @@ AI agents frequently get these wrong. Read the full sections below for details.
 - Shebangs apply ONLY to executable scripts - files with a `if __name__ == '__main__':` guard that are meant to be run directly from the command line.
 - The required shebang is `#!/usr/bin/env python3` and it must be the very first line. The module docstring comes after it.
 - Do NOT add shebangs to library modules, helper files, `__init__.py` files, or test files. These are imported, not executed directly.
-- Do not hard-code interpreter paths in shebangs (bad: `#!/opt/homebrew/.../python3.12`).
+- Do not hard-code interpreter paths in shebangs (bad: `#!/opt/homebrew/.../python3`).
 - Do not use `/usr/bin/python` or `/usr/bin/python3` in shebangs.
 - Files with a shebang must also have the executable bit set, and vice versa. See `tests/test_shebangs.py` for enforcement.
 - Return statements should be simple and should not perform calculations, fill out a dict, or build strings. Store computed values and assembled strings in variables first, including any multiline HTML or text, then return the variable.

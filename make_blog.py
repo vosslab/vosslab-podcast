@@ -51,7 +51,7 @@ def _restart_with_repo_python() -> None:
 		raise RuntimeError("make_blog.py requires an executable .venv/bin/python3.")
 	if os.path.realpath(sys.prefix) == os.path.realpath(REPO_VENV):
 		if sys.version_info[:2] != REQUIRED_PYTHON:
-			raise RuntimeError("make_blog.py requires repository Python 3.12.")
+			raise RuntimeError("make_blog.py requires repository Python 3.1x.")
 		return
 	arguments = [str(python_path), str(REPO_ROOT / "make_blog.py"), *sys.argv[1:]]
 	# ASVS 1.2.5: pass a fixed executable and separate arguments directly, without a shell.

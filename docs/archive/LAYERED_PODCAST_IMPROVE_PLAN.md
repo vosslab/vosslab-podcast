@@ -103,7 +103,6 @@ plus explanation, or defers the number to measurement.
   genuinely missing stage assets from a guide derived from the prompt-engineering references.
 - Extend `RunStore` with step outcomes and `best_artifact_id`; add a read-only reporter.
 - Redesign the publication-contract ownership boundary and remove superseded modules.
-- Update `docs/CHANGELOG.md`, `CODEX_CHAT_TRANSCRIPT.txt`, and operational documentation.
 
 ## Non-goals
 
@@ -683,7 +682,6 @@ recorded validation, and cleanup around a pipeline that already produces the blo
 
 ### Milestone: M16 documentation close-out
 
-- Depends on: M15. Deliverables: `docs/CHANGELOG.md` entry, `CODEX_CHAT_TRANSCRIPT.txt` section,
   refreshed `docs/DAILY_BLOG_OPERATIONS.md` and `docs/CODE_ARCHITECTURE.md`, superseded plans moved
   to `docs/archive/` with `git mv`, updated approved-prompt bookkeeping.
 - Final validation: complete and show one reader-visible publication for `report_date=2026-08-28`
@@ -843,7 +841,6 @@ Ordered by impact on correctness, validation, and delivery.
   `### Decisions and Failures` entry recording that fail-closed gating inverted the robustness goal,
   and that a deterministic floor was set aside as a success path because it would let the pipeline
   appear robust while skipping the editorial stages.
-- Archive / closure notes: `CODEX_CHAT_TRANSCRIPT.txt` gains a dated change, test, and next-actions
   section per `AGENTS.md`; `docs/DAILY_BLOG_OPERATIONS.md` and `docs/CODE_ARCHITECTURE.md` describe
   the nine stages, the four outcomes, the ladder, and the advisory reporter.
 

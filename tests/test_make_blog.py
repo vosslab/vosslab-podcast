@@ -92,7 +92,7 @@ def test_repo_python_boundary_rejects_wrong_interpreter(
 	monkeypatch.setattr(make_blog.sys, "prefix", str(make_blog.REPO_VENV))
 	monkeypatch.setattr(make_blog.sys, "version_info", (3, 13, 0))
 
-	with pytest.raises(RuntimeError, match="Python 3.12"):
+	with pytest.raises(RuntimeError, match="Python 3.1x"):
 		make_blog._restart_with_repo_python()
 
 

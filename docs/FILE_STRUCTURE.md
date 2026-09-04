@@ -12,7 +12,7 @@ docs/                      durable documentation, plans, and reports
 pipeline/                  reusable content and daily-blog modules
 tests/                     offline unit, hygiene, and direct E2E checks
 settings.yaml              local GitHub, model-route, and daily-blog settings
-source_me.sh               Bash Python 3.12 environment setup
+source_me.sh               Bash Python 3.1x environment setup
 ```
 
 `docs/PUBLICATION_FLOW.md` owns the A1-through-G6 human step and durable-filename map.

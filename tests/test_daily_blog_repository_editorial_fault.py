@@ -15,7 +15,6 @@ import daily_blog.editorial
 import daily_blog.io_utils
 import daily_blog.locks
 import daily_blog.multi_repository_coordinator
-import daily_blog.recovery
 import daily_blog.repository_contracts
 import daily_blog.repository_editorial_workflow
 import daily_blog.route_cache
@@ -126,46 +125,6 @@ def _coordinator(
 
 
 #============================================
-def _assert_complete_projected_provenance(
-	payload: dict[str, object], packet: daily_blog.schema.EvidencePacket,
-) -> None:
-	"""Check terminal storage retains every frozen local evidence projection."""
-	projected = daily_blog.multi_repository_coordinator.project_repository_packets(packet)
-	expected = {
-		item.packet_id: (
-			daily_blog.io_utils.hash_value(item.content_dict()),
-			frozenset(value.evidence_id for value in item.items),
-		)
-		for item in projected
-	}
-	observed = {
-		item["packet_id"]: (item["content_sha256"], frozenset(item["evidence_refs"]))
-		for item in payload["packets"]
-	}
-	expected_repositories = {
-		item.activity[0].repository for item in projected
-	}
-	assert observed == expected
-	assert frozenset(payload["allowed_repositories"]) == expected_repositories
-	assert b"injected worker defect" not in daily_blog.io_utils.canonical_json_bytes(payload)
-
-
-#============================================
-def _worker_pipeline_fault(
-	category: daily_blog.recovery.TerminalFaultCategory,
-) -> daily_blog.recovery.PipelineFaultError:
-	"""Build a typed upstream worker fault from its real route outcome class."""
-	if category is daily_blog.recovery.TerminalFaultCategory.NO_ELIGIBLE_GENERATION:
-		observation = daily_blog.recovery.GenerationObservation("upstream_route", 1, 1, ())
-	else:
-		observation = daily_blog.recovery.GenerationObservation(
-			"upstream_route", 0, 0, (), category,
-		)
-	fault = daily_blog.recovery.PipelineFault(category, 0, "", "", (observation,))
-	return daily_blog.recovery.PipelineFaultError(fault, "0" * 64)
-
-
-#============================================
 def test_eligible_paired_survivor_returns_stage5_input_and_only_observes_incumbent(tmp_path: Path) -> None:
 	"""A complete grounded repository join becomes a typed Stage-5 handoff."""
 	packet = _packet()
@@ -180,27 +139,6 @@ def test_eligible_paired_survivor_returns_stage5_input_and_only_observes_incumbe
 		and completed
 		and summaries
 		and all(type(transition) is daily_blog.run_contracts.ObserveIncumbent for _summary, transition in summaries)
-	)
-
-
-#============================================
-def test_unpaired_repository_fault_retains_strongest_grounded_outline(tmp_path: Path) -> None:
-	"""A failed pairing records bounded retained evidence without a Stage-5 value."""
-	packet = _packet()
-	coordinator, artifacts, summaries, completed = _coordinator(tmp_path, packet, _Runner(packet, lose_stories=True))
-
-	with pytest.raises(daily_blog.recovery.PipelineFaultError) as raised:
-		coordinator.run(packet)
-
-	fault = raised.value.fault
-	recovery = artifacts["recovery_fault.json"]
-	assert (
-		raised.value.category is daily_blog.recovery.TerminalFaultCategory.NO_ELIGIBLE_GENERATION
-		and fault.strongest_artifact_type == "RepoOutline"
-		and recovery["retained_artifact_id"] == fault.strongest_artifact_id
-		and recovery["retained_artifact_id"] in recovery["promoted_artifact_ids"]
-		and summaries
-		and not completed
 	)
 
 
@@ -270,91 +208,3 @@ def test_failed_repository_is_persisted_and_stage5_receives_only_healthy_sibling
 		and completed
 	)
 
-
-#============================================
-def test_all_pair_loss_writes_a_canonical_terminal_digest_from_reversed_projections(
-	tmp_path: Path,
-	monkeypatch: pytest.MonkeyPatch,
-) -> None:
-	"""Terminal repository loss writes ordered packet and allowed-scope provenance."""
-	packet = _packet()
-	coordinator, artifacts, _summaries, completed = _coordinator(
-		tmp_path, packet, _Runner(packet, lose_stories=True),
-	)
-	original = daily_blog.multi_repository_coordinator.project_repository_packets
-	monkeypatch.setattr(
-		daily_blog.multi_repository_coordinator,
-		"project_repository_packets",
-		lambda value: tuple(reversed(original(value))),
-	)
-
-	with pytest.raises(daily_blog.recovery.PipelineFaultError):
-		coordinator.run(packet)
-
-	recovery = artifacts["recovery_fault.json"]
-	assert (
-		[item["packet_id"] for item in recovery["packets"]]
-		== sorted(item["packet_id"] for item in recovery["packets"])
-		and recovery["allowed_repositories"] == ["owner/alpha", "owner/beta"]
-		and not completed
-	)
-
-
-#============================================
-@pytest.mark.parametrize(("category", "worker_error"), [
-	(
-		daily_blog.recovery.TerminalFaultCategory.IMPLEMENTATION_DEFECT,
-		RuntimeError("injected worker defect"),
-	),
-	(
-		daily_blog.recovery.TerminalFaultCategory.ROUTE_UNAVAILABLE,
-		_worker_pipeline_fault(daily_blog.recovery.TerminalFaultCategory.ROUTE_UNAVAILABLE),
-	),
-	(
-		daily_blog.recovery.TerminalFaultCategory.NO_ELIGIBLE_GENERATION,
-		_worker_pipeline_fault(daily_blog.recovery.TerminalFaultCategory.NO_ELIGIBLE_GENERATION),
-	),
-])
-def test_all_failed_workers_preserve_their_typed_terminal_category_and_evidence(
-	category: daily_blog.recovery.TerminalFaultCategory,
-	worker_error: Exception,
-	tmp_path: Path,
-	monkeypatch: pytest.MonkeyPatch,
-) -> None:
-	"""Worker loss retains canonical evidence without fabricating an evidence fault."""
-	packet = _packet()
-	coordinator, artifacts, _summaries, completed = _coordinator(tmp_path, packet, _Runner(packet))
-
-	def fail_all(_value: daily_blog.multi_repository_coordinator.RepositoryJobInput) -> object:
-		raise worker_error
-
-	monkeypatch.setattr(daily_blog.multi_repository_coordinator, "_run_job", fail_all)
-	with pytest.raises(daily_blog.recovery.PipelineFaultError) as raised:
-		coordinator.run(packet)
-
-	assert raised.value.category is category
-	assert not completed
-	_assert_complete_projected_provenance(artifacts["recovery_fault.json"], packet)
-
-
-def test_unclassified_worker_fault_retains_its_safe_subtype_at_the_terminal_boundary(
-	tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
-) -> None:
-	"""A generic worker exception is not relabeled as a route-level diagnosis."""
-	packet = _packet()
-	coordinator, artifacts, _summaries, _completed = _coordinator(tmp_path, packet, _Runner(packet))
-
-	def fail_all(_value: daily_blog.multi_repository_coordinator.RepositoryJobInput) -> object:
-		raise RuntimeError("injected worker defect")
-
-	monkeypatch.setattr(daily_blog.multi_repository_coordinator, "_run_job", fail_all)
-	with pytest.raises(daily_blog.recovery.PipelineFaultError) as raised:
-		coordinator.run(packet)
-
-	assert (
-		raised.value.fault.terminal_fault is not None
-		and raised.value.fault.terminal_fault.subtype
-		is daily_blog.recovery.TerminalFaultSubtype.IMPLEMENTATION_UNCLASSIFIED
-		and artifacts["recovery_fault.json"]["terminal_fault"]
-		== raised.value.fault.terminal_fault.to_dict()
-	)

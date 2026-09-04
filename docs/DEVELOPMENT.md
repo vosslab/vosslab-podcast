@@ -7,7 +7,6 @@ contracts.
 ## Start a session
 
 Read [AGENTS.md](../AGENTS.md) and
-[CODEX_CHAT_TRANSCRIPT.txt](../CODEX_CHAT_TRANSCRIPT.txt) before changing the
 repository. Read the applicable canonical guidance before editing code, tests,
 or documentation:
 
@@ -39,13 +38,13 @@ source source_me.sh && pytest tests/
 ```
 
 `source_me.sh` requires a physical, repository-local `.venv` and rejects a
-symbolic link or an interpreter other than Python 3.12. It places that environment
+symbolic link or an interpreter other than Python 3.1x. It places that environment
 first on `PATH`, clears inherited `PYTHONPATH`, and sets the pipeline import path.
 Create the required environment, then install the declared dependencies, when the
 bootstrap reports that it is missing:
 
 ```bash
-python3.12 -m venv .venv
+python3 -m venv .venv
 source source_me.sh && pip install -r pip_requirements.txt -r pip_requirements-dev.txt
 ```
 
@@ -117,7 +116,7 @@ source source_me.sh && python3 make_blog.py --yesterday
 source source_me.sh && python3 make_blog.py --date YYYY-MM-DD
 ```
 
-`make_blog.py` restarts through the physical repository Python 3.12 runtime.
+`make_blog.py` restarts through the physical repository Python 3.1x runtime.
 `report_date` is the sole publication identity. `--yesterday` selects the
 preceding date in the configured report timezone and replaces an occupied date
 for unattended scheduled operation. An occupied explicit `--date` asks for
@@ -205,7 +204,6 @@ a human to run.
 
 Every code or behavior change needs a dated entry in [CHANGELOG.md](CHANGELOG.md).
 After a major change, append a dated section to
-[CODEX_CHAT_TRANSCRIPT.txt](../CODEX_CHAT_TRANSCRIPT.txt) with what changed,
 what was tested, and the next action.
 
 For documentation-only work, validate local links, ASCII content, whitespace,

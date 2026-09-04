@@ -6,7 +6,7 @@ command, and developer tools.
 
 ## Requirements
 
-- Bash and Python 3.12.
+- Bash and Python 3.1x.
 - Runtime packages in [`pip_requirements.txt`](../pip_requirements.txt).
 - Developer packages in [`pip_requirements-dev.txt`](../pip_requirements-dev.txt) for tests.
 - The configured local `vosslab-daily-blog` checkout for a real daily publication.
@@ -17,7 +17,7 @@ command, and developer tools.
 2. Create the required physical Python environment:
 
    ```bash
-   python3.12 -m venv .venv
+   python3 -m venv .venv
    ```
 
 3. Install runtime and developer dependencies from the checkout:
@@ -32,7 +32,7 @@ command, and developer tools.
    source source_me.sh
    ```
 
-`source_me.sh` verifies Python 3.12, puts `.venv/bin` first on `PATH`, and exposes
+`source_me.sh` verifies Python 3.1x, puts `.venv/bin` first on `PATH`, and exposes
 the repository pipeline modules.
 
 ## Live publication setup
@@ -86,8 +86,8 @@ network access, or a configured publisher checkout.
 
 ### Environment rejected
 
-Recreate `.venv` with Python 3.12. The bootstrap rejects a missing, symbolic-link,
-or non-3.12 repository environment.
+Recreate `.venv` with Python 3.1x. The bootstrap rejects a missing, symbolic-link,
+or non-3.1x repository environment.
 
 ## Known gaps
 

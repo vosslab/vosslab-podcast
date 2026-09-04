@@ -150,7 +150,6 @@ threshold, or a new permanent fixture.
 - Record the robustness definition in `docs/DESIGN_DECISIONS.md`.
 - Keep the LLM-gate audit checklist complementary to the permanent-test checklist.
 - Update `docs/CHANGELOG.md` with Step 0, gate removal, and test deletion.
-- Append a dated change, test, and next-actions entry to `CODEX_CHAT_TRANSCRIPT.txt`.
 - Record live and disposable checks as one-time evidence, never as pytest requirements.
 
 ## Resolved decisions

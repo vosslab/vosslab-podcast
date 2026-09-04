@@ -312,7 +312,6 @@ Update only current, behavior-owning documentation:
 
 - `docs/DAILY_BLOG_OPERATIONS.md`: narrative scope, coverage scope, selected-image authority, diagnostics, and live verification.
 - `docs/CHANGELOG.md`: concrete behavioral change and verification evidence.
-- `CODEX_CHAT_TRANSCRIPT.txt`: concise execution record required by repository policy.
 - `docs/FILE_STRUCTURE.md`: only if module ownership or placement changes.
 
 Preserve approved prompt assets, rubrics, and `docs/BLOG_CONTRACT.md` byte-for-byte. Move this plan to `docs/archive/` after every acceptance criterion is satisfied.

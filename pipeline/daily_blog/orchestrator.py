@@ -301,6 +301,25 @@ class DailyPublicationOrchestrator:
 		return "", {"report_date": self.report_date, "status": "no_activity"}
 
 	#============================================
+	def _complete_no_usable_evidence(self, packet: daily_blog.schema.EvidencePacket) -> tuple[str, dict]:
+		"""Record a no-publication completion after repository editorial exhausts citable evidence."""
+		# ASVS 2.2.1/2.3.1: this is a trusted terminal outcome only after the
+		# completed repository-editorial boundary has retained its diagnostics.
+		if type(packet) is not daily_blog.schema.EvidencePacket or not packet.activity:
+			raise RuntimeError("No-usable-evidence completion requires acquired report-day activity.")
+		self.record.complete_no_usable_evidence()
+		self.store.save(self.record)
+		self.store.append_event(
+			"daily_publication.no_usable_evidence_completed",
+			{"activity_count": len(packet.activity), "evidence_count": len(packet.items),
+				"outcome": self.record.outcome, "state": self.record.state},
+		)
+		self.store.finalize_summary(self.record)
+		# Unlike an empty report day, this terminal outcome has acquisition and
+		# editorial diagnostics that remain useful until a later publication replaces them.
+		return "", {"report_date": self.report_date, "status": "no_usable_evidence"}
+
+	#============================================
 	def run(self) -> tuple[str, dict]:
 		"""Run each durable boundary or close a verified no-activity report date."""
 		try:
@@ -327,6 +346,8 @@ class DailyPublicationOrchestrator:
 					self.store.write_artifact,
 				)
 			).run(acquisition.packet)
+			if type(repository_editorial) is daily_blog.repository_editorial_workflow.RepositoryEditorialNoUsableEvidence:
+				return self._complete_no_usable_evidence(acquisition.packet)
 			self.route_capacity = repository_editorial.route_capacity
 			self.route_budget = repository_editorial.route_budget
 			stage6_input = daily_blog.publication_workflow.run_typed_stage5(

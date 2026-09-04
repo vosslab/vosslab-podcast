@@ -252,7 +252,7 @@ def validate_terminal_summary(value: object) -> dict[str, object]:
 	if result["publication_completed"] != bool(result["verified_page_sha256"]):
 		raise RuntimeError("Terminal summary publication facts are inconsistent.")
 	if (
-		result["state"] == "completed" and result["outcome"] != "no_activity"
+		result["state"] == "completed" and result["outcome"] not in {"no_activity", "no_usable_evidence"}
 		and not result["publication_completed"]
 	):
 		raise RuntimeError("Completed terminal summary requires verified publication.")
@@ -616,6 +616,12 @@ class HumanProgress:
 			duration = format_elapsed(self._clock() - self._run_started)
 			self._write(
 				f"No report-day activity for {self.report_date}; no publication created; completed in {duration}",
+				"green",
+			)
+		elif event == "daily_publication.no_usable_evidence_completed":
+			duration = format_elapsed(self._clock() - self._run_started)
+			self._write(
+				f"No usable report-day evidence for {self.report_date}; no publication created; completed in {duration}",
 				"green",
 			)
 

@@ -632,44 +632,44 @@
 - `python3 tests/check_ascii_compliance.py -i pip_requirements.txt`
 - `python3 tests/check_ascii_compliance.py -i Brewfile`
 - `python3 tests/check_ascii_compliance.py -i README.md`
-- `source source_me.sh && PYTHONPYCACHEPREFIX=/tmp/vosslab_podcast_pycache python3.12 -m py_compile pipeline/pipeline_settings.py pipeline/fetch_github_data.py pipeline/outline_github_data.py tests/test_pipeline_settings.py`
-- `source source_me.sh && PYTHONPYCACHEPREFIX=/tmp/vosslab_podcast_pycache python3.12 -m pytest -q tests/test_pipeline_settings.py tests/test_fetch_github_data_features.py tests/test_outline_parser.py` (pass: `11 passed`)
-- `source source_me.sh && PYTHONPYCACHEPREFIX=/tmp/vosslab_podcast_pycache python3.12 -m py_compile pipeline/github_client.py pipeline/fetch_github_data.py`
-- `source source_me.sh && PYTHONPYCACHEPREFIX=/tmp/vosslab_podcast_pycache python3.12 -m pytest -q tests/test_fetch_github_data_features.py tests/test_pipeline_settings.py` (pass: `7 passed`)
-- `source source_me.sh && PYTHONPYCACHEPREFIX=/tmp/vosslab_podcast_pycache python3.12 -m py_compile pipeline/outline_github_data.py pipeline/outline_to_blog_post.py pipeline/outline_to_bluesky_post.py pipeline/outline_to_podcast_script.py pipeline/script_to_audio.py`
-- `source source_me.sh && PYTHONPYCACHEPREFIX=/tmp/vosslab_podcast_pycache python3.12 -m pytest -q tests/test_outline_parser.py tests/test_content_pipeline_limits.py` (pass: `7 passed`)
+- `source source_me.sh && PYTHONPYCACHEPREFIX=/tmp/vosslab_podcast_pycache python3 -m py_compile pipeline/pipeline_settings.py pipeline/fetch_github_data.py pipeline/outline_github_data.py tests/test_pipeline_settings.py`
+- `source source_me.sh && PYTHONPYCACHEPREFIX=/tmp/vosslab_podcast_pycache python3 -m pytest -q tests/test_pipeline_settings.py tests/test_fetch_github_data_features.py tests/test_outline_parser.py` (pass: `11 passed`)
+- `source source_me.sh && PYTHONPYCACHEPREFIX=/tmp/vosslab_podcast_pycache python3 -m py_compile pipeline/github_client.py pipeline/fetch_github_data.py`
+- `source source_me.sh && PYTHONPYCACHEPREFIX=/tmp/vosslab_podcast_pycache python3 -m pytest -q tests/test_fetch_github_data_features.py tests/test_pipeline_settings.py` (pass: `7 passed`)
+- `source source_me.sh && PYTHONPYCACHEPREFIX=/tmp/vosslab_podcast_pycache python3 -m py_compile pipeline/outline_github_data.py pipeline/outline_to_blog_post.py pipeline/outline_to_bluesky_post.py pipeline/outline_to_podcast_script.py pipeline/script_to_audio.py`
+- `source source_me.sh && PYTHONPYCACHEPREFIX=/tmp/vosslab_podcast_pycache python3 -m pytest -q tests/test_outline_parser.py tests/test_content_pipeline_limits.py` (pass: `7 passed`)
 - `bash -n automation/run_local_pipeline.sh automation/install_launchd_pipeline.sh automation/uninstall_launchd_pipeline.sh`
-- `source source_me.sh && PYTHONPYCACHEPREFIX=/tmp/vosslab_podcast_pycache python3.12 -m py_compile pipeline/fetch_github_data.py pipeline/outline_github_data.py pipeline/outline_to_blog_post.py pipeline/outline_to_bluesky_post.py pipeline/outline_to_podcast_script.py pipeline/script_to_audio.py`
-- `source source_me.sh && PYTHONPYCACHEPREFIX=/tmp/vosslab_podcast_pycache python3.12 -m py_compile pipeline/fetch_github_data.py pipeline/github_client.py tests/test_fetch_github_data_features.py`
-- `source source_me.sh && PYTHONPYCACHEPREFIX=/tmp/vosslab_podcast_pycache python3.12 -m pytest -q tests/test_fetch_github_data_features.py tests/test_pipeline_settings.py tests/test_outline_parser.py tests/test_content_pipeline_limits.py` (pass: `15 passed`)
-- `source source_me.sh && python3.12 pipeline/fetch_github_data.py --help`
-- `source source_me.sh && PYTHONPYCACHEPREFIX=/tmp/vosslab_podcast_pycache python3.12 -m py_compile pipeline/pipeline_settings.py pipeline/outline_github_data.py tests/test_pipeline_settings.py`
-- `source source_me.sh && PYTHONPYCACHEPREFIX=/tmp/vosslab_podcast_pycache python3.12 -m pytest -q tests/test_pipeline_settings.py tests/test_outline_parser.py tests/test_content_pipeline_limits.py tests/test_fetch_github_data_features.py` (pass: `19 passed`)
-- `source source_me.sh && python3.12 pipeline/outline_github_data.py --help`
-- `source source_me.sh && PYTHONPYCACHEPREFIX=/tmp/vosslab_podcast_pycache python3.12 -m py_compile pipeline/pipeline_settings.py tests/test_pipeline_settings.py pipeline/outline_github_data.py`
-- `source source_me.sh && PYTHONPYCACHEPREFIX=/tmp/vosslab_podcast_pycache python3.12 -m pytest -q tests/test_pipeline_settings.py tests/test_outline_parser.py tests/test_content_pipeline_limits.py tests/test_fetch_github_data_features.py` (pass: `22 passed`)
-- `source source_me.sh && PYTHONPYCACHEPREFIX=/tmp/vosslab_podcast_pycache python3.12 -m py_compile pipeline/script_to_audio_say.py tests/test_script_to_audio_say.py`
-- `source source_me.sh && PYTHONPYCACHEPREFIX=/tmp/vosslab_podcast_pycache python3.12 -m pytest -q tests/test_script_to_audio_say.py`
-- `python3.12 -m py_compile pipeline/fetch_github_data.py tests/test_fetch_github_data_features.py`
-- `python3.12 -m pytest -q tests/test_fetch_github_data_features.py` (pass: `5 passed`)
-- `python3.12 pipeline/fetch_github_data.py --help`
-- `python3.12 -m py_compile pipeline/github_client.py tests/test_github_client_rate_limit.py`
-- `python3.12 -m pytest -q tests/test_github_client_rate_limit.py tests/test_fetch_github_data_features.py` (pass: `9 passed`)
-- `python3.12 pipeline/fetch_github_data.py --last-day --max-repos 1 --output out/smoke_github_data.jsonl --daily-cache-dir out/smoke_daily_cache`
-- `python3.12 -m py_compile pipeline/outline_github_data.py tests/test_outline_parser.py`
-- `python3.12 -m pytest -q tests/test_outline_parser.py`
-- `python3.12 -m py_compile pipeline/outline_to_blog_post.py tests/test_content_pipeline_limits.py tests/test_outline_to_blog_post.py`
-- `python3.12 -m pytest -q tests/test_content_pipeline_limits.py tests/test_outline_to_blog_post.py` (pass: `5 passed`)
+- `source source_me.sh && PYTHONPYCACHEPREFIX=/tmp/vosslab_podcast_pycache python3 -m py_compile pipeline/fetch_github_data.py pipeline/outline_github_data.py pipeline/outline_to_blog_post.py pipeline/outline_to_bluesky_post.py pipeline/outline_to_podcast_script.py pipeline/script_to_audio.py`
+- `source source_me.sh && PYTHONPYCACHEPREFIX=/tmp/vosslab_podcast_pycache python3 -m py_compile pipeline/fetch_github_data.py pipeline/github_client.py tests/test_fetch_github_data_features.py`
+- `source source_me.sh && PYTHONPYCACHEPREFIX=/tmp/vosslab_podcast_pycache python3 -m pytest -q tests/test_fetch_github_data_features.py tests/test_pipeline_settings.py tests/test_outline_parser.py tests/test_content_pipeline_limits.py` (pass: `15 passed`)
+- `source source_me.sh && python3 pipeline/fetch_github_data.py --help`
+- `source source_me.sh && PYTHONPYCACHEPREFIX=/tmp/vosslab_podcast_pycache python3 -m py_compile pipeline/pipeline_settings.py pipeline/outline_github_data.py tests/test_pipeline_settings.py`
+- `source source_me.sh && PYTHONPYCACHEPREFIX=/tmp/vosslab_podcast_pycache python3 -m pytest -q tests/test_pipeline_settings.py tests/test_outline_parser.py tests/test_content_pipeline_limits.py tests/test_fetch_github_data_features.py` (pass: `19 passed`)
+- `source source_me.sh && python3 pipeline/outline_github_data.py --help`
+- `source source_me.sh && PYTHONPYCACHEPREFIX=/tmp/vosslab_podcast_pycache python3 -m py_compile pipeline/pipeline_settings.py tests/test_pipeline_settings.py pipeline/outline_github_data.py`
+- `source source_me.sh && PYTHONPYCACHEPREFIX=/tmp/vosslab_podcast_pycache python3 -m pytest -q tests/test_pipeline_settings.py tests/test_outline_parser.py tests/test_content_pipeline_limits.py tests/test_fetch_github_data_features.py` (pass: `22 passed`)
+- `source source_me.sh && PYTHONPYCACHEPREFIX=/tmp/vosslab_podcast_pycache python3 -m py_compile pipeline/script_to_audio_say.py tests/test_script_to_audio_say.py`
+- `source source_me.sh && PYTHONPYCACHEPREFIX=/tmp/vosslab_podcast_pycache python3 -m pytest -q tests/test_script_to_audio_say.py`
+- `python3 -m py_compile pipeline/fetch_github_data.py tests/test_fetch_github_data_features.py`
+- `python3 -m pytest -q tests/test_fetch_github_data_features.py` (pass: `5 passed`)
+- `python3 pipeline/fetch_github_data.py --help`
+- `python3 -m py_compile pipeline/github_client.py tests/test_github_client_rate_limit.py`
+- `python3 -m pytest -q tests/test_github_client_rate_limit.py tests/test_fetch_github_data_features.py` (pass: `9 passed`)
+- `python3 pipeline/fetch_github_data.py --last-day --max-repos 1 --output out/smoke_github_data.jsonl --daily-cache-dir out/smoke_daily_cache`
+- `python3 -m py_compile pipeline/outline_github_data.py tests/test_outline_parser.py`
+- `python3 -m pytest -q tests/test_outline_parser.py`
+- `python3 -m py_compile pipeline/outline_to_blog_post.py tests/test_content_pipeline_limits.py tests/test_outline_to_blog_post.py`
+- `python3 -m pytest -q tests/test_content_pipeline_limits.py tests/test_outline_to_blog_post.py` (pass: `5 passed`)
 - `source source_me.sh && pytest tests/` (pass: `377 passed`)
 - `source source_me.sh && pytest tests/ -q` (pass: `378 passed`)
-- `python3.12 pipeline/outline_to_blog_post.py --help`
-- `python3.12 -m py_compile pipeline/fetch_github_data.py pipeline/outline_github_data.py pipeline/outline_to_blog_post.py pipeline/outline_to_bluesky_post.py pipeline/outline_to_podcast_script.py pipeline/script_to_audio_say.py tests/test_pipeline_settings.py tests/test_github_client_rate_limit.py tests/test_content_pipeline_limits.py tests/test_outline_to_blog_post.py`
-- `python3.12 -m pytest -q tests/test_pipeline_settings.py tests/test_github_client_rate_limit.py tests/test_content_pipeline_limits.py tests/test_outline_to_blog_post.py` (pass: `19 passed`)
-- `python3.12 pipeline/fetch_github_data.py --help && python3.12 pipeline/outline_to_blog_post.py --help`
-- `python3.12 -m pytest -q tests/test_bandit_security.py tests/test_import_dot.py tests/test_import_requirements.py tests/test_init_files.py` (pass: `52 passed`)
-- `python3.12 -m pytest -q tests/` (pass: `322 passed`)
-- `python3.12 -m py_compile pipeline/outline_to_blog_post.py tests/test_outline_to_blog_post.py`
-- `python3.12 -m pytest -q tests/test_outline_to_blog_post.py tests/test_content_pipeline_limits.py` (pass: `7 passed`)
-- `python3.12 -m pytest -q tests/test_outline_to_blog_post.py tests/test_content_pipeline_limits.py` (pass: `8 passed`)
-- `python3.12 -m py_compile pipeline/outline_to_blog_post.py`
-- `python3.12 pipeline/outline_to_blog_post.py` (clean failure path validated when Apple transport fails)
+- `python3 pipeline/outline_to_blog_post.py --help`
+- `python3 -m py_compile pipeline/fetch_github_data.py pipeline/outline_github_data.py pipeline/outline_to_blog_post.py pipeline/outline_to_bluesky_post.py pipeline/outline_to_podcast_script.py pipeline/script_to_audio_say.py tests/test_pipeline_settings.py tests/test_github_client_rate_limit.py tests/test_content_pipeline_limits.py tests/test_outline_to_blog_post.py`
+- `python3 -m pytest -q tests/test_pipeline_settings.py tests/test_github_client_rate_limit.py tests/test_content_pipeline_limits.py tests/test_outline_to_blog_post.py` (pass: `19 passed`)
+- `python3 pipeline/fetch_github_data.py --help && python3 pipeline/outline_to_blog_post.py --help`
+- `python3 -m pytest -q tests/test_bandit_security.py tests/test_import_dot.py tests/test_import_requirements.py tests/test_init_files.py` (pass: `52 passed`)
+- `python3 -m pytest -q tests/` (pass: `322 passed`)
+- `python3 -m py_compile pipeline/outline_to_blog_post.py tests/test_outline_to_blog_post.py`
+- `python3 -m pytest -q tests/test_outline_to_blog_post.py tests/test_content_pipeline_limits.py` (pass: `7 passed`)
+- `python3 -m pytest -q tests/test_outline_to_blog_post.py tests/test_content_pipeline_limits.py` (pass: `8 passed`)
+- `python3 -m py_compile pipeline/outline_to_blog_post.py`
+- `python3 pipeline/outline_to_blog_post.py` (clean failure path validated when Apple transport fails)

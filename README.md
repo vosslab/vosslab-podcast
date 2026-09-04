@@ -38,7 +38,7 @@ without relying on a model provider or network access.
 
 ## Quick start: prove the public path safely
 
-The supported runtime is Bash with Python 3.12. From a prepared source checkout, load the
+The supported runtime is Bash with Python 3.1x. From a prepared source checkout, load the
 repository environment and run the disposable, no-egress publication proof:
 
 ```bash
@@ -111,7 +111,7 @@ See [docs/USAGE.md](docs/USAGE.md) for its options, inputs, and outputs.
 
 ## Documentation routes
 
-- [docs/INSTALL.md](docs/INSTALL.md): create the required Python 3.12 environment and verify it.
+- [docs/INSTALL.md](docs/INSTALL.md): create the required Python 3.1x environment and verify it.
 - [docs/USAGE.md](docs/USAGE.md): daily-publication commands, replacement behavior, and outputs.
 - [docs/DAILY_BLOG_OPERATIONS.md](docs/DAILY_BLOG_OPERATIONS.md): operating, schedule, recovery,
   and investigation boundaries.

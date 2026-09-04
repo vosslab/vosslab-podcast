@@ -26,7 +26,11 @@
 ### Fixes and Maintenance
 
 - Synchronized shared style guides, tests, and repository support files from the starter template.
-- Synchronized shared style guides, tests, and repository support files from the starter template.
+
+### Removals and Deprecations
+
+- Removed the Stage 6 recovery pytest that asserted a tunable prompt limit, internal cache counters,
+  and reason-string storage rather than durable user-visible behavior.
 ## 2026-09-03
 
 - Move the reader-visible Project coverage footer outside LLM ownership: finalization now replaces any authored subset with every exact report-day repository and its deterministic commit count from sealed activity evidence, ordered by commit count descending with repository-name tie-breaking.
@@ -197,20 +201,20 @@
   evidence authority, date and repository scope, source safety, path confinement, selected-byte
   availability, artifact integrity, and transactional publisher boundaries as hard failures.
 - Focused image, observability, Stage 6, recovery, and fault-semantics checks passed 49 tests. The
-  complete Python 3.12 permanent suite passed all 3,989 tests in 30.34 seconds. The controlled
+  complete Python 3.1x permanent suite passed all 3,989 tests in 30.34 seconds. The controlled
   publication E2E passed separately; no live-model, historical-artifact, count, prompt-byte, or
   call-topology check was added to permanent pytest.
 - Focused Stage 6, recovery, publication-surface, bundle, publisher, Stage 7, and publication-
   validation checks passed 96 tests. A live August 27 rerun degraded across unavailable outline,
   writer, editor, reviewer, and synthesis work, then replaced the post, copied its one selected
   image, and verified the rendered page in 11m31s.
-- The complete Python 3.12 permanent suite passed all 3,989 tests in 30.11 seconds. The controlled
+- The complete Python 3.1x permanent suite passed all 3,989 tests in 30.11 seconds. The controlled
   publication E2E passed initial import, same-date replacement, selected-image transfer, rendered-
   page verification, and preservation of the imported state after an expected page-check failure.
 - Focused publisher, publication-state, and evidence tests passed 62 cases. The controlled
   producer-to-renderer publication E2E passed initial import, same-date replacement, selected-image
   transfer, rendered-page verification, and the expected post-import page failure. The Git evidence
-  E2E passed with repository-qualified image naming. The complete Python 3.12 suite passed all 3,983
+  E2E passed with repository-qualified image naming. The complete Python 3.1x suite passed all 3,983
   tests.
 
 - Publication-flow ownership and editorial-filename changes passed 108 focused documentation,

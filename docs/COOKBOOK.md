@@ -45,7 +45,7 @@ source source_me.sh && python3 make_blog.py --date 2026-08-21 --yes
 
 `--yesterday` selects the preceding date in the configured report timezone. `--date` uses canonical
 `YYYY-MM-DD` and also accepts an unambiguous `YYYY-DD-MM` input. The command selects exactly one
-report date and runs through the repository-local Python 3.12 environment. `report_date` is the sole
+report date and runs through the repository-local Python 3.1x environment. `report_date` is the sole
 publication identity. `--yesterday` and explicit `--yes` authorize same-date replacement; an
 explicit date without `--yes` asks before replacing it.
 

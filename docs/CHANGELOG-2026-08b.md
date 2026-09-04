@@ -37,7 +37,7 @@
   unrelated automation/E2E files and one new-file Markdown-link visibility issue that was corrected
   and then passed with the 64-test Markdown/reliability selection. The controlled publication E2E
   could not start because its sealed `out/` fixture is absent from this checkout.
-- F7 accepted: Python 3.12.13 producer suite 2,450 passed with 0 failures; Python 3.13.5 publisher
+- F7 accepted: Python 3.1x.13 producer suite 2,450 passed with 0 failures; Python 3.13.5 publisher
   suite 1,362 passed with 0 failures; publisher hygiene 310 passed; strict disposable MkDocs build;
   publication, 12-case crash, and schedule E2Es; and four independent requirements, security,
   test-policy, and maintainability audits. Approved prompt hashes match.
@@ -126,9 +126,9 @@
 - Made systemd the sole schedule owner. The 04:00 America/Chicago service directly calls
   `./make_blog.py --yesterday`; Hermes remains the configured model/provider runner inside prose
   generation, and the retired cursor/backlog wrapper is removed.
-- Made `source_me.sh` select and positively verify a physical repository-local Python 3.12
+- Made `source_me.sh` select and positively verify a physical repository-local Python 3.1x
   environment instead of inheriting an ambiguous shell interpreter.
-- Made the repository-root blog command enforce that same Python 3.12 boundary after relaunch and
+- Made the repository-root blog command enforce that same Python 3.1x boundary after relaunch and
   added a direct executable E2E that exercises help and fail-closed date parsing without reaching a
   model route or publisher.
 - Reserved one highest-authority budgeted evidence item for every active repository before routine
@@ -163,7 +163,7 @@
 - Made `repository_contracts.py` the sole owner of repository identities, roster records,
   lifecycle events, and canonical repository timestamps. Production, capture automation, and tests
   now use that module directly; `schema.py` no longer re-exports a compatibility surface.
-- Corrected current documentation to the physical repository-local Python 3.12.13 bootstrap,
+- Corrected current documentation to the physical repository-local Python 3.1x.13 bootstrap,
   distinguished its contract-test evidence from the remaining real-route activation gate, clarified
   the current bundle v4 and publication-date identity, and renumbered the active
   maker-voice plan through milestones 15 and 16.
@@ -265,7 +265,7 @@
 - Focused route, editorial, capture, calibration, and attestation behavior passed 92 offline tests;
   the post-repair fixture/capture/attestation selection passed 36 tests. Pyflakes, source-size,
   pytest hygiene, ASCII, prompt-resource, and Markdown-link checks passed 858 tests. The complete
-  Python 3.12.13 suite passed all 2,418 tests, and all eight retained E2Es passed. Route-free
+  Python 3.1x.13 suite passed all 2,418 tests, and all eight retained E2Es passed. Route-free
   calibration preparation reproduced identity
   `0df85dd7fdd48428353d0e6bde893acfaa21d4b23f66ffd267565a36c2ce6169`.
 - A sandboxed live-calibration attempt wrote an incomplete private diagnostic after Hermes could not
@@ -287,7 +287,7 @@
   direct Pyflakes, Python compilation, MyPy, six daily-blog E2Es, route-free preparation reuse, and
   the fail-closed unapproved live command also passed.
 - The non-link producer suite and the roster, prompt-contract, experiment-lifecycle, and publication
-  E2Es now pass under the required Python 3.12.13 environment.
+  E2Es now pass under the required Python 3.1x.13 environment.
 - The live Hermes route remains unresolved. No live rubric scores, generated-prose comparison, arm
   winner, or v4 activation is recorded by this change.
 - Focused sealed-capture, calibration, prompt-experiment, and deterministic-attestation tests pass
@@ -301,7 +301,7 @@
   remaining findings and the uncompleted maker-voice activation gate are recorded in the audit
   handoff.
 - Final editorial-cap and duplicate-test pruning removed six tunable or redundant checks. The
-  permanent Python 3.12 suite passes all 2,238 pytest tests, and the eight real E2E runners pass.
+  permanent Python 3.1x suite passes all 2,238 pytest tests, and the eight real E2E runners pass.
   Compilation, Pyflakes, MyPy, Bandit, Markdown, ASCII, mode, and diff checks pass for the audit
   remediations.
 
@@ -434,8 +434,8 @@
   route failed for tiny prompts; no comparison, quality conclusion, arm winner, or activation follows.
 - The fetch/changelog/outline behavior selection passed 23 tests, the focused structural and hygiene
   selection passed 1276 tests, and `source source_me.sh && pytest tests/` passed all 1716 tests.
-- Python 3.12 compiled every changed Python file. Its direct pytest run was unavailable in this
-  environment because the Python 3.12 installation does not contain the `pytest` module; the required
+- Python 3.1x compiled every changed Python file. Its direct pytest run was unavailable in this
+  environment because the Python 3.1x installation does not contain the `pytest` module; the required
   repository command resolves to the installed Python 3.13 pytest executable here.
 - Confirmed the supplied projection contract started red because `daily_blog.projection` was absent;
   its five deterministic projection and envelope tests now pass.
@@ -453,7 +453,7 @@
 - Added permanent direct E2E coverage for non-linear exact-Git evidence and for a second immutable
   run reusing approved phase artifacts, its validated bundle, and an idempotent site import.
 - The focused positive-prompt and content-pipeline suite passed 66 permanent tests, and all 13
-  direct E2E runners passed under Python 3.12.
+  direct E2E runners passed under Python 3.1x.
 - The full producer test command reported 1914 passing tests. Its 32 failures remain confined to
   established typing, vendored-document link, and oversized legacy source gates outside the daily
   publication rebuild. The producer-owned `pytest_sessionstart` hook now carries its native

@@ -23,9 +23,4 @@ site/
 # ADD YOUR CUSTOM IGNORES BELOW
 # Propagation preserves this section.
 # ------------------ END LOCAL REPOSITORY RULES ------------------
-
-.venv/
-.venv_tts/
-out/
-report_*.txt
-*.py[cod]
+/bulk_run.sh

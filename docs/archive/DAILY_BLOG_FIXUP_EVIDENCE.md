@@ -42,7 +42,7 @@ Focused F1-F3 contract verification passed:
 The latest focused route, editorial, capture, calibration, and attestation selection passed 92
 offline tests. Pyflakes, source-size, function-typing, pytest-hygiene, ASCII, prompt-resource, and
 Markdown-link checks passed 858 tests. The complete repository suite passed all 2,418 tests under
-Python 3.12.13, and the retained E2E runner passed eight of eight workflows.
+Python 3.1x.13, and the retained E2E runner passed eight of eight workflows.
 
 Route-free calibration preparation reproduced identity
 `0df85dd7fdd48428353d0e6bde893acfaa21d4b23f66ffd267565a36c2ce6169` without a model call.
@@ -108,7 +108,7 @@ referee rubric. Configuration still records `external_model_data_sharing: false`
 or model route was invoked.
 
 Post-repair verification passed 36 focused fixture, capture, contract-integration, and attestation
-tests plus 858 Python and documentation hygiene checks. The complete Python 3.12.13 suite passed all
+tests plus 858 Python and documentation hygiene checks. The complete Python 3.1x.13 suite passed all
 2,418 tests, and all eight retained E2E workflows passed. These durable tests exercise the shared
 offline behavior and integrity boundary; they do not assert the live experiment's configured
 repetition, threshold, or reviewer values.
@@ -142,7 +142,7 @@ preservation, and DEVNULL behavior. Installed-unit state remains optional teleme
 Permanent tests remain offline, deterministic behavior contracts. Capture, calibration, review,
 crash matrix, staged build, and page inspection are one-time evidence; no permanent assertion fixes
 their repetition counts, thresholds, reviewer count, internal key layout, or generated prose bytes.
-F7 accepted the producer Python 3.12.13 suite (2,450 passed, 0 failed), publisher Python 3.13.5
+F7 accepted the producer Python 3.1x.13 suite (2,450 passed, 0 failed), publisher Python 3.13.5
 suite (1,362 passed, 0 failed), publisher hygiene (310 passed), and a strict disposable MkDocs build.
 The publication E2E verified the busy fixture/capture, exact quiet route without egress, active
 activation, bundle v5, real importer, 11 assets, and

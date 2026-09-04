@@ -30,7 +30,7 @@ work and experiment machinery already live in
 of designing another prompt experiment.
 
 F4-F6 completed through mandatory fixture-backed evidence and the producer/publisher cutover. F7
-accepted the producer Python 3.12.13 suite (2,450 passed), publisher Python 3.13.5 suite (1,362
+accepted the producer Python 3.1x.13 suite (2,450 passed), publisher Python 3.13.5 suite (1,362
 passed), publisher hygiene (310 passed), a strict disposable MkDocs build, and four fresh independent
 requirements, security, test-policy, and maintainability audits. Approved prompt hashes match. Live
 Hermes work remains optional one-time corroboration.
@@ -355,7 +355,7 @@ prior verified artifact.
 
 **Acceptance:**
 
-- Focused tests pass under Python 3.12 with network-independent inputs and deterministic time.
+- Focused tests pass under Python 3.1x with network-independent inputs and deterministic time.
 - New permanent tests protect requested behavior that was not already covered.
 - Process, crash, kernel-atomicity, and host checks are classified as one-time evidence unless a
   durable E2E clearly earns retention.

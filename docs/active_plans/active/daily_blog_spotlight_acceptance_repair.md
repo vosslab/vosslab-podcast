@@ -289,7 +289,6 @@ The live article is one-time acceptance evidence, not a permanent exact-prose fi
 After verification:
 
 1. Add a dated `docs/CHANGELOG.md` entry that states the causal defect, the implemented ownership change, permanent-test disposition, one-time evidence, live run identity, bundle hash, and rendered-page hash.
-2. Append the required concise execution record to `CODEX_CHAT_TRANSCRIPT.txt`.
 3. Update current operational or architecture documentation only when the implemented behavior changes an operator-visible command or durable ownership boundary.
 4. Record protected-file hashes or byte-comparison evidence for prompts, rubrics, and `docs/BLOG_CONTRACT.md`.
 5. Move this completed plan to `docs/archive/daily_blog_spotlight_acceptance_repair.md`.

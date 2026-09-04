@@ -869,13 +869,13 @@ eligible quiet repositories that do not become projection cards; reuse, experime
 the independent publisher all revalidate that same identity. The final six-reviewer audit's
 test-tier, symbolic-link, exact-origin, capture-roster, current-doc, and boundary-coverage findings
 are resolved. Producer tests, the full publisher suite, and the cross-repository strict-build E2E
-pass. `source_me.sh` now fails closed unless a physical repo-local Python 3.12 environment is
+pass. `source_me.sh` now fails closed unless a physical repo-local Python 3.1x environment is
 available; 2,012 non-link tests (with 48 deselected) and the roster, prompt-contract,
 experiment-lifecycle, and
-cross-repository publication E2Es pass under Python 3.12.13.
+cross-repository publication E2Es pass under Python 3.1x.13.
 An earlier full suite reached 2,059 passed with one README/Git-aware Markdown-link failure while the
 new documentation and PNGs were untracked. The assets are now staged, the current full suite passes
-all 2,238 checks under Python 3.12.13, and the complete direct E2E aggregate passes its eight
+all 2,238 checks under Python 3.1x.13, and the complete direct E2E aggregate passes its eight
 permanent runners. Fixture-backed capture and calibration remain operational evidence, not E2E
 runners or substitutes for them.
 

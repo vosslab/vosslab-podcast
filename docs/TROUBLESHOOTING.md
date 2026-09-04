@@ -43,11 +43,11 @@ ownership contract.
 
 ## Wrong Python environment
 
-Symptom: the bootstrap reports a missing, symbolic-link, or non-3.12 `.venv`.
+Symptom: the bootstrap reports a missing, symbolic-link, or non-3.1x `.venv`.
 
-The repository requires a physical repository-local Python 3.12 environment.
+The repository requires a physical repository-local Python 3.1x environment.
 `source_me.sh` fails closed until that environment is present. The audited host
-currently selects Python 3.12.13 and its dependencies.
+currently selects Python 3.1x.13 and its dependencies.
 
 Check the selected interpreter before running a repository command:
 
